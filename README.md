@@ -47,7 +47,7 @@ With a mode it is a script. Every mode takes `--stack SLUG` and
 it needs the `local` extra. The agent speaks first; Ctrl-C hangs up. Per-turn
 latency is logged.
 
-`agent benchmark [--test-set NAME] [--sample N]` runs one benchmark from
+`agent benchmark [--test-set NAME] [--smoke]` runs one benchmark from
 wherever it is started, a laptop or a cloud job: it serves in-process behind a
 Cloudflare quick tunnel, probes it over HTTP and one authenticated call,
 upserts the stack's Coval WebSocket agent at that URL, launches a run on the
@@ -55,6 +55,7 @@ named test set with its persona and metrics at concurrency 1, polls it to a
 terminal status, prints each metric's values, and exits. Nothing is left
 running. It needs `COVAL_API_KEY` and `cloudflared` on the path; `--no-tunnel`
 probes localhost. A quick tunnel's hostname takes about 80 s to resolve.
+`--smoke` runs a single test case to check the wiring end to end.
 
 Test sets are named in `src/agent/scenarios/<scenario>/test-sets.json`,
 each with its Coval test set, persona and metric ids; `baseline` is the

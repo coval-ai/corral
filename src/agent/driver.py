@@ -110,7 +110,7 @@ async def _drain(stream: asyncio.StreamReader) -> None:
 @dataclass(frozen=True)
 class RunRequest:
     test_set: TestSet
-    sample: int
+    sample: int  # test cases to run; 0 is the whole set
 
 
 def _secret(settings: Settings, name: str) -> str:

@@ -94,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("S2S_TEST_SET", DEFAULT_TEST_SET),
         help="a name from the scenario's test-sets.json",
     )
-    run.add_argument("--sample", type=int, default=0, help="test cases to run; 0 is all")
+    run.add_argument("--smoke", action="store_true", help="one test case, to check the wiring")
     run.add_argument("--no-tunnel", action="store_true", help="probe localhost only")
     return parser
 
@@ -117,7 +117,7 @@ def main() -> None:
             if interactive
             else load_test_set(args.scenario, args.test_set)
         )
-        request = driver.RunRequest(test_set, args.sample)
+        request = driver.RunRequest(test_set, sample=1 if args.smoke else 0)
 
     loaded = choose_stack(args.scenario) if interactive else load_stack(args.scenario, args.stack)
     configure_logging()
