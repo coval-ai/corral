@@ -32,7 +32,7 @@ digest every run and span carries.
 
 ## Running
 
-`uv run harness` with no arguments asks for a mode, then a stack:
+`uv run agent` with no arguments asks for a mode, then a stack:
 
 ```
 1. talk       microphone and speakers on this machine
@@ -43,11 +43,11 @@ Mode [1-2]:
 With a mode it is a script. Every mode takes `--stack SLUG` and
 `--scenario NAME`, defaulting to `S2S_STACK` and `S2S_SCENARIO`.
 
-`harness talk` talks to a stack on this machine's microphone and speakers;
+`agent talk` talks to a stack on this machine's microphone and speakers;
 it needs the `local` extra. The agent speaks first; Ctrl-C hangs up. Per-turn
 latency is logged.
 
-`harness benchmark [--test-set NAME] [--sample N]` runs one benchmark from
+`agent benchmark [--test-set NAME] [--sample N]` runs one benchmark from
 wherever it is started, a laptop or a cloud job: it serves in-process behind a
 Cloudflare quick tunnel, probes it over HTTP and one authenticated call,
 upserts the stack's Coval WebSocket agent at that URL, launches a run on the
@@ -60,7 +60,7 @@ Test sets are named in `src/harness/scenarios/<scenario>/test-sets.json`,
 each with its Coval test set, persona and metric ids; `baseline` is the
 default. Interactively, the set is the second question, after the mode.
 
-`harness serve` is the image's command: the same pipeline behind a WebSocket
+`agent serve` is the image's command: the same pipeline behind a WebSocket
 on `PORT` (default 8080) with no tunnel and no run, one call per connection,
 speaking the wire contract in `coval.py`: raw PCM both ways, `session_ready`
 once every service is up, bearer from `S2S_AGENT_TOKEN`.

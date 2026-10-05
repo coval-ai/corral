@@ -25,7 +25,7 @@ dependencies = [
 local = ["pipecat-ai[local]~=1.12"]  # mic and speakers; needs portaudio
 
 [project.scripts]
-harness = "harness.cli:main"
+agent = "harness.cli:main"
 
 [dependency-groups]
 dev = [

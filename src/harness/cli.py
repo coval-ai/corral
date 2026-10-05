@@ -78,7 +78,7 @@ def has_coval_key(settings: Settings) -> bool:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="harness", description=__doc__)
+    parser = argparse.ArgumentParser(prog="agent", description=__doc__)
     parser.add_argument(
         "mode",
         nargs="?",
