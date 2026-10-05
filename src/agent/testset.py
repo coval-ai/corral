@@ -29,13 +29,18 @@ class TestSet(AnnotatedModel):
 
 
 def load_test_sets(scenario: str) -> dict[str, TestSet]:
+    """Every named set of the scenario; none when it ships no test-sets.json."""
     path = importlib.resources.files(SCENARIOS_PACKAGE).joinpath(scenario, TEST_SETS_FILE)
+    if not path.is_file():
+        return {}
     raw = json.loads(path.read_bytes())
     return {name: TestSet.model_validate(entry) for name, entry in raw.items()}
 
 
 def load_test_set(scenario: str, name: str) -> TestSet:
     sets = load_test_sets(scenario)
+    if not sets:
+        raise ValueError(f"scenario {scenario!r} has no test sets; it is for talking to")
     if name not in sets:
         raise ValueError(f"no test set {name!r} in {scenario}; have {', '.join(sorted(sets))}")
     return sets[name]

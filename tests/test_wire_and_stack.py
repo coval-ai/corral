@@ -18,6 +18,7 @@ from agent.coval import (
     authorized,
     simulation_id,
 )
+from agent.testset import load_test_set
 
 SILENCE_16K_100MS = bytes(2 * 1600)
 
@@ -137,3 +138,11 @@ def test_stack_rejects_unknown_keys_but_keeps_rationale() -> None:
         stacks.S2SStack.model_validate({**data, "voice": "alloy"})
     with pytest.raises(ValueError, match="unknown key"):
         stacks.S2SStack.model_validate({**data, "tts": {**data["tts"], "voise": "x"}})
+
+
+def test_the_default_scenario_is_a_generic_assistant_for_talking() -> None:
+    loaded = stacks.load_stack("default", "cascade-nova3-gpt41-flash")
+    assert loaded.system_prompt.startswith("You are a helpful assistant on a voice call.")
+    assert loaded.digest != stacks.load_stack("bank", "cascade-nova3-gpt41-flash").digest
+    with pytest.raises(ValueError, match="has no test sets"):
+        load_test_set("default", "baseline")

@@ -19,7 +19,8 @@ STACKS_PACKAGE = "agent"
 STACKS_DIR = "stacks"
 SCENARIOS_PACKAGE = "agent.scenarios"
 DEFAULT_PROMPT_FILE = "system-prompt.txt"
-DEFAULT_SCENARIO = "bank"
+DEFAULT_SCENARIO = "bank"  # what a benchmark runs
+TALK_SCENARIO = "default"  # a generic assistant for trying a stack by voice
 DEFAULT_STACK = "cascade-nova3-gpt41-flash"
 
 

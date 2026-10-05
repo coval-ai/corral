@@ -18,7 +18,14 @@ from typing import NoReturn
 from agent import app, driver, serve
 from agent.config import Settings, get_settings
 from agent.logging import configure_logging
-from agent.stack import DEFAULT_SCENARIO, DEFAULT_STACK, LoadedStack, load_stack, stack_slugs
+from agent.stack import (
+    DEFAULT_SCENARIO,
+    DEFAULT_STACK,
+    TALK_SCENARIO,
+    LoadedStack,
+    load_stack,
+    stack_slugs,
+)
 from agent.testset import DEFAULT_TEST_SET, TestSet, load_test_set, load_test_sets
 
 Reader = Callable[[str], str]
@@ -109,7 +116,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="; ".join(f"{mode.name}: {mode.summary}" for mode in MODES),
     )
     parser.add_argument("--stack", default=os.environ.get("S2S_STACK", DEFAULT_STACK))
-    parser.add_argument("--scenario", default=os.environ.get("S2S_SCENARIO", DEFAULT_SCENARIO))
+    parser.add_argument(
+        "--scenario",
+        default=os.environ.get("S2S_SCENARIO"),
+        help=f"default: {TALK_SCENARIO} to talk, {DEFAULT_SCENARIO} otherwise",
+    )
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     run = parser.add_argument_group("benchmark")
     run.add_argument(
@@ -130,19 +141,18 @@ def main() -> None:
     needs = missing_for(mode)
     if needs and not (mode is BENCHMARK and args.no_tunnel):
         fail(parser, interactive, f"{mode.name} needs: {needs}")
+    scenario = args.scenario or (TALK_SCENARIO if mode is TALK else DEFAULT_SCENARIO)
 
     request = None
     if mode is BENCHMARK:
         if not has_coval_key(get_settings()):
             fail(parser, interactive, "a Coval run needs COVAL_API_KEY in the environment or .env")
         test_set = (
-            choose_test_set(args.scenario)
-            if interactive
-            else load_test_set(args.scenario, args.test_set)
+            choose_test_set(scenario) if interactive else load_test_set(scenario, args.test_set)
         )
         request = driver.RunRequest(test_set, sample=1 if args.smoke else 0)
 
-    loaded = choose_stack(args.scenario) if interactive else load_stack(args.scenario, args.stack)
+    loaded = choose_stack(scenario) if interactive else load_stack(scenario, args.stack)
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         if mode is TALK:

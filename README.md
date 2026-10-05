@@ -41,7 +41,9 @@ Mode [1-2]:
 ```
 
 With a mode it is a script. Every mode takes `--stack SLUG` and
-`--scenario NAME`, defaulting to `S2S_STACK` and `S2S_SCENARIO`.
+`--scenario NAME`, defaulting to `S2S_STACK` and `S2S_SCENARIO`. Without
+either, talk uses the `default` scenario, a generic voice assistant for
+trying a stack, and benchmark and serve use `bank`.
 
 `agent talk` talks to a stack on this machine's microphone and speakers;
 it needs the `local` extra. The agent speaks first; Ctrl-C hangs up. Per-turn
