@@ -15,7 +15,7 @@ Linear project: S2S Pipecat harness.
 ```bash
 brew install portaudio cloudflared     # mic mode; local tunnel (no account)
 uv sync --extra local
-cp .env.example .env                   # keys and Coval ids
+cp .env.example .env                   # provider and Coval keys
 ```
 
 Keys come from the repo root's `.env`. Pipecat is pinned `~=1.12`.
@@ -47,15 +47,18 @@ With a mode it is a script. Every mode takes `--stack SLUG` and
 it needs the `local` extra. The agent speaks first; Ctrl-C hangs up. Per-turn
 latency is logged.
 
-`harness benchmark [--sample N]` runs one benchmark from wherever it is
-started, a laptop or a cloud job: it serves in-process behind a Cloudflare
-quick tunnel, probes it over HTTP and one authenticated call, upserts the
-stack's Coval WebSocket agent at that URL, launches a run on the bank test set
-and persona scored by the board's four metrics at concurrency 1, polls it to a
+`harness benchmark [--test-set NAME] [--sample N]` runs one benchmark from
+wherever it is started, a laptop or a cloud job: it serves in-process behind a
+Cloudflare quick tunnel, probes it over HTTP and one authenticated call,
+upserts the stack's Coval WebSocket agent at that URL, launches a run on the
+named test set with its persona and metrics at concurrency 1, polls it to a
 terminal status, prints each metric's values, and exits. Nothing is left
-running. It needs the Coval key and ids from `.env`, and `cloudflared` on the
-path; `--no-tunnel` probes localhost. A quick tunnel's hostname takes about
-80 s to resolve.
+running. It needs `COVAL_API_KEY` and `cloudflared` on the path; `--no-tunnel`
+probes localhost. A quick tunnel's hostname takes about 80 s to resolve.
+
+Test sets are named in `src/harness/scenarios/<scenario>/test-sets.json`,
+each with its Coval test set, persona and metric ids; `baseline` is the
+default. Interactively, the set is the second question, after the mode.
 
 `harness serve` is the image's command: the same pipeline behind a WebSocket
 on `PORT` (default 8080) with no tunnel and no run, one call per connection,

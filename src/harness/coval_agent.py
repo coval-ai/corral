@@ -8,12 +8,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from harness.config import Settings
 from harness.coval_client import CovalClient, SyncError
 from harness.stack import AudioPin
 
 MODEL_TYPE = "MODEL_TYPE_WEBSOCKET"
-# PATCH replaces metadata wholesale, so it is reconciled as one value.
+# PATCH replaces metadata wholesale, so it is reconciled as one value. test_set_ids
+# is additive: every set this agent has ever run stays attached.
 MANAGED = ("display_name", "metadata", "test_set_ids")
 TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED", "DELETED"})
 
@@ -72,27 +72,14 @@ def sync_agent(client: CovalClient, definition: CovalS2SAgent, audio: AudioPin) 
             "model_type cannot be patched, so this record is not ours to reconcile"
         )
     agent_id = str(live["id"])
+    attached = [str(item) for item in live.get("test_set_ids") or []]
+    if definition.test_set_id not in attached:
+        attached.append(definition.test_set_id)
+    wanted["test_set_ids"] = attached
     drift = [key for key in MANAGED if live.get(key) != wanted[key]]
     if drift:
         client.update_agent(agent_id, {key: wanted[key] for key in drift})
     return agent_id
-
-
-METRIC_SETTINGS = (
-    "coval_s2s_latency_metric_id",
-    "coval_s2s_instruction_metric_id",
-    "coval_s2s_interruption_metric_id",
-    "coval_s2s_call_length_metric_id",
-)
-
-
-def metric_ids(settings: Settings) -> list[str]:
-    """The board's metrics, the same ids the fetch reads back; a run scores nothing without them."""
-    ids = [(getattr(settings, name) or "").strip() for name in METRIC_SETTINGS]
-    missing = [name.upper() for name, value in zip(METRIC_SETTINGS, ids, strict=True) if not value]
-    if missing:
-        raise RuntimeError(f"{', '.join(missing)} unset")
-    return ids
 
 
 def launch_body(

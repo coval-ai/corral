@@ -3,7 +3,7 @@
 
 import pytest
 
-from harness.cli import choose_mode, choose_stack
+from harness.cli import choose_mode, choose_stack, choose_test_set
 
 
 def test_the_menu_lists_each_stacks_components_and_takes_a_number(
@@ -29,3 +29,12 @@ def test_the_mode_menu_offers_talk_and_benchmark_but_not_serve(
     assert "2. benchmark" in out
     assert "3." not in out
     assert chosen.name == "benchmark"
+
+
+def test_the_test_set_menu_names_each_set_and_returns_its_ids(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    chosen = choose_test_set("bank", read=lambda _prompt: "1")
+    out = capsys.readouterr().out
+    assert "1. baseline" in out
+    assert chosen.test_set_id

@@ -30,6 +30,7 @@ from harness.coval_agent import (
 from harness.coval_client import CovalClient
 from harness.serve import create_app
 from harness.stack import LoadedStack
+from harness.testset import TestSet
 
 logger = structlog.get_logger("harness")
 
@@ -108,9 +109,7 @@ async def _drain(stream: asyncio.StreamReader) -> None:
 
 @dataclass(frozen=True)
 class RunRequest:
-    persona_id: str
-    test_set_id: str
-    metrics: list[str]
+    test_set: TestSet
     sample: int
 
 
@@ -130,13 +129,14 @@ async def run_on_coval(
     The Coval client is synchronous, so every call goes through a thread: this
     loop is also serving the calls, and a blocked loop is a stalled call.
     """
-    definition = CovalS2SAgent(loaded.slug, url, token, request.test_set_id)
+    test_set = request.test_set
+    definition = CovalS2SAgent(loaded.slug, url, token, test_set.test_set_id)
     agent_id = await asyncio.to_thread(sync_agent, coval, definition, loaded.stack.audio)
     body = launch_body(
         agent_id,
-        request.persona_id,
-        request.test_set_id,
-        request.metrics,
+        test_set.persona_id,
+        test_set.test_set_id,
+        test_set.metric_ids,
         sample=request.sample,
         display_name=definition.display_name,
     )

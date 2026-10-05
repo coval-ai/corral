@@ -8,17 +8,16 @@ import httpx
 import pytest
 
 from harness import coval_agent
-from harness.config import Settings
 from harness.coval_agent import (
     CovalS2SAgent,
     is_terminal,
     launch_body,
-    metric_ids,
     results_lines,
     sync_agent,
 )
 from harness.coval_client import CovalClient
 from harness.stack import AudioPin
+from harness.testset import load_test_set, load_test_sets
 
 AUDIO = AudioPin(in_sample_rate_hz=16000, out_sample_rate_hz=24000)
 DEFINITION = CovalS2SAgent("cascade-x", "https://quiet-hill.trycloudflare.com", "s3cret", "TSBANK")
@@ -76,6 +75,17 @@ def test_sync_creates_once_then_patches_only_the_new_url() -> None:
     assert patch["metadata"]["endpoint"] == "wss://other-hill.trycloudflare.com/ws"
 
 
+def test_sync_attaches_a_new_test_set_without_detaching_the_old() -> None:
+    state: dict[str, Any] = {"agents": [], "writes": []}
+    client = _client(state)
+    sync_agent(client, DEFINITION, AUDIO)
+    challenge = CovalS2SAgent("cascade-x", DEFINITION.url, "s3cret", "TSHARD")
+    sync_agent(client, challenge, AUDIO)
+    sync_agent(client, DEFINITION, AUDIO)
+    patches = [body for method, _, body in state["writes"] if method == "PATCH"]
+    assert patches == [{"test_set_ids": ["TSBANK", "TSHARD"]}]
+
+
 def test_launch_carries_the_boards_metrics_at_concurrency_one() -> None:
     body = launch_body("A" * 22, "P" * 22, "TSBANK", ["M1", "M2"], sample=0, display_name="S2S x")
     assert body["options"] == {"iteration_count": 1, "concurrency": 1}
@@ -87,17 +97,14 @@ def test_launch_carries_the_boards_metrics_at_concurrency_one() -> None:
     assert is_terminal({"status": "COMPLETED"})
 
 
-def test_every_metric_id_must_be_configured() -> None:
-    settings = Settings(
-        _env_file=None,
-        coval_s2s_latency_metric_id="L",
-        coval_s2s_instruction_metric_id="I",
-        coval_s2s_interruption_metric_id="R",
-        coval_s2s_call_length_metric_id="C",
-    )
-    assert metric_ids(settings) == ["L", "I", "R", "C"]
-    with pytest.raises(RuntimeError, match="COVAL_S2S_CALL_LENGTH_METRIC_ID unset"):
-        metric_ids(Settings(_env_file=None, coval_s2s_latency_metric_id="L"))
+def test_the_scenario_names_its_test_sets_with_their_coval_ids() -> None:
+    sets = load_test_sets("bank")
+    assert "baseline" in sets
+    baseline = load_test_set("bank", "baseline")
+    assert baseline.test_set_id and baseline.persona_id and baseline.metric_ids
+    assert baseline.summary
+    with pytest.raises(ValueError, match="no test set 'nope' in bank; have baseline"):
+        load_test_set("bank", "nope")
 
 
 def test_results_print_one_line_per_metric() -> None:

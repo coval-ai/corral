@@ -36,12 +36,6 @@ class Settings(BaseSettings):
 
     coval_api_key: SecretStr | None = None
     coval_api_base: str = "https://api.coval.dev/v1"
-    coval_s2s_bank_test_set_id: str | None = None
-    coval_s2s_bank_persona_id: str | None = None
-    coval_s2s_latency_metric_id: str | None = None
-    coval_s2s_instruction_metric_id: str | None = None
-    coval_s2s_interruption_metric_id: str | None = None
-    coval_s2s_call_length_metric_id: str | None = None
 
 
 @functools.lru_cache(maxsize=1)
