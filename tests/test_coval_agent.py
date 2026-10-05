@@ -54,6 +54,7 @@ def test_the_agent_speaks_raw_pcm_and_waits_for_session_ready() -> None:
     assert metadata["handshake_ready_message_type"] == "session_ready"
     assert metadata["handshake_requires_session_id"] is False
     assert metadata["authorization_header"] == "Bearer s3cret"
+    assert metadata["speech_activity_enabled"] is True
     assert (metadata["send_sample_rate_hertz"], metadata["receive_sample_rate_hertz"]) == (
         16000,
         24000,

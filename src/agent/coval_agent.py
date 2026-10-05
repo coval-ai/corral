@@ -48,6 +48,7 @@ class CovalS2SAgent:
             "receive_sample_rate_hertz": audio.out_sample_rate_hz,
             "receive_audio_channels": 1,
             "pace_inbound_binary_audio": True,
+            "speech_activity_enabled": True,
         }
         if self.token:
             metadata["authorization_header"] = f"Bearer {self.token}"
