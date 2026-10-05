@@ -12,9 +12,9 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.soniox.stt import SonioxSTTService
 from pipecat.services.soniox.tts import SonioxTTSService
 
-from harness import services
-from harness.config import Settings
-from harness.stack import load_stack
+from agent import services
+from agent.config import Settings
+from agent.stack import load_stack
 
 KEYS: dict[str, Any] = {
     "deepgram_api_key": "dg",

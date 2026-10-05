@@ -14,8 +14,8 @@ from __future__ import annotations
 import importlib.resources
 import json
 
-from harness.annotated import AnnotatedModel
-from harness.stack import SCENARIOS_PACKAGE
+from agent.annotated import AnnotatedModel
+from agent.stack import SCENARIOS_PACKAGE
 
 TEST_SETS_FILE = "test-sets.json"
 DEFAULT_TEST_SET = "baseline"  # becomes "default" once the public set exists

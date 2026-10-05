@@ -25,9 +25,9 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from harness.observer import TurnLatencyObserver
-from harness.services import Services
-from harness.stack import LoadedStack
+from agent.observer import TurnLatencyObserver
+from agent.services import Services
+from agent.stack import LoadedStack
 
 
 def context_aggregators(loaded: LoadedStack) -> LLMContextAggregatorPair:

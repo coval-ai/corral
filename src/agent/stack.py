@@ -13,11 +13,11 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from harness.annotated import AnnotatedModel
+from agent.annotated import AnnotatedModel
 
-STACKS_PACKAGE = "harness"
+STACKS_PACKAGE = "agent"
 STACKS_DIR = "stacks"
-SCENARIOS_PACKAGE = "harness.scenarios"
+SCENARIOS_PACKAGE = "agent.scenarios"
 DEFAULT_PROMPT_FILE = "system-prompt.txt"
 DEFAULT_SCENARIO = "bank"
 DEFAULT_STACK = "cascade-nova3-gpt41-flash"

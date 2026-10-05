@@ -18,19 +18,19 @@ from pipecat.transports.websocket.fastapi import (
 )
 from pipecat.workers.runner import WorkerRunner
 
-from harness.config import Settings, get_settings
-from harness.coval import (
+from agent.config import Settings, get_settings
+from agent.coval import (
     SESSION_READY,
     CovalFrameSerializer,
     authorized,
     simulation_id,
 )
-from harness.observer import TurnLatencyObserver, coval_trace_provider
-from harness.pipeline import build_worker
-from harness.services import resolve
-from harness.stack import LoadedStack
+from agent.observer import TurnLatencyObserver, coval_trace_provider
+from agent.pipeline import build_worker
+from agent.services import resolve
+from agent.stack import LoadedStack
 
-logger = structlog.get_logger("harness")
+logger = structlog.get_logger("agent")
 
 POLICY_VIOLATION = 1008
 

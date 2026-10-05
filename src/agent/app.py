@@ -9,11 +9,11 @@ from pipecat.frames.frames import Frame, LLMRunFrame
 from pipecat.pipeline.worker import PipelineWorker
 from pipecat.workers.runner import WorkerRunner
 
-from harness.config import get_settings
-from harness.observer import TurnLatencyObserver
-from harness.pipeline import build_worker
-from harness.services import resolve
-from harness.stack import LoadedStack
+from agent.config import get_settings
+from agent.observer import TurnLatencyObserver
+from agent.pipeline import build_worker
+from agent.services import resolve
+from agent.stack import LoadedStack
 
 
 async def run(loaded: LoadedStack) -> None:

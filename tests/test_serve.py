@@ -11,10 +11,10 @@ from pipecat.frames.frames import Frame, InputAudioRawFrame, OutputAudioRawFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from starlette.websockets import WebSocketDisconnect
 
-from harness import serve
-from harness.config import Settings
-from harness.services import Services
-from harness.stack import load_stack
+from agent import serve
+from agent.config import Settings
+from agent.services import Services
+from agent.stack import load_stack
 
 SILENCE_16K_100MS = bytes(2 * 1600)
 

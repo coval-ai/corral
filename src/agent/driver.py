@@ -17,9 +17,9 @@ import uvicorn
 from fastapi import FastAPI
 from websockets.asyncio.client import connect
 
-from harness.config import Settings, get_settings
-from harness.coval import SESSION_READY
-from harness.coval_agent import (
+from agent.config import Settings, get_settings
+from agent.coval import SESSION_READY
+from agent.coval_agent import (
     CovalS2SAgent,
     is_terminal,
     launch_body,
@@ -27,12 +27,12 @@ from harness.coval_agent import (
     run_id_of,
     sync_agent,
 )
-from harness.coval_client import CovalClient
-from harness.serve import create_app
-from harness.stack import LoadedStack
-from harness.testset import TestSet
+from agent.coval_client import CovalClient
+from agent.serve import create_app
+from agent.stack import LoadedStack
+from agent.testset import TestSet
 
-logger = structlog.get_logger("harness")
+logger = structlog.get_logger("agent")
 
 PROBE_TIMEOUT_SECS = 30
 REACHABLE_TIMEOUT_SECS = 180  # a quick tunnel's hostname takes about 80 s to resolve

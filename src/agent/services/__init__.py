@@ -19,8 +19,8 @@ from typing import Any, Literal
 
 from pipecat.processors.frame_processor import FrameProcessor
 
-from harness.config import Settings
-from harness.stack import LoadedStack
+from agent.config import Settings
+from agent.stack import LoadedStack
 
 Role = Literal["stt", "llm", "tts"]
 

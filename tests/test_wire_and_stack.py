@@ -11,8 +11,8 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameProcessorSetup
 
-from harness import stack as stacks
-from harness.coval import (
+from agent import stack as stacks
+from agent.coval import (
     SESSION_READY,
     CovalFrameSerializer,
     authorized,

@@ -22,11 +22,11 @@ Keys come from the repo root's `.env`. Pipecat is pinned `~=1.12`.
 
 ## Stacks
 
-A file under `src/harness/stacks/` names one provider and model per role plus
-turn-taking and sample rates. Vendors are a table in `src/harness/services/`:
+A file under `src/agent/stacks/` names one provider and model per role plus
+turn-taking and sample rates. Vendors are a table in `src/agent/services/`:
 a Pipecat class per role and the key it uses; adding one is a line there and
 its Pipecat extra in `pyproject.toml`. The scenario prompt comes from
-`src/harness/scenarios/<scenario>/`, with a `system-prompt.<stack>.txt` override
+`src/agent/scenarios/<scenario>/`, with a `system-prompt.<stack>.txt` override
 when a model needs its own; stack and prompt are hashed together into the
 digest every run and span carries.
 
@@ -56,7 +56,7 @@ terminal status, prints each metric's values, and exits. Nothing is left
 running. It needs `COVAL_API_KEY` and `cloudflared` on the path; `--no-tunnel`
 probes localhost. A quick tunnel's hostname takes about 80 s to resolve.
 
-Test sets are named in `src/harness/scenarios/<scenario>/test-sets.json`,
+Test sets are named in `src/agent/scenarios/<scenario>/test-sets.json`,
 each with its Coval test set, persona and metric ids; `baseline` is the
 default. Interactively, the set is the second question, after the mode.
 

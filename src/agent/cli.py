@@ -12,11 +12,11 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from harness import app, driver, serve
-from harness.config import Settings, get_settings
-from harness.logging import configure_logging
-from harness.stack import DEFAULT_SCENARIO, DEFAULT_STACK, LoadedStack, load_stack, stack_slugs
-from harness.testset import DEFAULT_TEST_SET, TestSet, load_test_set, load_test_sets
+from agent import app, driver, serve
+from agent.config import Settings, get_settings
+from agent.logging import configure_logging
+from agent.stack import DEFAULT_SCENARIO, DEFAULT_STACK, LoadedStack, load_stack, stack_slugs
+from agent.testset import DEFAULT_TEST_SET, TestSet, load_test_set, load_test_sets
 
 Reader = Callable[[str], str]
 

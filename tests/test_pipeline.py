@@ -4,8 +4,8 @@
 
 from pipecat.processors.frame_processor import FrameProcessor
 
-from harness.pipeline import cascade_processors, context_aggregators
-from harness.stack import load_stack
+from agent.pipeline import cascade_processors, context_aggregators
+from agent.stack import load_stack
 
 
 def test_cascade_runs_transcribe_accumulate_generate_synthesize() -> None:

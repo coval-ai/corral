@@ -31,7 +31,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 
-logger = structlog.get_logger("harness")
+logger = structlog.get_logger("agent")
 
 SPAN_NAME = "s2s.turn"
 SERVICE_NAME = "coval-bench-s2s-agent"

@@ -8,8 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from harness.coval_client import CovalClient, SyncError
-from harness.stack import AudioPin
+from agent.coval_client import CovalClient, SyncError
+from agent.stack import AudioPin
 
 MODEL_TYPE = "MODEL_TYPE_WEBSOCKET"
 # PATCH replaces metadata wholesale, so it is reconciled as one value. test_set_ids

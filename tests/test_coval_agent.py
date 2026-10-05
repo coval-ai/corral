@@ -7,17 +7,17 @@ from typing import Any
 import httpx
 import pytest
 
-from harness import coval_agent
-from harness.coval_agent import (
+from agent import coval_agent
+from agent.coval_agent import (
     CovalS2SAgent,
     is_terminal,
     launch_body,
     results_lines,
     sync_agent,
 )
-from harness.coval_client import CovalClient
-from harness.stack import AudioPin
-from harness.testset import load_test_set, load_test_sets
+from agent.coval_client import CovalClient
+from agent.stack import AudioPin
+from agent.testset import load_test_set, load_test_sets
 
 AUDIO = AudioPin(in_sample_rate_hz=16000, out_sample_rate_hz=24000)
 DEFINITION = CovalS2SAgent("cascade-x", "https://quiet-hill.trycloudflare.com", "s3cret", "TSBANK")

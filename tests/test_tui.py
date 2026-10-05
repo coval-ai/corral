@@ -3,7 +3,7 @@
 
 import pytest
 
-from harness.cli import choose_mode, choose_stack, choose_test_set
+from agent.cli import choose_mode, choose_stack, choose_test_set
 
 
 def test_the_menu_lists_each_stacks_components_and_takes_a_number(

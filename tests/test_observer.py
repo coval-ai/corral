@@ -18,7 +18,7 @@ from pipecat.frames.frames import (
 from pipecat.observers.base_observer import FramePushed
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from harness.observer import SPAN_NAME, TurnLatencyObserver
+from agent.observer import SPAN_NAME, TurnLatencyObserver
 
 MS = 1_000_000
 

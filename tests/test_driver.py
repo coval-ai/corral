@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
-from harness import driver, serve
-from harness.config import Settings
-from harness.services import Services
-from harness.stack import load_stack
+from agent import driver, serve
+from agent.config import Settings
+from agent.services import Services
+from agent.stack import load_stack
 from tests.test_serve import _Echo, _Passthrough
 
 
