@@ -68,11 +68,21 @@ once every service is up, bearer from `S2S_AGENT_TOKEN`.
 
 ## Measurement
 
-Every call sends one `s2s.turn` span per answered turn to Coval's trace ingest
-under its simulation id: `s2s.provider_latency_ms` (caller stopped to first
-synthesized audio) and `s2s.harness_overhead_ms` (to the first byte written
-back), for a custom trace metric to aggregate. T0 is Coval's `utterance_end`
-marker when present, else the local VAD stop.
+Every answered turn sends one `s2s.turn` span to Coval under the call's
+simulation id. We write down the clock at six moments and put them all on the
+span as `s2s.<moment>.unix_ms`:
+
+- `utterance_end`: Coval tells us the caller finished talking
+- `vad_done`: our VAD and smart-turn agree the caller is done
+- `stt_done`: the last transcript the model actually got to read
+- `llm_first_token`: the model says its first word
+- `tts_first_audio`: we have the first bit of synthesized audio
+- `audio_start`: we send the first audio chunk back to Coval
+
+The time between them goes on as `s2s.<step>_ms`: `latency` is the headline
+(caller stopped to first synthesized audio), then `endpointing`, `stt`, `llm`,
+`tts` and `transport` break it down. "Caller stopped" means `utterance_end` if
+Coval sent it, otherwise `vad_done`; `s2s.latency.source` tells you which.
 
 ## Checks
 

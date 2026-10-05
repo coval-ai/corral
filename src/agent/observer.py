@@ -1,17 +1,29 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Per-turn latency measured where the model is, one ``s2s.turn`` span per turn.
+"""Times each turn of the call and sends one ``s2s.turn`` span per answered turn.
 
-T0 is when the caller stopped: Coval's ``utterance_end`` marker when it sends
-one, else the local VAD stop. T2 is the first synthesized audio frame, T3 the
-first audio frame the transport starts writing to Coval. Provider latency is
-T2 - T0 and harness overhead T3 - T2. Each span goes to Coval's trace ingest
-under the call's simulation id, so a custom trace metric can average them.
+We grab the time at six moments:
+
+- ``utterance_end``: Coval tells us the caller finished talking
+- ``vad_done``: our VAD and smart-turn agree the caller is done
+- ``stt_done``: the last transcript the model actually got to read
+- ``llm_first_token``: the model says its first word
+- ``tts_first_audio``: we have the first bit of synthesized audio
+- ``audio_start``: we send the first audio chunk back to Coval
+
+The span runs from when the caller stopped to ``audio_start``. "When the caller
+stopped" is ``utterance_end`` if Coval sent it, otherwise ``vad_done``, and
+``s2s.latency.source`` tells you which one you got. Every moment we saw goes on
+the span as ``s2s.<moment>.unix_ms``, and the time between them as
+``s2s.<step>_ms``: ``latency`` (the headline number, caller stopped to first
+synthesized audio), ``endpointing``, ``stt``, ``llm``, ``tts`` and ``transport``.
+Spans land in Coval under the call's simulation id.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import time
 from collections.abc import Callable
 from typing import Any
@@ -26,6 +38,8 @@ from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     InputTransportMessageFrame,
     InterruptionFrame,
+    LLMTextFrame,
+    TranscriptionFrame,
     TTSAudioRawFrame,
     UserStoppedSpeakingFrame,
 )
@@ -39,8 +53,61 @@ EXPORT_TIMEOUT_SECS = 30
 UTTERANCE_END = "utterance_end"
 
 
+def _ms(later: int, earlier: int) -> float:
+    return (later - earlier) / 1e6
+
+
+@dataclasses.dataclass
+class Moments:
+    """When each moment happened this turn, in unix ns. None until it does."""
+
+    utterance_end: int | None = None
+    vad_done: int | None = None
+    stt_done: int | None = None
+    llm_first_token: int | None = None
+    tts_first_audio: int | None = None
+    audio_start: int | None = None
+
+    @property
+    def caller_stopped(self) -> int | None:
+        return self.utterance_end if self.utterance_end is not None else self.vad_done
+
+    @property
+    def source(self) -> str:
+        """Which moment we're calling "caller stopped"."""
+        return UTTERANCE_END if self.utterance_end is not None else "vad_done"
+
+    def unix_ms_attributes(self) -> dict[str, float]:
+        """``s2s.<moment>.unix_ms`` for every moment we saw."""
+        return {
+            f"s2s.{field.name}.unix_ms": value / 1e6
+            for field in dataclasses.fields(self)
+            if (value := getattr(self, field.name)) is not None
+        }
+
+    def step_attributes(self) -> dict[str, float]:
+        """``s2s.<step>_ms`` for every step we have both ends of."""
+        stopped, tts, out = self.caller_stopped, self.tts_first_audio, self.audio_start
+        if stopped is None or tts is None or out is None:
+            return {}
+        steps = {"s2s.latency_ms": _ms(tts, stopped), "s2s.transport_ms": _ms(out, tts)}
+        if self.utterance_end is not None and self.vad_done is not None:
+            steps["s2s.endpointing_ms"] = _ms(self.vad_done, self.utterance_end)
+        if self.stt_done is not None:
+            steps["s2s.stt_ms"] = _ms(self.stt_done, stopped)
+        if self.llm_first_token is not None:
+            # the model can't start until the turn is over and the words are in
+            ready = max(t for t in (self.stt_done, self.vad_done) if t is not None)
+            steps["s2s.llm_ms"] = _ms(self.llm_first_token, ready)
+            steps["s2s.tts_ms"] = _ms(tts, self.llm_first_token)
+        return steps
+
+
 def coval_trace_provider(api_key: str, api_base: str, simulation_id: str) -> TracerProvider:
-    """A provider whose every span lands on this one simulation; shut it down to flush."""
+    """Every span from this provider lands on one simulation.
+
+    Shut it down at the end of the call so the last batch gets flushed.
+    """
     exporter = OTLPSpanExporter(
         endpoint=f"{api_base}/traces",
         headers={"X-API-Key": api_key, "X-Simulation-Id": simulation_id},
@@ -64,48 +131,44 @@ class TurnLatencyObserver(BaseObserver):
         self._tracer = tracer
         self._clock = clock
         self._turn = 0
-        self._marker_ns: int | None = None
-        self._vad_ns: int | None = None
-        self._t2_ns: int | None = None
+        self._moment = Moments()
 
     async def on_push_frame(self, data: FramePushed) -> None:
         if not data.first_push:
             return
-        frame = data.frame
         now = self._clock()
-        if isinstance(frame, InputTransportMessageFrame):
-            if frame.message.get("type") == UTTERANCE_END:
-                self._marker_ns = now
-        elif isinstance(frame, UserStoppedSpeakingFrame):
-            self._vad_ns = now
-            self._t2_ns = None
-        elif isinstance(frame, InterruptionFrame):
-            self._t2_ns = None
-        elif isinstance(frame, TTSAudioRawFrame):
-            if self._t2_ns is None and self._t0_ns() is not None:
-                self._t2_ns = now
-        elif isinstance(frame, BotStartedSpeakingFrame):
-            t0, t2 = self._t0_ns(), self._t2_ns
-            if t0 is not None and t2 is not None:
-                self._emit(t0, t2, now)
-            self._marker_ns = self._vad_ns = self._t2_ns = None
+        moment = self._moment
+        match data.frame:
+            case InputTransportMessageFrame(message={"type": "utterance_end"}):
+                moment.utterance_end = now
+            case UserStoppedSpeakingFrame():
+                moment.vad_done = now
+                moment.llm_first_token = None  # new turn, so forget any answer in flight
+                moment.tts_first_audio = None
+            case TranscriptionFrame() if moment.llm_first_token is None:
+                moment.stt_done = now  # keep the latest one until the model starts
+            case LLMTextFrame() if moment.llm_first_token is None:
+                moment.llm_first_token = now
+            case TTSAudioRawFrame() if moment.tts_first_audio is None:
+                moment.tts_first_audio = now
+            case InterruptionFrame():
+                self._moment = Moments()  # caller cut the agent off, start fresh
+            case BotStartedSpeakingFrame():
+                moment.audio_start = now
+                if moment.caller_stopped is not None and moment.tts_first_audio is not None:
+                    self._emit(moment, start=moment.caller_stopped, end=now)
+                self._moment = Moments()
 
-    def _t0_ns(self) -> int | None:
-        return self._marker_ns if self._marker_ns is not None else self._vad_ns
-
-    def _emit(self, t0: int, t2: int, t3: int) -> None:
+    def _emit(self, moment: Moments, *, start: int, end: int) -> None:
         self._turn += 1
         attributes: dict[str, Any] = {
             **self._attributes,
             "s2s.turn.number": self._turn,
-            "s2s.t0.source": UTTERANCE_END if self._marker_ns is not None else "vad",
-            "s2s.t0.unix_ms": t0 / 1e6,
-            "s2s.t2.unix_ms": t2 / 1e6,
-            "s2s.t3.unix_ms": t3 / 1e6,
-            "s2s.provider_latency_ms": (t2 - t0) / 1e6,
-            "s2s.harness_overhead_ms": (t3 - t2) / 1e6,
+            "s2s.latency.source": moment.source,
+            **moment.unix_ms_attributes(),
+            **moment.step_attributes(),
         }
         logger.info("turn", **attributes)
         if self._tracer is not None:
-            span = self._tracer.start_span(SPAN_NAME, start_time=t0, attributes=attributes)
-            span.end(end_time=t3)
+            span = self._tracer.start_span(SPAN_NAME, start_time=start, attributes=attributes)
+            span.end(end_time=end)
