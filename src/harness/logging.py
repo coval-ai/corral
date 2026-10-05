@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Structlog JSON to stdout, with the severity key Cloud Logging filters on."""
+"""Structlog JSON lines to stdout."""
 
 from __future__ import annotations
 
@@ -10,16 +10,8 @@ import sys
 from typing import Literal
 
 import structlog
-from structlog.typing import EventDict, WrappedLogger
 
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
-
-
-def add_gcp_severity(_logger: WrappedLogger, _method_name: str, event_dict: EventDict) -> EventDict:
-    level = event_dict.get("level")
-    if level is not None:
-        event_dict["severity"] = level.upper()
-    return event_dict
 
 
 def configure_logging(level: LogLevel = "INFO") -> None:
@@ -28,7 +20,6 @@ def configure_logging(level: LogLevel = "INFO") -> None:
         processors=[
             structlog.contextvars.merge_contextvars,
             structlog.processors.add_log_level,
-            add_gcp_severity,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
