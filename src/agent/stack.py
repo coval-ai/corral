@@ -19,8 +19,9 @@ STACKS_PACKAGE = "agent"
 STACKS_DIR = "stacks"
 SCENARIOS_PACKAGE = "agent.scenarios"
 DEFAULT_PROMPT_FILE = "system-prompt.txt"
-DEFAULT_SCENARIO = "bank"  # what a benchmark runs
+SUMMARY_FILE = "summary.txt"
 TALK_SCENARIO = "default"  # a generic assistant for trying a stack by voice
+BENCHMARK_SCENARIO = "baseline"  # what a scripted benchmark runs
 DEFAULT_STACK = "cascade-nova3-gpt41-flash"
 
 
@@ -81,6 +82,22 @@ def stack_slugs() -> list[str]:
         for entry in stacks.iterdir()
         if entry.name.endswith(".json")
     )
+
+
+def scenario_names() -> list[str]:
+    """Every scenario directory that ships a default prompt."""
+    scenarios = importlib.resources.files(SCENARIOS_PACKAGE)
+    return sorted(
+        entry.name
+        for entry in scenarios.iterdir()
+        if entry.is_dir() and entry.joinpath(DEFAULT_PROMPT_FILE).is_file()
+    )
+
+
+def scenario_summary(scenario: str) -> str:
+    """The scenario's one line for a menu, from its summary.txt."""
+    path = importlib.resources.files(SCENARIOS_PACKAGE).joinpath(scenario, SUMMARY_FILE)
+    return path.read_text().strip() if path.is_file() else ""
 
 
 def _stack_bytes(slug: str) -> bytes:

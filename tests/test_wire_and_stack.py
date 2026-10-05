@@ -18,7 +18,6 @@ from agent.coval import (
     authorized,
     simulation_id,
 )
-from agent.testset import load_test_set
 
 SILENCE_16K_100MS = bytes(2 * 1600)
 
@@ -99,7 +98,7 @@ REFERENCE = "cascade-nova3-gpt41-flash"
 
 
 def test_stack_names_its_components_and_loads_the_default_prompt_and_hash() -> None:
-    loaded = stacks.load_stack("bank", REFERENCE)
+    loaded = stacks.load_stack("baseline", REFERENCE)
     assert loaded.stack.architecture == "cascade"
     assert (loaded.stack.stt.provider, loaded.stack.stt.model) == ("deepgram", "nova-3")
     assert (loaded.stack.llm.provider, loaded.stack.llm.model) == ("openai", "gpt-4.1")
@@ -108,12 +107,12 @@ def test_stack_names_its_components_and_loads_the_default_prompt_and_hash() -> N
     assert loaded.prompt_file == "system-prompt.txt"
     assert loaded.system_prompt.startswith("# Role & Objective")
     assert len(loaded.digest) == 64
-    assert loaded.digest == stacks.stack_sha256("bank", REFERENCE)
+    assert loaded.digest == stacks.stack_sha256("baseline", REFERENCE)
 
 
 def test_a_stack_without_an_override_falls_back_to_the_scenario_default() -> None:
-    assert stacks.prompt_file("bank", REFERENCE) == "system-prompt.txt"
-    assert stacks.prompt_file("bank", "some-other-stack") == "system-prompt.txt"
+    assert stacks.prompt_file("baseline", REFERENCE) == "system-prompt.txt"
+    assert stacks.prompt_file("baseline", "some-other-stack") == "system-prompt.txt"
 
 
 def test_the_hash_covers_the_stack_file_and_the_prompt() -> None:
@@ -121,14 +120,14 @@ def test_the_hash_covers_the_stack_file_and_the_prompt() -> None:
 
     expected = hashlib.sha256()
     expected.update(stacks._stack_bytes(REFERENCE))
-    expected.update(stacks._prompt_bytes("bank", "system-prompt.txt"))
-    assert stacks.stack_sha256("bank", REFERENCE) == expected.hexdigest()
+    expected.update(stacks._prompt_bytes("baseline", "system-prompt.txt"))
+    assert stacks.stack_sha256("baseline", REFERENCE) == expected.hexdigest()
 
 
 def test_an_unknown_stack_names_the_ones_that_exist() -> None:
     assert stacks.stack_slugs() == [REFERENCE, "cascade-soniox-gemini"]
     with pytest.raises(ValueError, match=REFERENCE):
-        stacks.load_stack("bank", "nope")
+        stacks.load_stack("baseline", "nope")
 
 
 def test_stack_rejects_unknown_keys_but_keeps_rationale() -> None:
@@ -143,6 +142,4 @@ def test_stack_rejects_unknown_keys_but_keeps_rationale() -> None:
 def test_the_default_scenario_is_a_generic_assistant_for_talking() -> None:
     loaded = stacks.load_stack("default", "cascade-nova3-gpt41-flash")
     assert loaded.system_prompt.startswith("You are a helpful assistant on a voice call.")
-    assert loaded.digest != stacks.load_stack("bank", "cascade-nova3-gpt41-flash").digest
-    with pytest.raises(ValueError, match="has no test sets"):
-        load_test_set("default", "baseline")
+    assert loaded.digest != stacks.load_stack("baseline", "cascade-nova3-gpt41-flash").digest

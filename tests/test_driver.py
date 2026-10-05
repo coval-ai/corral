@@ -15,7 +15,7 @@ from tests.test_serve import _Echo, _Passthrough
 
 @pytest.fixture
 async def url() -> AsyncIterator[str]:
-    loaded = load_stack("bank", "cascade-nova3-gpt41-flash")
+    loaded = load_stack("baseline", "cascade-nova3-gpt41-flash")
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (

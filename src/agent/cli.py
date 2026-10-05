@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""One command. With no arguments it asks for a mode and a stack; with them it is a script."""
+"""One command. With no arguments it asks mode, scenario, stack; with them it is a script."""
 
 from __future__ import annotations
 
@@ -19,14 +19,16 @@ from agent import app, driver, serve
 from agent.config import Settings, get_settings
 from agent.logging import configure_logging
 from agent.stack import (
-    DEFAULT_SCENARIO,
+    BENCHMARK_SCENARIO,
     DEFAULT_STACK,
     TALK_SCENARIO,
     LoadedStack,
     load_stack,
+    scenario_names,
+    scenario_summary,
     stack_slugs,
 )
-from agent.testset import DEFAULT_TEST_SET, TestSet, load_test_set, load_test_sets
+from agent.testset import load_test_set, require_test_set
 
 Reader = Callable[[str], str]
 
@@ -37,8 +39,8 @@ class Mode:
     summary: str
 
 
-TALK = Mode("talk", "microphone and speakers on this machine")
-BENCHMARK = Mode("benchmark", "serve behind a tunnel, run it on Coval, exit")
+TALK = Mode("talk", "to the agent")
+BENCHMARK = Mode("benchmark", "with Coval")
 SERVE = Mode("serve", "the image's command: serve on PORT with no tunnel and no run")
 MODES = (TALK, BENCHMARK, SERVE)
 MENU_MODES = (TALK, BENCHMARK)  # serve is for the image, not for someone at a terminal
@@ -54,14 +56,16 @@ def missing_for(mode: Mode) -> str | None:
 
 
 def pick(options: list[str], prompt: str, read: Reader) -> int:
-    """Print numbered options and return the index of the one chosen."""
+    """Print numbered options and return the index of the one chosen; Enter takes the first."""
     for index, option in enumerate(options, start=1):
         print(f"{index}. {option}")
     while True:
-        answer = read(f"{prompt} [1-{len(options)}]: ").strip()
+        answer = read(f"{prompt} [1-{len(options)}, default 1]: ").strip()
+        if not answer:
+            return 0
         if answer.isdigit() and 1 <= int(answer) <= len(options):
             return int(answer) - 1
-        print(f"pick a number from 1 to {len(options)}")
+        print(f"pick a number from 1 to {len(options)}, or Enter for 1")
 
 
 def choose_mode(read: Reader = input) -> Mode:
@@ -74,26 +78,24 @@ def choose_mode(read: Reader = input) -> Mode:
     return MENU_MODES[pick(options, "Mode", read)]
 
 
-def choose_test_set(scenario: str, read: Reader = input) -> TestSet:
-    sets = load_test_sets(scenario)
-    names = sorted(sets)
+def scenarios_for(mode: Mode) -> list[str]:
+    """Every scenario to talk to; only those with Coval ids to benchmark. Default first."""
+    names = sorted(scenario_names(), key=lambda name: (name != TALK_SCENARIO, name))
+    if mode is BENCHMARK:
+        names = [name for name in names if load_test_set(name) is not None]
+    return names
+
+
+def choose_scenario(mode: Mode, read: Reader = input) -> str:
+    names = scenarios_for(mode)
     width = max(len(name) for name in names)
-    options = [f"{name:<{width}}  {sets[name].summary}" for name in names]
-    return sets[names[pick(options, "Test set", read)]]
+    options = [f"{name:<{width}}  {scenario_summary(name)}" for name in names]
+    return names[pick(options, "Scenario", read)]
 
 
 def choose_stack(scenario: str, read: Reader = input) -> LoadedStack:
-    """Print every stack's STT, LLM and TTS and take a number."""
     stacks = [load_stack(scenario, slug) for slug in stack_slugs()]
-    width = max(len(loaded.slug) for loaded in stacks)
-    options = [
-        f"{loaded.slug:<{width}}  "
-        f"stt {loaded.stack.stt.provider}/{loaded.stack.stt.model}  "
-        f"llm {loaded.stack.llm.provider}/{loaded.stack.llm.model}  "
-        f"tts {loaded.stack.tts.provider}/{loaded.stack.tts.model}"
-        for loaded in stacks
-    ]
-    return stacks[pick(options, "Stack", read)]
+    return stacks[pick([loaded.slug for loaded in stacks], "Stack", read)]
 
 
 def has_coval_key(settings: Settings) -> bool:
@@ -119,15 +121,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scenario",
         default=os.environ.get("S2S_SCENARIO"),
-        help=f"default: {TALK_SCENARIO} to talk, {DEFAULT_SCENARIO} otherwise",
+        help=f"default: {TALK_SCENARIO} to talk, {BENCHMARK_SCENARIO} otherwise",
     )
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
     run = parser.add_argument_group("benchmark")
-    run.add_argument(
-        "--test-set",
-        default=os.environ.get("S2S_TEST_SET", DEFAULT_TEST_SET),
-        help="a name from the scenario's test-sets.json",
-    )
     run.add_argument("--smoke", action="store_true", help="one test case, to check the wiring")
     run.add_argument("--no-tunnel", action="store_true", help="probe localhost only")
     return parser
@@ -141,15 +138,21 @@ def main() -> None:
     needs = missing_for(mode)
     if needs and not (mode is BENCHMARK and args.no_tunnel):
         fail(parser, interactive, f"{mode.name} needs: {needs}")
-    scenario = args.scenario or (TALK_SCENARIO if mode is TALK else DEFAULT_SCENARIO)
+    if mode is BENCHMARK and not has_coval_key(get_settings()):
+        fail(parser, interactive, "a Coval run needs COVAL_API_KEY in the environment or .env")
 
+    if args.scenario:
+        scenario = args.scenario
+    elif interactive and mode is not SERVE:
+        scenario = choose_scenario(mode)
+    else:
+        scenario = TALK_SCENARIO if mode is TALK else BENCHMARK_SCENARIO
     request = None
     if mode is BENCHMARK:
-        if not has_coval_key(get_settings()):
-            fail(parser, interactive, "a Coval run needs COVAL_API_KEY in the environment or .env")
-        test_set = (
-            choose_test_set(scenario) if interactive else load_test_set(scenario, args.test_set)
-        )
+        try:
+            test_set = require_test_set(scenario)
+        except ValueError as error:
+            fail(parser, interactive, str(error))
         request = driver.RunRequest(test_set, sample=1 if args.smoke else 0)
 
     loaded = choose_stack(scenario) if interactive else load_stack(scenario, args.stack)

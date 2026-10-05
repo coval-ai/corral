@@ -33,7 +33,7 @@ def test_each_role_lists_the_vendors_that_fill_it() -> None:
 
 def test_the_reference_stack_resolves_to_deepgram_openai_elevenlabs() -> None:
     built = services.resolve(
-        load_stack("bank", "cascade-nova3-gpt41-flash"), Settings(_env_file=None, **KEYS)
+        load_stack("baseline", "cascade-nova3-gpt41-flash"), Settings(_env_file=None, **KEYS)
     )
     assert isinstance(built.stt, DeepgramSTTService)
     assert isinstance(built.llm, OpenAILLMService)
@@ -42,7 +42,7 @@ def test_the_reference_stack_resolves_to_deepgram_openai_elevenlabs() -> None:
 
 def test_the_soniox_gemini_stack_resolves_to_soniox_google_soniox() -> None:
     built = services.resolve(
-        load_stack("bank", "cascade-soniox-gemini"), Settings(_env_file=None, **KEYS)
+        load_stack("baseline", "cascade-soniox-gemini"), Settings(_env_file=None, **KEYS)
     )
     assert isinstance(built.stt, SonioxSTTService)
     assert isinstance(built.llm, GoogleLLMService)
@@ -50,7 +50,7 @@ def test_the_soniox_gemini_stack_resolves_to_soniox_google_soniox() -> None:
 
 
 def test_an_unknown_provider_fails_before_anything_connects() -> None:
-    loaded = load_stack("bank", "cascade-nova3-gpt41-flash")
+    loaded = load_stack("baseline", "cascade-nova3-gpt41-flash")
     bad = loaded.stack.model_copy(
         update={"tts": loaded.stack.tts.model_copy(update={"provider": "nope"})}
     )
@@ -64,12 +64,12 @@ def test_a_missing_key_names_the_env_var() -> None:
     keys = {**KEYS, "soniox_api_key": None}
     with pytest.raises(RuntimeError, match="SONIOX_API_KEY is unset"):
         services.resolve(
-            load_stack("bank", "cascade-soniox-gemini"), Settings(_env_file=None, **keys)
+            load_stack("baseline", "cascade-soniox-gemini"), Settings(_env_file=None, **keys)
         )
 
 
 def test_the_system_prompt_rides_on_the_llm_service() -> None:
-    loaded = load_stack("bank", "cascade-nova3-gpt41-flash")
+    loaded = load_stack("baseline", "cascade-nova3-gpt41-flash")
     built = services.resolve(loaded, Settings(_env_file=None, **KEYS))
     assert isinstance(built.llm, LLMService)
     assert built.llm._settings.system_instruction == loaded.system_prompt

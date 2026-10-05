@@ -17,7 +17,7 @@ from agent.coval_agent import (
 )
 from agent.coval_client import CovalClient
 from agent.stack import AudioPin
-from agent.testset import load_test_set, load_test_sets
+from agent.testset import load_test_set, require_test_set
 
 AUDIO = AudioPin(in_sample_rate_hz=16000, out_sample_rate_hz=24000)
 DEFINITION = CovalS2SAgent("cascade-x", "https://quiet-hill.trycloudflare.com", "s3cret", "TSBANK")
@@ -97,14 +97,13 @@ def test_launch_carries_the_boards_metrics_at_concurrency_one() -> None:
     assert is_terminal({"status": "COMPLETED"})
 
 
-def test_the_scenario_names_its_test_sets_with_their_coval_ids() -> None:
-    sets = load_test_sets("bank")
-    assert "baseline" in sets
-    baseline = load_test_set("bank", "baseline")
-    assert baseline.test_set_id and baseline.persona_id and baseline.metric_ids
-    assert baseline.summary
-    with pytest.raises(ValueError, match="no test set 'nope' in bank; have baseline"):
-        load_test_set("bank", "nope")
+def test_a_scenario_carries_its_coval_ids_or_is_for_talking_only() -> None:
+    baseline = require_test_set("baseline")
+    assert baseline.test_set_id == "QjkAPGkb"
+    assert baseline.persona_id and len(baseline.metric_ids) == 3
+    assert load_test_set("default") is None
+    with pytest.raises(ValueError, match="'default' has no coval.json"):
+        require_test_set("default")
 
 
 def test_results_print_one_line_per_metric() -> None:

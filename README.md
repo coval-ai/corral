@@ -32,39 +32,37 @@ digest every run and span carries.
 
 ## Running
 
-`uv run agent` with no arguments asks for a mode, then a stack:
+`uv run agent` with no arguments asks mode, scenario, stack:
 
 ```
-1. talk       microphone and speakers on this machine
-2. benchmark  serve behind a tunnel, run it on Coval, exit
-Mode [1-2]:
+1. talk       to the agent
+2. benchmark  with Coval
+Mode [1-2, default 1]:
 ```
 
-With a mode it is a script. Every mode takes `--stack SLUG` and
-`--scenario NAME`, defaulting to `S2S_STACK` and `S2S_SCENARIO`. Without
-either, talk uses the `default` scenario, a generic voice assistant for
-trying a stack, and benchmark and serve use `bank`.
+Enter takes the first option at every prompt.
 
-`agent talk` talks to a stack on this machine's microphone and speakers;
-it needs the `local` extra. The agent speaks first; Ctrl-C hangs up. Per-turn
+Talk lists every scenario; benchmark lists the ones with Coval ids. With a
+mode it is a script: every mode takes `--stack SLUG` and `--scenario NAME`,
+defaulting to `S2S_STACK` and `S2S_SCENARIO`, and without those to `default`
+for talk and `baseline` otherwise.
+
+`agent talk` talks to a stack on this machine's microphone and speakers; it
+needs the `local` extra. The agent speaks first; Ctrl-C hangs up. Per-turn
 latency is logged.
 
-`agent benchmark [--test-set NAME] [--smoke]` runs one benchmark from
-wherever it is started, a laptop or a cloud job: it serves in-process behind a
-Cloudflare quick tunnel, probes it over HTTP and one authenticated call,
-upserts the stack's Coval WebSocket agent at that URL, launches a run on the
-named test set with its persona and metrics at concurrency 1, polls it to a
-terminal status, prints each metric's values, and exits. Nothing is left
-running. It needs `COVAL_API_KEY` and `cloudflared` on the path; `--no-tunnel`
-probes localhost. A quick tunnel's hostname takes about 80 s to resolve.
-`--smoke` runs a single test case to check the wiring end to end.
+`agent benchmark [--smoke]` runs one benchmark from wherever it is started, a
+laptop or a cloud job: it serves in-process behind a Cloudflare quick tunnel,
+probes it over HTTP and one authenticated call, upserts the scenario's Coval
+WebSocket agent at that URL, launches a run on the scenario's test set with its
+persona and metrics at concurrency 1, polls it to a terminal status, prints
+each metric's values, and exits. Nothing is left running. It needs
+`COVAL_API_KEY` and `cloudflared` on the path; `--no-tunnel` probes localhost.
+A quick tunnel's hostname takes about 80 s to resolve. `--smoke` runs a single
+test case to check the wiring end to end.
 
-Test sets are named in `src/agent/scenarios/<scenario>/test-sets.json`,
-each with its Coval test set, persona and metric ids; `baseline` is the
-default. Interactively, the set is the second question, after the mode.
-
-`agent serve` is the image's command: the same pipeline behind a WebSocket
-on `PORT` (default 8080) with no tunnel and no run, one call per connection,
+`agent serve` is the image's command: the same pipeline behind a WebSocket on
+`PORT` (default 8080) with no tunnel and no run, one call per connection,
 speaking the wire contract in `coval.py`: raw PCM both ways, `session_ready`
 once every service is up, bearer from `S2S_AGENT_TOKEN`.
 
