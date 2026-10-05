@@ -1,6 +1,9 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
+import importlib.util
+import shutil
+
 import pytest
 
 from agent.cli import choose_mode, choose_stack, choose_test_set
@@ -38,3 +41,16 @@ def test_the_test_set_menu_names_each_set_and_returns_its_ids(
     out = capsys.readouterr().out
     assert "1. baseline" in out
     assert chosen.test_set_id
+
+
+def test_the_menu_says_what_a_mode_still_needs(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
+    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/local/bin/cloudflared")
+    choose_mode(read=lambda _prompt: "2")
+    out = capsys.readouterr().out
+    talk, benchmark = out.splitlines()[:2]
+    assert talk.startswith("1. talk")
+    assert "(needs: brew install portaudio && uv sync --extra local)" in talk
+    assert "(needs" not in benchmark

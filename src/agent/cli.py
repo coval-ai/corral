@@ -8,9 +8,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import importlib.util
 import os
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import NoReturn
 
 from agent import app, driver, serve
 from agent.config import Settings, get_settings
@@ -34,6 +37,15 @@ MODES = (TALK, BENCHMARK, SERVE)
 MENU_MODES = (TALK, BENCHMARK)  # serve is for the image, not for someone at a terminal
 
 
+def missing_for(mode: Mode) -> str | None:
+    """What this machine still needs before the mode can run, or None."""
+    if mode is TALK and importlib.util.find_spec("pyaudio") is None:
+        return "brew install portaudio && uv sync --extra local"
+    if mode is BENCHMARK and shutil.which("cloudflared") is None:
+        return "brew install cloudflared"
+    return None
+
+
 def pick(options: list[str], prompt: str, read: Reader) -> int:
     """Print numbered options and return the index of the one chosen."""
     for index, option in enumerate(options, start=1):
@@ -47,7 +59,11 @@ def pick(options: list[str], prompt: str, read: Reader) -> int:
 
 def choose_mode(read: Reader = input) -> Mode:
     width = max(len(mode.name) for mode in MENU_MODES)
-    options = [f"{mode.name:<{width}}  {mode.summary}" for mode in MENU_MODES]
+    options = []
+    for mode in MENU_MODES:
+        line = f"{mode.name:<{width}}  {mode.summary}"
+        needs = missing_for(mode)
+        options.append(f"{line}  (needs: {needs})" if needs else line)
     return MENU_MODES[pick(options, "Mode", read)]
 
 
@@ -77,6 +93,13 @@ def has_coval_key(settings: Settings) -> bool:
     return settings.coval_api_key is not None and bool(settings.coval_api_key.get_secret_value())
 
 
+def fail(parser: argparse.ArgumentParser, interactive: bool, message: str) -> NoReturn:
+    """A plain line when someone is at the menu; usage plus the line when scripted."""
+    if interactive:
+        raise SystemExit(message)
+    parser.error(message)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent", description=__doc__)
     parser.add_argument(
@@ -104,14 +127,14 @@ def main() -> None:
     args = parser.parse_args()
     interactive = args.mode is None
     mode = choose_mode() if interactive else next(m for m in MODES if m.name == args.mode)
+    needs = missing_for(mode)
+    if needs and not (mode is BENCHMARK and args.no_tunnel):
+        fail(parser, interactive, f"{mode.name} needs: {needs}")
 
     request = None
     if mode is BENCHMARK:
         if not has_coval_key(get_settings()):
-            message = "a Coval run needs COVAL_API_KEY in the environment or .env"
-            if interactive:
-                raise SystemExit(message)
-            parser.error(message)
+            fail(parser, interactive, "a Coval run needs COVAL_API_KEY in the environment or .env")
         test_set = (
             choose_test_set(args.scenario)
             if interactive
