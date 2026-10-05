@@ -8,12 +8,15 @@ from __future__ import annotations
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.transports.base_transport import BaseTransport
 from pipecat.turns.user_start.min_words_user_turn_start_strategy import (
     MinWordsUserTurnStartStrategy,
 )
@@ -22,6 +25,8 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
+from harness.observer import TurnLatencyObserver
+from harness.services import Services
 from harness.stack import LoadedStack
 
 
@@ -62,3 +67,32 @@ def cascade_processors(
     output so it records what was actually said, and the caller places it.
     """
     return [stt, aggregators.user(), llm, tts]
+
+
+def build_worker(
+    loaded: LoadedStack,
+    services: Services,
+    transport: BaseTransport,
+    observer: TurnLatencyObserver,
+    *,
+    conversation_id: str | None = None,
+) -> PipelineWorker:
+    """The whole pipeline between one transport's input and output, at the stack's rates.
+
+    Both the mic mode and the served mode build their worker here, so a change
+    to the pipeline's shape or parameters reaches both and their latency
+    numbers stay comparable.
+    """
+    audio = loaded.stack.audio
+    aggregators = context_aggregators(loaded)
+    middle = cascade_processors(services.stt, services.llm, services.tts, aggregators)
+    return PipelineWorker(
+        Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
+        params=PipelineParams(
+            audio_in_sample_rate=audio.in_sample_rate_hz,
+            audio_out_sample_rate=audio.out_sample_rate_hz,
+        ),
+        conversation_id=conversation_id,
+        enable_rtvi=False,
+        observers=[observer],
+    )

@@ -12,8 +12,7 @@ import structlog
 from fastapi import FastAPI, WebSocket
 from opentelemetry.sdk.trace import TracerProvider
 from pipecat.frames.frames import Frame, LLMRunFrame, OutputTransportMessageUrgentFrame
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -29,7 +28,7 @@ from harness.coval import (
 )
 from harness.logging import configure_logging
 from harness.observer import TurnLatencyObserver, coval_trace_provider
-from harness.pipeline import cascade_processors, context_aggregators
+from harness.pipeline import build_worker
 from harness.services import resolve
 from harness.stack import LoadedStack, load_stack
 
@@ -71,7 +70,6 @@ def create_app(loaded: LoadedStack) -> FastAPI:
 async def run_call(websocket: WebSocket, loaded: LoadedStack, sim: str | None) -> None:
     settings = get_settings()
     services = resolve(loaded, settings)
-    audio = loaded.stack.audio
     provider = _trace_provider(settings, sim)
     observer = TurnLatencyObserver(
         attributes={"simulation.id": sim or "", "stack": loaded.slug, "digest": loaded.digest},
@@ -86,18 +84,7 @@ async def run_call(websocket: WebSocket, loaded: LoadedStack, sim: str | None) -
             allowed_origins=[],
         ),
     )
-    aggregators = context_aggregators(loaded)
-    middle = cascade_processors(services.stt, services.llm, services.tts, aggregators)
-    worker = PipelineWorker(
-        Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
-        params=PipelineParams(
-            audio_in_sample_rate=audio.in_sample_rate_hz,
-            audio_out_sample_rate=audio.out_sample_rate_hz,
-        ),
-        conversation_id=sim,
-        enable_rtvi=False,
-        observers=[observer],
-    )
+    worker = build_worker(loaded, services, transport, observer, conversation_id=sim)
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
     async def _ready(started: PipelineWorker, _frame: Frame) -> None:

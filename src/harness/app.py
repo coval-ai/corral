@@ -11,14 +11,13 @@ import os
 from collections.abc import Callable
 
 from pipecat.frames.frames import Frame, LLMRunFrame
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.workers.runner import WorkerRunner
 
 from harness.config import get_settings
 from harness.logging import configure_logging
 from harness.observer import TurnLatencyObserver
-from harness.pipeline import cascade_processors, context_aggregators
+from harness.pipeline import build_worker
 from harness.services import resolve
 from harness.stack import LoadedStack, load_stack, stack_slugs
 
@@ -37,17 +36,8 @@ async def run(loaded: LoadedStack) -> None:
             audio_out_sample_rate=audio.out_sample_rate_hz,
         )
     )
-    aggregators = context_aggregators(loaded)
-    middle = cascade_processors(services.stt, services.llm, services.tts, aggregators)
-    worker = PipelineWorker(
-        Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
-        params=PipelineParams(
-            audio_in_sample_rate=audio.in_sample_rate_hz,
-            audio_out_sample_rate=audio.out_sample_rate_hz,
-        ),
-        enable_rtvi=False,
-        observers=[TurnLatencyObserver(attributes={"stack": loaded.slug, "digest": loaded.digest})],
-    )
+    observer = TurnLatencyObserver(attributes={"stack": loaded.slug, "digest": loaded.digest})
+    worker = build_worker(loaded, services, transport, observer)
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
     async def _greet(started: PipelineWorker, _frame: Frame) -> None:
