@@ -32,22 +32,35 @@ digest every run and span carries.
 
 ## Running
 
-`uv run harness-agent [--stack SLUG | --tui] [--scenario bank]` talks to a stack
-on this machine's microphone and speakers. The agent speaks first; Ctrl-C hangs
-up. Per-turn latency is logged.
+`uv run harness` with no arguments asks for a mode, then a stack:
 
-`uv run harness-serve` is the same pipeline behind a WebSocket on `:8080`
-(`S2S_STACK`, `S2S_SCENARIO`, `PORT`), one call per connection, speaking the
-wire contract in `coval.py`: raw PCM both ways, `session_ready` once every
-service is up, bearer from `S2S_AGENT_TOKEN`. It is the image's command.
+```
+1. talk       microphone and speakers on this machine
+2. benchmark  serve behind a tunnel, run it on Coval, exit
+Mode [1-2]:
+```
 
-`uv run harness-driver [--stack SLUG | --tui] [--sample N]` runs one benchmark:
-it serves in-process behind a Cloudflare quick tunnel, probes it over HTTP and
-one authenticated call, upserts the stack's Coval WebSocket agent at that URL,
-launches a run on the bank test set and persona scored by the board's four
-metrics at concurrency 1, polls it to a terminal status, prints each metric's
-values, and exits. `--serve-only` stops after printing the URL; `--no-tunnel`
-probes localhost. A quick tunnel's hostname takes about 80 s to resolve.
+With a mode it is a script. Every mode takes `--stack SLUG` and
+`--scenario NAME`, defaulting to `S2S_STACK` and `S2S_SCENARIO`.
+
+`harness talk` talks to a stack on this machine's microphone and speakers;
+it needs the `local` extra. The agent speaks first; Ctrl-C hangs up. Per-turn
+latency is logged.
+
+`harness benchmark [--sample N]` runs one benchmark from wherever it is
+started, a laptop or a cloud job: it serves in-process behind a Cloudflare
+quick tunnel, probes it over HTTP and one authenticated call, upserts the
+stack's Coval WebSocket agent at that URL, launches a run on the bank test set
+and persona scored by the board's four metrics at concurrency 1, polls it to a
+terminal status, prints each metric's values, and exits. Nothing is left
+running. It needs the Coval key and ids from `.env`, and `cloudflared` on the
+path; `--no-tunnel` probes localhost. A quick tunnel's hostname takes about
+80 s to resolve.
+
+`harness serve` is the image's command: the same pipeline behind a WebSocket
+on `PORT` (default 8080) with no tunnel and no run, one call per connection,
+speaking the wire contract in `coval.py`: raw PCM both ways, `session_ready`
+once every service is up, bearer from `S2S_AGENT_TOKEN`.
 
 ## Measurement
 

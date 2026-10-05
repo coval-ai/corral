@@ -1,15 +1,12 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run one benchmark: serve in-process behind a quick tunnel, point Coval at it, run, exit."""
+"""One benchmark: serve in-process behind a quick tunnel, point Coval at it, run, exit."""
 
 from __future__ import annotations
 
-import argparse
 import asyncio
-import contextlib
 import json
-import os
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -20,22 +17,19 @@ import uvicorn
 from fastapi import FastAPI
 from websockets.asyncio.client import connect
 
-from harness.app import choose_stack
 from harness.config import Settings, get_settings
 from harness.coval import SESSION_READY
 from harness.coval_agent import (
     CovalS2SAgent,
     is_terminal,
     launch_body,
-    metric_ids,
     results_lines,
     run_id_of,
     sync_agent,
 )
 from harness.coval_client import CovalClient
-from harness.logging import configure_logging
 from harness.serve import create_app
-from harness.stack import LoadedStack, load_stack
+from harness.stack import LoadedStack
 
 logger = structlog.get_logger("harness")
 
@@ -158,10 +152,10 @@ async def run_on_coval(
     return run
 
 
-async def run(loaded: LoadedStack, port: int, tunnel: bool, request: RunRequest | None) -> int:
+async def run(loaded: LoadedStack, port: int, tunnel: bool, request: RunRequest) -> int:
     settings = get_settings()
     token = settings.s2s_agent_token.get_secret_value() if settings.s2s_agent_token else None
-    api_key = _secret(settings, "coval_api_key") if request else None
+    api_key = _secret(settings, "coval_api_key")
     server, task, port = await serve_in_process(create_app(loaded), port)
     process = None
     try:
@@ -173,11 +167,6 @@ async def run(loaded: LoadedStack, port: int, tunnel: bool, request: RunRequest 
         health = await probe(url, token)
         logger.info("agent_up", url=url, **health)
         print(url, flush=True)
-        if request is None or api_key is None:
-            # uvicorn handles the signal, shuts down, then re-raises it, which has
-            # asyncio.run cancel us; shielding keeps that cancel off the server task.
-            await asyncio.shield(task)
-            return 0
         with CovalClient(api_key, settings.coval_api_base) as coval:
             final = await run_on_coval(coval, loaded, url, token, request)
         logger.info("run_finished", run_id=run_id_of(final), status=final.get("status"))
@@ -189,34 +178,3 @@ async def run(loaded: LoadedStack, port: int, tunnel: bool, request: RunRequest 
             await process.wait()
         server.should_exit = True
         await task
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stack", default=os.environ.get("S2S_STACK", "cascade-nova3-gpt41-flash"))
-    parser.add_argument("--scenario", default=os.environ.get("S2S_SCENARIO", "bank"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8080")))
-    parser.add_argument("--tui", action="store_true", help="pick the stack from a list instead")
-    parser.add_argument("--no-tunnel", action="store_true", help="probe localhost only")
-    parser.add_argument("--serve-only", action="store_true", help="print the URL and wait; no run")
-    parser.add_argument("--persona-id", default=None, help="default: COVAL_S2S_BANK_PERSONA_ID")
-    parser.add_argument("--test-set-id", default=None, help="default: COVAL_S2S_BANK_TEST_SET_ID")
-    parser.add_argument("--sample", type=int, default=0, help="test cases to run; 0 is all")
-    args = parser.parse_args()
-    loaded = choose_stack(args.scenario) if args.tui else load_stack(args.scenario, args.stack)
-    configure_logging()
-    request = None
-    if not args.serve_only:
-        settings = get_settings()
-        persona_id = args.persona_id or settings.coval_s2s_bank_persona_id
-        test_set_id = args.test_set_id or settings.coval_s2s_bank_test_set_id
-        if not persona_id or not test_set_id:
-            parser.error("a run needs --persona-id and --test-set-id, or the COVAL_S2S_BANK_* env")
-        request = RunRequest(persona_id, test_set_id, metric_ids(settings), args.sample)
-    with contextlib.suppress(KeyboardInterrupt):
-        code = asyncio.run(run(loaded, args.port, not args.no_tunnel, request))
-        raise SystemExit(code)
-
-
-if __name__ == "__main__":
-    main()

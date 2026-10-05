@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 
 import structlog
 from fastapi import FastAPI, WebSocket
@@ -26,11 +25,10 @@ from harness.coval import (
     authorized,
     simulation_id,
 )
-from harness.logging import configure_logging
 from harness.observer import TurnLatencyObserver, coval_trace_provider
 from harness.pipeline import build_worker
 from harness.services import resolve
-from harness.stack import LoadedStack, load_stack
+from harness.stack import LoadedStack
 
 logger = structlog.get_logger("harness")
 
@@ -115,16 +113,8 @@ def _trace_provider(settings: Settings, sim: str | None) -> TracerProvider | Non
     return coval_trace_provider(key, settings.coval_api_base, sim) if key else None
 
 
-def main() -> None:
+def serve(loaded: LoadedStack, port: int) -> None:
+    """The image's command: the agent on every interface, no tunnel, until stopped."""
     import uvicorn
 
-    configure_logging()
-    loaded = load_stack(
-        os.environ.get("S2S_SCENARIO", "bank"),
-        os.environ.get("S2S_STACK", "cascade-nova3-gpt41-flash"),
-    )
-    uvicorn.run(create_app(loaded), host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))  # noqa: S104
-
-
-if __name__ == "__main__":
-    main()
+    uvicorn.run(create_app(loaded), host="0.0.0.0", port=port)  # noqa: S104

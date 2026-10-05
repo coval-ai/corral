@@ -19,6 +19,8 @@ STACKS_PACKAGE = "harness"
 STACKS_DIR = "stacks"
 SCENARIOS_PACKAGE = "harness.scenarios"
 DEFAULT_PROMPT_FILE = "system-prompt.txt"
+DEFAULT_SCENARIO = "bank"
+DEFAULT_STACK = "cascade-nova3-gpt41-flash"
 
 
 class ComponentPin(AnnotatedModel):
