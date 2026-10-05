@@ -10,7 +10,7 @@ from pipecat.pipeline.worker import PipelineWorker
 from pipecat.workers.runner import WorkerRunner
 
 from agent.config import get_settings
-from agent.observer import TurnLatencyObserver
+from agent.observer import TurnLatencyObserver, role_attributes
 from agent.pipeline import build_worker
 from agent.services import resolve
 from agent.stack import LoadedStack
@@ -30,7 +30,10 @@ async def run(loaded: LoadedStack) -> None:
             audio_out_sample_rate=audio.out_sample_rate_hz,
         )
     )
-    observer = TurnLatencyObserver(attributes={"stack": loaded.slug, "digest": loaded.digest})
+    observer = TurnLatencyObserver(
+        attributes={"stack": loaded.slug, "digest": loaded.digest},
+        roles=role_attributes(loaded.stack),
+    )
     worker = build_worker(loaded, services, transport, observer)
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]

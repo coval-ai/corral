@@ -68,9 +68,10 @@ once every service is up, bearer from `S2S_AGENT_TOKEN`.
 
 ## Measurement
 
-Every answered turn sends one `s2s.turn` span to Coval under the call's
-simulation id. We write down the clock at six moments and put them all on the
-span as `s2s.<moment>.unix_ms`:
+Every answered turn sends one `turn` span to Coval under the call's
+simulation id, with `stt`, `llm` and `tts` child spans for the three stages,
+each tagged with the provider and model that ran it. We write down the clock
+at six moments and put them all on the turn as `s2s.<moment>.unix_ms`:
 
 - `utterance_end`: Coval tells us the caller finished talking
 - `vad_done`: our VAD and smart-turn agree the caller is done

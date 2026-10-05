@@ -25,7 +25,7 @@ from agent.coval import (
     authorized,
     simulation_id,
 )
-from agent.observer import TurnLatencyObserver, coval_trace_provider
+from agent.observer import TurnLatencyObserver, coval_trace_provider, role_attributes
 from agent.pipeline import build_worker
 from agent.services import resolve
 from agent.stack import LoadedStack
@@ -71,6 +71,7 @@ async def run_call(websocket: WebSocket, loaded: LoadedStack, sim: str | None) -
     provider = _trace_provider(settings, sim)
     observer = TurnLatencyObserver(
         attributes={"simulation.id": sim or "", "stack": loaded.slug, "digest": loaded.digest},
+        roles=role_attributes(loaded.stack),
         tracer=provider.get_tracer(__name__) if provider else None,
     )
     transport = FastAPIWebsocketTransport(
@@ -101,7 +102,7 @@ async def run_call(websocket: WebSocket, loaded: LoadedStack, sim: str | None) -
         await runner.run()
     finally:
         if provider is not None:
-            # Shutdown flushes; every span of this call is out before the call is.
+            # shutdown flushes, so every span of this call is out before the call is
             await asyncio.to_thread(provider.shutdown)
 
 
