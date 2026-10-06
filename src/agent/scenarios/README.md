@@ -1,13 +1,15 @@
 # Scenarios
 
-One directory per scenario, and a scenario is one prompt plus, optionally,
-one Coval test set. `summary.txt` is its line in the menu. `system-prompt.txt`
-is the default prompt; a `system-prompt.<stack>.txt` beside it is used instead
-for that stack, and the stack digest covers whichever one ran. `coval.json`
-names the test set, the persona that calls it and the metrics that score it,
-with `_`-prefixed keys for the human names; a scenario without it can be
-talked to but not benchmarked. The ids are public, so anyone with a Coval key
-can run a scenario.
+A scenario is a directory here with:
 
-`default` is a generic assistant for trying a stack. `baseline` is Ultra Bank
-with the short daily set.
+- `system-prompt.txt`: the prompt the agent runs
+- `summary.txt`: its one line in the menu
+- `coval.json`: the Coval test set, persona and metric ids, if it can be
+  benchmarked. Keys starting with `_` are the human names. Leave this out
+  for a talk-only scenario.
+
+A `system-prompt.<stack>.txt` next to the default is used for that stack
+instead. The stack digest covers whichever prompt ran.
+
+`default` is a plain assistant for trying a stack by voice. `baseline` is
+Ultra Bank with the short daily test set.
