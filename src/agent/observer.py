@@ -70,6 +70,10 @@ class Moments:
     llm_first_token: int | None = None
     tts_first_audio: int | None = None
     audio_start: int | None = None
+    # Coval pairs utterance_started and utterance_end by id. We only take an end
+    # whose start we saw this turn, so a marker that shows up after we've already
+    # answered can't start the next turn's clock.
+    utterance_id: str | None = None
 
     @property
     def caller_stopped(self) -> int | None:
@@ -91,7 +95,7 @@ class Moments:
         return {
             f"s2s.{field.name}.unix_ms": value / 1e6
             for field in dataclasses.fields(self)
-            if (value := getattr(self, field.name)) is not None
+            if field.name != "utterance_id" and (value := getattr(self, field.name)) is not None
         }
 
     def step_attributes(self) -> dict[str, float]:
@@ -170,17 +174,26 @@ class TurnLatencyObserver(BaseObserver):
         now = self._clock()
         moment = self._moment
         match data.frame:
-            case InputTransportMessageFrame(message={"type": "utterance_end"}):
+            case InputTransportMessageFrame(message={"type": "utterance_started", **rest}):
+                started = rest.get("utterance_id")
+                moment.utterance_id = started if isinstance(started, str) else None
+            case InputTransportMessageFrame(message={"type": "utterance_end", **rest}) if rest.get(
+                "utterance_id"
+            ) in (None, moment.utterance_id):
                 moment.utterance_end = now
             case UserStoppedSpeakingFrame():
                 moment.vad_done = now
-                moment.llm_first_token = None  # new turn, so forget any answer in flight
+                moment.llm_first_token = None  # the answer to this turn hasn't started
                 moment.tts_first_audio = None
             case TranscriptionFrame() if moment.llm_first_token is None:
                 moment.stt_done = now  # keep the latest one until the model starts
-            case LLMTextFrame() if moment.llm_first_token is None:
+            # The model only runs once Pipecat ends the caller's turn, so text or audio
+            # before vad_done is the previous answer still streaming. Ignore it.
+            case LLMTextFrame() if moment.vad_done is not None and moment.llm_first_token is None:
                 moment.llm_first_token = now
-            case TTSAudioRawFrame() if moment.tts_first_audio is None:
+            case TTSAudioRawFrame() if (
+                moment.vad_done is not None and moment.tts_first_audio is None
+            ):
                 moment.tts_first_audio = now
             case InterruptionFrame():
                 self._moment = Moments()  # caller cut the agent off, start fresh

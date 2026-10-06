@@ -34,8 +34,17 @@ def _words(text: str) -> TranscriptionFrame:
     return TranscriptionFrame(text=text, user_id="caller", timestamp="")
 
 
-def _marker() -> InputTransportMessageFrame:
-    return InputTransportMessageFrame(message={"type": "utterance_end"})
+def _marker(utterance_id: str | None = None) -> InputTransportMessageFrame:
+    message: dict[str, str] = {"type": "utterance_end"}
+    if utterance_id:
+        message["utterance_id"] = utterance_id
+    return InputTransportMessageFrame(message=message)
+
+
+def _started(utterance_id: str) -> InputTransportMessageFrame:
+    return InputTransportMessageFrame(
+        message={"type": "utterance_started", "utterance_id": utterance_id}
+    )
 
 
 class _Clock:
@@ -179,3 +188,46 @@ async def test_a_transcript_before_the_marker_gets_no_stt_span(exported: Exporte
     await _push(observer, clock, 1_720, BotStartedSpeakingFrame())
     assert set(_children(exporter)) == {"llm", "tts"}
     assert dict(_turn(exporter).attributes or {})["s2s.stt_ms"] == -100.0
+
+
+async def test_a_marker_that_arrives_after_we_answered_does_not_start_the_next_turn(
+    exported: Exported,
+) -> None:
+    observer, clock, exporter = exported
+    await _push(observer, clock, 900, _started("u-1"))
+    await _push(observer, clock, 1_000, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_500, _audio())
+    await _push(observer, clock, 1_550, BotStartedSpeakingFrame())  # answered before the marker
+    await _push(observer, clock, 1_600, _marker("u-1"))  # late; its turn is already emitted
+    await _push(observer, clock, 5_000, _started("u-2"))
+    await _push(observer, clock, 6_000, _marker("u-2"))
+    await _push(observer, clock, 6_100, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 6_600, _audio())
+    await _push(observer, clock, 6_650, BotStartedSpeakingFrame())
+    first, second = (s for s in exporter.get_finished_spans() if s.name == SPAN_NAME)
+    assert dict(first.attributes or {})["s2s.latency.source"] == "vad_done"
+    a = dict(second.attributes or {})
+    assert a["s2s.latency.source"] == "utterance_end"
+    assert a["s2s.latency_ms"] == 600.0  # from u-2's end, not u-1's stray marker
+
+
+async def test_the_previous_answer_still_streaming_does_not_eat_the_next_transcript(
+    exported: Exported,
+) -> None:
+    observer, clock, exporter = exported
+    await _push(observer, clock, 1_000, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_400, LLMTextFrame("Sure,"))
+    await _push(observer, clock, 1_600, _audio())
+    await _push(observer, clock, 1_620, BotStartedSpeakingFrame())
+    await _push(observer, clock, 1_700, LLMTextFrame(" here is more."))  # answer 1, still going
+    await _push(observer, clock, 1_900, _audio())
+    await _push(observer, clock, 4_000, _words("thanks"))  # caller's next turn
+    await _push(observer, clock, 4_200, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 4_700, LLMTextFrame("Welcome"))
+    await _push(observer, clock, 4_900, _audio())
+    await _push(observer, clock, 4_920, BotStartedSpeakingFrame())
+    _, second = (s for s in exporter.get_finished_spans() if s.name == SPAN_NAME)
+    a = dict(second.attributes or {})
+    assert a["s2s.stt_done.unix_ms"] == 4_000.0
+    assert a["s2s.llm_ms"] == 500.0  # from vad_done at 4200, not the stray token at 1700
+    assert a["s2s.latency_ms"] == 700.0
