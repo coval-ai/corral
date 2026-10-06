@@ -117,6 +117,7 @@ async def test_a_full_turn_breaks_the_pause_into_its_steps(exported: Exported) -
     assert a["s2s.llm_first_token.unix_ms"] == 1_600.0
     assert a["s2s.audio_start.unix_ms"] == 1_820.0
     assert (span.start_time, span.end_time) == (1_000 * MS, 1_820 * MS)
+    assert observer.turns == [a]  # kept for the end-of-call summary
 
 
 async def test_without_covals_marker_the_pause_starts_at_vad_done(exported: Exported) -> None:

@@ -167,6 +167,7 @@ class TurnLatencyObserver(BaseObserver):
         self._clock = clock
         self._turn = 0
         self._moment = Moments()
+        self.turns: list[dict[str, Any]] = []  # every emitted turn's attributes, in order
 
     async def on_push_frame(self, data: FramePushed) -> None:
         if not data.first_push:
@@ -212,6 +213,7 @@ class TurnLatencyObserver(BaseObserver):
             **moment.unix_ms_attributes(),
             **moment.step_attributes(),
         }
+        self.turns.append(attributes)
         logger.info("turn", **attributes)
         if self._tracer is not None:
             self._export(self._tracer, moment, attributes, start=start, end=end)
