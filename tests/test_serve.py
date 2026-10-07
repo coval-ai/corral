@@ -11,7 +11,7 @@ from pipecat.frames.frames import Frame, InputAudioRawFrame, OutputAudioRawFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from starlette.websockets import WebSocketDisconnect
 
-from agent import serve
+from agent import pipeline, serve
 from agent.config import Settings
 from agent.models import Services
 from agent.stack import load_stack
@@ -43,7 +43,7 @@ def client() -> Iterator[TestClient]:
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (
-        patch.object(serve, "resolve", return_value=fakes),
+        patch.object(pipeline, "resolve", return_value=fakes),
         patch.object(serve, "get_settings", return_value=settings),
     ):
         yield TestClient(serve.create_app(stack))

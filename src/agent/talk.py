@@ -10,21 +10,17 @@ import statistics
 from collections.abc import Sequence
 from typing import Any
 
-from pipecat.frames.frames import Frame, LLMRunFrame
-from pipecat.pipeline.worker import PipelineWorker
 from pipecat.workers.runner import WorkerRunner
 
 from agent.config import get_settings
-from agent.models import resolve
-from agent.observer import ModelsByModality, TurnLatencyObserver, models_by_modality
-from agent.pipeline import build_worker
+from agent.observer import ModelsByModality, models_by_modality
+from agent.pipeline import build_call
 from agent.stack import Stack
 
 
 async def run(stack: Stack) -> None:
     from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
-    services = resolve(stack, get_settings())
     audio = stack.audio
     transport = LocalAudioTransport(
         LocalAudioTransportParams(
@@ -34,22 +30,13 @@ async def run(stack: Stack) -> None:
             audio_out_sample_rate=audio.out_sample_rate_hz,
         )
     )
-    observer = TurnLatencyObserver(
-        attributes={"stack": stack.slug, "digest": stack.digest},
-        models=models_by_modality(stack),
-    )
-    worker = build_worker(stack, services, transport, observer)
-
-    @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
-    async def _greet(started: PipelineWorker, _frame: Frame) -> None:
-        await started.queue_frame(LLMRunFrame())
-
+    call = build_call(stack, transport, get_settings())
     runner = WorkerRunner()
-    await runner.add_workers(worker)
+    await runner.add_workers(call.worker)
     try:
         await runner.run()
     finally:
-        print(summary(observer.turns, models_by_modality(stack), stack.slug), flush=True)
+        print(summary(call.observer.turns, models_by_modality(stack), stack.slug), flush=True)
 
 
 STEPS = ("latency", "endpointing", "stt", "llm", "tts", "transport")

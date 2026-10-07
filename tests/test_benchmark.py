@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agent import benchmark, serve
+from agent import benchmark, pipeline, serve
 from agent.config import Settings
 from agent.models import Services
 from agent.stack import load_stack
@@ -19,7 +19,7 @@ async def url() -> AsyncIterator[str]:
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (
-        patch.object(serve, "resolve", return_value=fakes),
+        patch.object(pipeline, "resolve", return_value=fakes),
         patch.object(serve, "get_settings", return_value=settings),
     ):
         server, task, port = await benchmark.serve_in_process(serve.create_app(stack), 0)

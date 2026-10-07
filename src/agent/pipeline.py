@@ -5,9 +5,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
+
+from opentelemetry.trace import Tracer
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.frames.frames import Frame, LLMRunFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -25,8 +31,9 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from agent.models import Services
-from agent.observer import TurnLatencyObserver
+from agent.config import Settings
+from agent.models import resolve
+from agent.observer import TurnLatencyObserver, models_by_modality
 from agent.stack import Stack
 
 
@@ -69,30 +76,50 @@ def cascade_processors(
     return [stt, aggregators.user(), llm, tts]
 
 
-def build_worker(
-    stack: Stack,
-    services: Services,
-    transport: BaseTransport,
-    observer: TurnLatencyObserver,
-    *,
-    conversation_id: str | None = None,
-) -> PipelineWorker:
-    """The whole pipeline between one transport's input and output, at the stack's rates.
+@dataclass(frozen=True)
+class Call:
+    worker: PipelineWorker
+    observer: TurnLatencyObserver
 
-    Both the mic mode and the served mode build their worker here, so a change
-    to the pipeline's shape or parameters reaches both and their latency
-    numbers stay comparable.
+
+def build_call(
+    stack: Stack,
+    transport: BaseTransport,
+    settings: Settings,
+    *,
+    attributes: Mapping[str, Any] | None = None,
+    tracer: Tracer | None = None,
+    conversation_id: str | None = None,
+    before_greeting: Sequence[Frame] = (),
+) -> Call:
+    """One call on any transport: the services, the pipeline, the observer and the greeting.
+
+    Talk and serve both build their call here, so a change to how a call works
+    reaches both and their latency numbers stay comparable.
     """
-    audio = stack.audio
+    services = resolve(stack, settings)
+    observer = TurnLatencyObserver(
+        attributes={**(attributes or {}), "stack": stack.slug, "digest": stack.digest},
+        models=models_by_modality(stack),
+        tracer=tracer,
+    )
     aggregators = context_aggregators(stack)
     middle = cascade_processors(services.stt, services.llm, services.tts, aggregators)
-    return PipelineWorker(
+    worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
         params=PipelineParams(
-            audio_in_sample_rate=audio.in_sample_rate_hz,
-            audio_out_sample_rate=audio.out_sample_rate_hz,
+            audio_in_sample_rate=stack.audio.in_sample_rate_hz,
+            audio_out_sample_rate=stack.audio.out_sample_rate_hz,
         ),
         conversation_id=conversation_id,
         enable_rtvi=False,
         observers=[observer],
     )
+
+    @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
+    async def _greet(started: PipelineWorker, _frame: Frame) -> None:
+        for frame in before_greeting:
+            await started.queue_frame(frame)
+        await started.queue_frame(LLMRunFrame())
+
+    return Call(worker, observer)

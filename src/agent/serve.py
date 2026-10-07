@@ -10,8 +10,7 @@ import asyncio
 import structlog
 from fastapi import FastAPI, WebSocket
 from opentelemetry.sdk.trace import TracerProvider
-from pipecat.frames.frames import Frame, LLMRunFrame, OutputTransportMessageUrgentFrame
-from pipecat.pipeline.worker import PipelineWorker
+from pipecat.frames.frames import OutputTransportMessageUrgentFrame
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -25,9 +24,8 @@ from agent.coval_wire import (
     authorized,
     simulation_id,
 )
-from agent.models import resolve
-from agent.observer import TurnLatencyObserver, coval_trace_provider, models_by_modality
-from agent.pipeline import build_worker
+from agent.observer import coval_trace_provider
+from agent.pipeline import build_call
 from agent.stack import Stack
 
 logger = structlog.get_logger("agent")
@@ -66,13 +64,7 @@ def create_app(stack: Stack) -> FastAPI:
 
 async def run_call(websocket: WebSocket, stack: Stack, sim: str | None) -> None:
     settings = get_settings()
-    services = resolve(stack, settings)
     provider = _trace_provider(settings, sim)
-    observer = TurnLatencyObserver(
-        attributes={"simulation.id": sim or "", "stack": stack.slug, "digest": stack.digest},
-        models=models_by_modality(stack),
-        tracer=provider.get_tracer(__name__) if provider else None,
-    )
     transport = FastAPIWebsocketTransport(
         websocket,
         params=FastAPIWebsocketParams(
@@ -82,19 +74,22 @@ async def run_call(websocket: WebSocket, stack: Stack, sim: str | None) -> None:
             allowed_origins=[],
         ),
     )
-    worker = build_worker(stack, services, transport, observer, conversation_id=sim)
-
-    @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
-    async def _ready(started: PipelineWorker, _frame: Frame) -> None:
-        await started.queue_frame(OutputTransportMessageUrgentFrame(message=SESSION_READY))
-        await started.queue_frame(LLMRunFrame())
+    call = build_call(
+        stack,
+        transport,
+        settings,
+        attributes={"simulation.id": sim or ""},
+        tracer=provider.get_tracer(__name__) if provider else None,
+        conversation_id=sim,
+        before_greeting=[OutputTransportMessageUrgentFrame(message=SESSION_READY)],
+    )
 
     @transport.event_handler("on_client_disconnected")  # type: ignore[untyped-decorator]
     async def _gone(_transport: FastAPIWebsocketTransport, _ws: WebSocket) -> None:
-        await worker.cancel()
+        await call.worker.cancel()
 
     runner = WorkerRunner(handle_sigint=False)
-    await runner.add_workers(worker)
+    await runner.add_workers(call.worker)
     try:
         await runner.run()
     finally:
