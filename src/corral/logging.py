@@ -1,35 +1,36 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Structlog JSON lines to stdout."""
+"""One log stream: ours, Pipecat's, and anything a library says through stdlib logging."""
 
 from __future__ import annotations
 
+import inspect
 import logging
-import sys
-from typing import Literal
+from types import FrameType
 
-import structlog
-
-LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
+from loguru import logger
 
 
-def configure_logging(level: LogLevel = "INFO") -> None:
-    log_level = getattr(logging, level.upper(), logging.INFO)
-    structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer(),
-        ],
-        wrapper_class=structlog.make_filtering_bound_logger(log_level),
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
-        cache_logger_on_first_use=True,
-    )
-    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=log_level)
-    for noisy in ("httpx", "httpcore"):
-        logging.getLogger(noisy).setLevel(max(log_level, logging.WARNING))
+class _ToLoguru(logging.Handler):
+    """Hands a stdlib record to loguru at the same level, credited to the line that logged it."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            level: str | int = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+        frame: FrameType | None = inspect.currentframe()
+        depth = 0
+        while frame is not None and (depth == 0 or frame.f_code.co_filename == logging.__file__):
+            frame, depth = frame.f_back, depth + 1
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+def configure_logging() -> None:
+    """Route stdlib logging into loguru.
+
+    Libraries like websockets and httpcore log every frame and header at DEBUG, so
+    stdlib loggers start at WARNING. Uvicorn sets its own level when it starts.
+    """
+    logging.basicConfig(handlers=[_ToLoguru()], level=logging.WARNING, force=True)

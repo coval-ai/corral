@@ -33,7 +33,7 @@ import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
-import structlog
+from loguru import logger
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
@@ -55,8 +55,6 @@ from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.frame_processor import FrameProcessor
 
 from corral.agent import Agent
-
-logger = structlog.get_logger("corral")
 
 SPAN_NAME = "turn_latency"
 SERVICE_NAME = "coval-bench-s2s-agent"
@@ -149,6 +147,15 @@ class Moments:
         for name, (start, end) in self.stages().items():
             steps[f"s2s.turn_latency.{name}_ms"] = _ms(end, start)
         return steps
+
+
+def _describe(number: int, moment: Moments, attributes: dict[str, Any]) -> str:
+    """One line per turn in Pipecat's log, e.g. ``Turn 3: 1047 ms (stt 80, llm 539, tts 164)``."""
+    parts = [f"{stage} {_ms(end, start):.0f}" for stage, (start, end) in moment.stages().items()]
+    if moment.stt_done is None:
+        parts.insert(0, "stt unconfirmed")
+    latency = attributes["s2s.turn_latency_ms"]
+    return f"Turn {number}: {latency:.0f} ms from {moment.source} ({', '.join(parts)})"
 
 
 def models_by_modality(agent: Agent) -> dict[str, dict[str, str]]:
@@ -259,7 +266,8 @@ class TurnLatencyObserver(BaseObserver):
             **moment.step_attributes(),
         }
         self.turns.append(attributes)
-        logger.info("turn", **attributes)
+        level = "INFO" if moment.stt_done is not None else "WARNING"
+        logger.log(level, _describe(self._turn, moment, attributes))
         if self._tracer is not None:
             self._export(self._tracer, moment, attributes, start=start, end=end)
 

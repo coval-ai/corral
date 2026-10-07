@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import asyncio
 
-import structlog
 from fastapi import FastAPI, WebSocket
+from loguru import logger
 from opentelemetry.sdk.trace import TracerProvider
 from pipecat.frames.frames import OutputTransportMessageUrgentFrame
 from pipecat.transports.websocket.fastapi import (
@@ -27,8 +27,6 @@ from corral.coval_wire import (
 )
 from corral.observer import coval_trace_provider
 from corral.pipeline import build_call
-
-logger = structlog.get_logger("corral")
 
 POLICY_VIOLATION = 1008
 
@@ -54,10 +52,9 @@ def create_app(agent: Agent) -> FastAPI:
             return
         await websocket.accept()
         sim = simulation_id(websocket.headers)
-        log = logger.bind(simulation_id=sim, agent=agent.slug, digest=agent.digest)
-        log.info("call_started")
+        logger.info(f"Call {sim or 'local'} started on {agent.slug}")
         await run_call(websocket, agent, sim)
-        log.info("call_ended")
+        logger.info(f"Call {sim or 'local'} ended")
 
     return app
 
@@ -109,4 +106,4 @@ def serve(agent: Agent, port: int) -> None:
     """The image's command: the agent on every interface, no tunnel, until stopped."""
     import uvicorn
 
-    uvicorn.run(create_app(agent), host="0.0.0.0", port=port)  # noqa: S104
+    uvicorn.run(create_app(agent), host="0.0.0.0", port=port, log_config=None)  # noqa: S104
