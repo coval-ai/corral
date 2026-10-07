@@ -3,12 +3,13 @@
 
 """One ``turn`` span per answered turn, with ``stt``, ``llm`` and ``tts`` under it.
 
-We grab the time at seven moments:
+We grab the time at eight moments:
 
 - ``utterance_end``: Coval tells us the caller finished talking
 - ``vad_stop``: Silero hears enough silence and Pipecat asks the STT to finalize
-- ``stt_done``: the STT sends back the transcript the model will read
-- ``vad_done``: smart-turn agrees and the transcript is in, so the turn is over
+- ``stt_done``: the STT confirms the transcript is final
+- ``vad_done``: smart-turn agrees the caller is done
+- ``llm_start``: the LLM receives the finished transcript
 - ``llm_first_token``: the model says its first word
 - ``tts_first_audio``: we have the first bit of synthesized audio
 - ``audio_start``: we send the first audio chunk back to Coval
@@ -16,7 +17,8 @@ We grab the time at seven moments:
 The turn runs from when the caller stopped to ``audio_start``. On Coval that's
 ``utterance_end``. Locally it's ``vad_stop`` minus Silero's silence window, and
 ``vad_done`` only if Silero never fired. STT latency is ``vad_stop`` to
-``stt_done``: how long the STT took to answer the finalize. It carries each moment as
+``stt_done``, the finalize round trip and nothing else. ``stt_done`` to ``llm_start``
+is the handoff, smart-turn and the aggregator, which is ours. It carries each moment as
 ``s2s.<moment>.unix_ms`` and the gaps as ``s2s.<step>_ms``; ``s2s.latency_ms``
 is the headline, caller stopped to first synthesized audio. The three child
 spans are the stages, as long as the stage took, tagged with provider and model.
@@ -40,13 +42,16 @@ from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     InputTransportMessageFrame,
     InterruptionFrame,
+    LLMContextFrame,
     LLMTextFrame,
-    TranscriptionFrame,
+    MetricsFrame,
     TTSAudioRawFrame,
     UserStoppedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
+from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
+from pipecat.processors.frame_processor import FrameProcessor
 
 from corral.agent import Agent
 
@@ -72,6 +77,7 @@ class Moments:
     vad_stop: int | None = None
     stt_done: int | None = None
     vad_done: int | None = None
+    llm_start: int | None = None
     llm_first_token: int | None = None
     tts_first_audio: int | None = None
     audio_start: int | None = None
@@ -96,12 +102,6 @@ class Moments:
             return UTTERANCE_END
         return "vad_stop" if self.vad_stop is not None else "vad_done"
 
-    @property
-    def model_ready(self) -> int | None:
-        """When the model could start: turn over and words in."""
-        known = [t for t in (self.stt_done, self.vad_done) if t is not None]
-        return max(known) if known else None
-
     def unix_ms_attributes(self) -> dict[str, float]:
         """``s2s.<moment>.unix_ms`` for each moment we saw."""
         return {
@@ -120,23 +120,22 @@ class Moments:
             steps["s2s.endpointing_ms"] = _ms(self.vad_stop, self.utterance_end)
         if self.vad_stop is not None and self.stt_done is not None:
             steps["s2s.stt_ms"] = _ms(self.stt_done, self.vad_stop)
-        if self.llm_first_token is not None and self.model_ready is not None:
-            steps["s2s.llm_ms"] = _ms(self.llm_first_token, self.model_ready)
+        if self.stt_done is not None and self.llm_start is not None:
+            steps["s2s.handoff_ms"] = _ms(self.llm_start, self.stt_done)
+        if self.llm_first_token is not None and self.llm_start is not None:
+            steps["s2s.llm_ms"] = _ms(self.llm_first_token, self.llm_start)
             steps["s2s.tts_ms"] = _ms(tts, self.llm_first_token)
         return steps
 
     def stages(self) -> dict[str, tuple[int, int]]:
-        """Start and end of each stage, in unix ns.
-
-        No stt stage when the transcript came before Silero fired; a span can't run
-        backwards. ``s2s.stt_ms`` still says so.
-        """
+        """Start and end of each stage, in unix ns. Together they fill the turn."""
         out: dict[str, tuple[int, int]] = {}
-        silero, stt = self.vad_stop, self.stt_done
-        if silero is not None and stt is not None and stt >= silero:
-            out["stt"] = (silero, stt)
-        if self.llm_first_token is not None and self.model_ready is not None:
-            out["llm"] = (self.model_ready, self.llm_first_token)
+        if self.vad_stop is not None and self.stt_done is not None:
+            out["stt"] = (self.vad_stop, self.stt_done)
+        if self.stt_done is not None and self.llm_start is not None:
+            out["handoff"] = (self.stt_done, self.llm_start)
+        if self.llm_first_token is not None and self.llm_start is not None:
+            out["llm"] = (self.llm_start, self.llm_first_token)
             if self.tts_first_audio is not None:
                 out["tts"] = (self.llm_first_token, self.tts_first_audio)
         return out
@@ -169,12 +168,14 @@ class TurnLatencyObserver(BaseObserver):
         *,
         attributes: dict[str, Any],
         models: ModelsByModality | None = None,
+        stt: FrameProcessor | None = None,
         tracer: Tracer | None = None,
         clock: Callable[[], int] = time.time_ns,
     ) -> None:
         super().__init__()
         self._attributes = attributes
         self._models = models or {}
+        self._stt = stt
         self._tracer = tracer
         self._clock = clock
         self._turn = 0
@@ -197,12 +198,23 @@ class TurnLatencyObserver(BaseObserver):
             case VADUserStoppedSpeakingFrame(stop_secs=secs) if moment.llm_first_token is None:
                 moment.vad_stop = now
                 moment.vad_stop_secs = secs
+                moment.stt_done = None
             case UserStoppedSpeakingFrame():
                 moment.vad_done = now
+                moment.llm_start = None
                 moment.llm_first_token = None
                 moment.tts_first_audio = None
-            case TranscriptionFrame() if moment.llm_first_token is None:
+            case MetricsFrame(data=reports) if (
+                data.source is self._stt
+                and moment.vad_stop is not None
+                and moment.stt_done is None
+                and any(isinstance(r, TTFBMetricsData) for r in reports)
+            ):
                 moment.stt_done = now
+            case LLMContextFrame(speculation=False) if (
+                moment.vad_done is not None and moment.llm_start is None
+            ):
+                moment.llm_start = now
             # The model only runs once Pipecat ends the caller's turn, so text or audio
             # before vad_done is the previous answer still streaming. Ignore it.
             case LLMTextFrame() if moment.vad_done is not None and moment.llm_first_token is None:

@@ -38,7 +38,7 @@ async def run(agent: Agent) -> None:
         print(summary(call.observer.turns, models_by_modality(agent), agent.slug), flush=True)
 
 
-STEPS = ("latency", "endpointing", "stt", "llm", "tts", "transport")
+STEPS = ("latency", "endpointing", "stt", "handoff", "llm", "tts", "transport")
 
 
 def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str) -> str:

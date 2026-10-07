@@ -106,6 +106,7 @@ def build_call(
     observer = TurnLatencyObserver(
         attributes={**(attributes or {}), "agent": agent.slug, "digest": agent.digest},
         models=models_by_modality(agent),
+        stt=services.stt,
         tracer=tracer,
     )
     aggregators = context_aggregators(agent)

@@ -55,12 +55,13 @@ something is missing, the menu says so and gives the command.
 
 Every answered turn becomes a `turn` span in Coval, with `stt`, `llm` and
 `tts` spans under it showing how long each stage took and which provider and
-model ran it. We grab the time at seven moments:
+model ran it. We grab the time at eight moments:
 
 - `utterance_end`: Coval tells us the caller finished talking
 - `vad_stop`: Silero hears enough silence and Pipecat asks the STT to finalize
-- `stt_done`: the STT sends back the transcript the model will read
-- `vad_done`: smart-turn agrees and the transcript is in, so the turn is over
+- `stt_done`: the STT confirms the transcript is final
+- `vad_done`: smart-turn agrees the caller is done
+- `llm_start`: the LLM receives the finished transcript
 - `llm_first_token`: the model says its first word
 - `tts_first_audio`: we have the first bit of synthesized audio
 - `audio_start`: we send the first audio chunk back to Coval
@@ -71,8 +72,9 @@ synthesized audio. "Caller stopped" is Coval's `utterance_end` marker on Coval
 runs. Locally it's when Silero fired minus its silence window, which is when
 you actually stopped. `s2s.latency.source` says which.
 
-`s2s.stt_ms` is `vad_stop` to `stt_done`, how long the STT took to answer the
-finalize. Every STT in the catalog runs with its own endpointing off so they're
+`s2s.stt_ms` is `vad_stop` to `stt_done`: the finalize round trip to the STT
+and nothing else. `s2s.handoff_ms` is `stt_done` to `llm_start`, smart-turn's
+decision and the aggregator, which is ours. Every STT in the catalog runs with its own endpointing off so they're
 all measured the same way. On Coval runs, `s2s.endpointing_ms` is `utterance_end` to
 `vad_stop`, how long after the caller stopped Silero noticed.
 

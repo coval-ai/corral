@@ -12,13 +12,16 @@ from pipecat.frames.frames import (
     Frame,
     InputTransportMessageFrame,
     InterruptionFrame,
+    LLMContextFrame,
     LLMTextFrame,
-    TranscriptionFrame,
+    MetricsFrame,
     TTSAudioRawFrame,
     UserStoppedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
+from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import FramePushed
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from corral.observer import SPAN_NAME, TurnLatencyObserver
@@ -31,8 +34,8 @@ def _audio() -> TTSAudioRawFrame:
     return TTSAudioRawFrame(audio=b"\x00\x00", sample_rate=24000, num_channels=1)
 
 
-def _words(text: str) -> TranscriptionFrame:
-    return TranscriptionFrame(text=text, user_id="caller", timestamp="")
+def _handoff() -> LLMContextFrame:
+    return LLMContextFrame(context=LLMContext())
 
 
 def _marker(utterance_id: str | None = None) -> InputTransportMessageFrame:
@@ -56,12 +59,25 @@ class _Clock:
         return self.now_ns
 
 
-async def _push(observer: TurnLatencyObserver, clock: _Clock, at_ms: int, frame: Frame) -> None:
+STT = FrameProcessor()
+
+
+async def _push(
+    observer: TurnLatencyObserver,
+    clock: _Clock,
+    at_ms: int,
+    frame: Frame,
+    source: FrameProcessor | None = None,
+) -> None:
     clock.now_ns = at_ms * MS
-    source = FrameProcessor()
+    source = source or FrameProcessor()
     await observer.on_push_frame(
         FramePushed(source, source, frame, FrameDirection.DOWNSTREAM, timestamp=0)
     )
+
+
+def _confirmed() -> MetricsFrame:
+    return MetricsFrame(data=[TTFBMetricsData(processor="stt", value=0.0)])
 
 
 def _turn(exporter: InMemorySpanExporter) -> ReadableSpan:
@@ -83,6 +99,7 @@ def exported() -> Iterator[Exported]:
     observer = TurnLatencyObserver(
         attributes={"agent": "x"},
         models={"llm": {"provider": "openai", "model": "gpt-4.1"}},
+        stt=STT,
         tracer=provider.get_tracer("test"),
         clock=clock,
     )
@@ -94,8 +111,9 @@ async def test_a_full_turn_breaks_the_pause_into_its_steps(exported: Exported) -
     observer, clock, exporter = exported
     await _push(observer, clock, 1_000, _marker())
     await _push(observer, clock, 1_200, VADUserStoppedSpeakingFrame())
-    await _push(observer, clock, 1_300, _words("hello there"))
-    await _push(observer, clock, 1_350, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_260, _confirmed(), source=STT)
+    await _push(observer, clock, 1_300, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_350, _handoff())
     await _push(observer, clock, 1_600, LLMTextFrame("Hi"))
     await _push(observer, clock, 1_650, LLMTextFrame(" there"))
     await _push(observer, clock, 1_800, _audio())
@@ -110,7 +128,8 @@ async def test_a_full_turn_breaks_the_pause_into_its_steps(exported: Exported) -
     assert a["s2s.latency.source"] == "utterance_end"
     assert a["s2s.latency_ms"] == 800.0
     assert a["s2s.endpointing_ms"] == 200.0
-    assert a["s2s.stt_ms"] == 100.0
+    assert a["s2s.stt_ms"] == 60.0
+    assert a["s2s.handoff_ms"] == 90.0
     assert a["s2s.llm_ms"] == 250.0
     assert a["s2s.tts_ms"] == 200.0
     assert a["s2s.transport_ms"] == 20.0
@@ -164,34 +183,32 @@ async def test_each_stage_is_a_child_span_with_its_provider_and_model(exported: 
     observer, clock, exporter = exported
     await _push(observer, clock, 1_000, _marker())
     await _push(observer, clock, 1_200, VADUserStoppedSpeakingFrame())
-    await _push(observer, clock, 1_300, _words("hello there"))
-    await _push(observer, clock, 1_350, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_250, _confirmed(), source=STT)
+    await _push(observer, clock, 1_300, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_350, _handoff())
     await _push(observer, clock, 1_600, LLMTextFrame("Hi"))
     await _push(observer, clock, 1_800, _audio())
     await _push(observer, clock, 1_820, BotStartedSpeakingFrame())
     turn = _turn(exporter)
     stages = _children(exporter)
-    assert set(stages) == {"stt", "llm", "tts"}
+    assert set(stages) == {"stt", "handoff", "llm", "tts"}
     for stage in stages.values():
         assert stage.parent is not None and stage.parent.span_id == turn.context.span_id
-    assert (stages["stt"].start_time, stages["stt"].end_time) == (1_200 * MS, 1_300 * MS)
+    assert (stages["stt"].start_time, stages["stt"].end_time) == (1_200 * MS, 1_250 * MS)
+    assert (stages["handoff"].start_time, stages["handoff"].end_time) == (1_250 * MS, 1_350 * MS)
     assert (stages["llm"].start_time, stages["llm"].end_time) == (1_350 * MS, 1_600 * MS)
     assert (stages["tts"].start_time, stages["tts"].end_time) == (1_600 * MS, 1_800 * MS)
     assert dict(stages["llm"].attributes or {}) == {"provider": "openai", "model": "gpt-4.1"}
     assert not stages["stt"].attributes
 
 
-async def test_a_transcript_before_silero_fired_gets_no_stt_span(exported: Exported) -> None:
+async def test_the_greeting_handoff_before_any_turn_is_not_a_turn(exported: Exported) -> None:
     observer, clock, exporter = exported
-    await _push(observer, clock, 1_000, _marker())
-    await _push(observer, clock, 1_150, _words("hello"))
-    await _push(observer, clock, 1_200, VADUserStoppedSpeakingFrame())
-    await _push(observer, clock, 1_250, UserStoppedSpeakingFrame())
-    await _push(observer, clock, 1_500, LLMTextFrame("Hi"))
-    await _push(observer, clock, 1_700, _audio())
-    await _push(observer, clock, 1_720, BotStartedSpeakingFrame())
-    assert set(_children(exporter)) == {"llm", "tts"}
-    assert dict(_turn(exporter).attributes or {})["s2s.stt_ms"] == -50.0
+    await _push(observer, clock, 50, _handoff())
+    await _push(observer, clock, 100, LLMTextFrame("Welcome"))
+    await _push(observer, clock, 200, _audio())
+    await _push(observer, clock, 210, BotStartedSpeakingFrame())
+    assert exporter.get_finished_spans() == ()
 
 
 async def test_a_marker_that_arrives_after_we_answered_does_not_start_the_next_turn(
@@ -215,33 +232,35 @@ async def test_a_marker_that_arrives_after_we_answered_does_not_start_the_next_t
     assert a["s2s.latency_ms"] == 600.0
 
 
-async def test_the_previous_answer_still_streaming_does_not_eat_the_next_transcript(
+async def test_the_previous_answer_still_streaming_is_not_the_next_turns(
     exported: Exported,
 ) -> None:
     observer, clock, exporter = exported
     await _push(observer, clock, 1_000, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_050, _handoff())
     await _push(observer, clock, 1_400, LLMTextFrame("Sure,"))
     await _push(observer, clock, 1_600, _audio())
     await _push(observer, clock, 1_620, BotStartedSpeakingFrame())
     await _push(observer, clock, 1_700, LLMTextFrame(" here is more."))
     await _push(observer, clock, 1_900, _audio())
-    await _push(observer, clock, 4_000, _words("thanks"))
     await _push(observer, clock, 4_200, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 4_250, _handoff())
     await _push(observer, clock, 4_700, LLMTextFrame("Welcome"))
     await _push(observer, clock, 4_900, _audio())
     await _push(observer, clock, 4_920, BotStartedSpeakingFrame())
     _, second = (s for s in exporter.get_finished_spans() if s.name == SPAN_NAME)
     a = dict(second.attributes or {})
-    assert a["s2s.stt_done.unix_ms"] == 4_000.0
-    assert a["s2s.llm_ms"] == 500.0
+    assert a["s2s.llm_start.unix_ms"] == 4_250.0
+    assert a["s2s.llm_ms"] == 450.0
     assert a["s2s.latency_ms"] == 700.0
 
 
 async def test_locally_the_pause_starts_when_silero_says_you_stopped(exported: Exported) -> None:
     observer, clock, exporter = exported
     await _push(observer, clock, 1_200, VADUserStoppedSpeakingFrame(stop_secs=0.2))
-    await _push(observer, clock, 1_324, _words("hello there"))
+    await _push(observer, clock, 1_324, _confirmed(), source=STT)
     await _push(observer, clock, 1_330, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_334, _handoff())
     await _push(observer, clock, 1_860, LLMTextFrame("Hi"))
     await _push(observer, clock, 2_121, _audio())
     await _push(observer, clock, 2_122, BotStartedSpeakingFrame())
@@ -252,3 +271,32 @@ async def test_locally_the_pause_starts_when_silero_says_you_stopped(exported: E
     assert a["s2s.stt_ms"] == 124.0
     assert "s2s.endpointing_ms" not in a
     assert span.start_time == 1_000 * MS
+
+
+async def test_only_the_stt_services_timing_counts_as_confirmation(exported: Exported) -> None:
+    observer, clock, exporter = exported
+    await _push(observer, clock, 1_200, VADUserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_220, _confirmed())
+    await _push(observer, clock, 1_300, _confirmed(), source=STT)
+    await _push(observer, clock, 1_350, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_360, _handoff())
+    await _push(observer, clock, 1_600, LLMTextFrame("Hi"))
+    await _push(observer, clock, 1_800, _audio())
+    await _push(observer, clock, 1_820, BotStartedSpeakingFrame())
+    assert dict(_turn(exporter).attributes or {})["s2s.stt_ms"] == 100.0
+
+
+async def test_a_mid_sentence_pause_is_not_the_stt_wait(exported: Exported) -> None:
+    observer, clock, exporter = exported
+    await _push(observer, clock, 1_000, VADUserStoppedSpeakingFrame())
+    await _push(observer, clock, 1_040, _confirmed(), source=STT)
+    await _push(observer, clock, 2_000, VADUserStoppedSpeakingFrame())
+    await _push(observer, clock, 2_070, _confirmed(), source=STT)
+    await _push(observer, clock, 2_100, UserStoppedSpeakingFrame())
+    await _push(observer, clock, 2_120, _handoff())
+    await _push(observer, clock, 2_600, LLMTextFrame("Hi"))
+    await _push(observer, clock, 2_800, _audio())
+    await _push(observer, clock, 2_820, BotStartedSpeakingFrame())
+    a = dict(_turn(exporter).attributes or {})
+    assert a["s2s.vad_stop.unix_ms"] == 2_000.0
+    assert a["s2s.stt_ms"] == 70.0
