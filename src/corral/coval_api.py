@@ -100,11 +100,11 @@ class CovalTarget:
 
     @property
     def customer_agent_id(self) -> str:
-        return f"benchmarks-s2s-{self.slug}"
+        return self.slug
 
     @property
     def display_name(self) -> str:
-        return f"Benchmarks: S2S {self.slug}"
+        return self.slug
 
     def target_body(self) -> dict[str, Any]:
         metadata: dict[str, Any] = {

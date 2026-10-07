@@ -43,7 +43,8 @@ def _client(state: dict[str, Any]) -> CovalClient:
 def test_the_agent_speaks_raw_pcm_and_waits_for_session_ready() -> None:
     body = DEFINITION.target_body()
     metadata = body["metadata"]
-    assert body["customer_agent_id"] == "benchmarks-s2s-cascade-x"
+    assert body["customer_agent_id"] == "cascade-x"
+    assert body["display_name"] == "cascade-x"
     assert body["model_type"] == coval_api.MODEL_TYPE
     assert metadata["endpoint"] == "wss://quiet-hill.trycloudflare.com/ws"
     assert metadata["send_audio_template"] == "{{audio_data}}"
