@@ -48,9 +48,9 @@ from pipecat.frames.frames import (
 )
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 
-from agent.stack import Stack
+from corral.agent import Agent
 
-logger = structlog.get_logger("agent")
+logger = structlog.get_logger("corral")
 
 SPAN_NAME = "turn"
 SERVICE_NAME = "coval-bench-s2s-agent"
@@ -142,12 +142,12 @@ class Moments:
         return out
 
 
-def models_by_modality(stack: Stack) -> dict[str, dict[str, str]]:
+def models_by_modality(agent: Agent) -> dict[str, dict[str, str]]:
     """Provider and model per stage, for the child spans."""
     return {
-        "stt": {"provider": stack.stt.provider, "model": stack.stt.name},
-        "llm": {"provider": stack.llm.provider, "model": stack.llm.name},
-        "tts": {"provider": stack.tts.provider, "model": stack.tts.name},
+        "stt": {"provider": agent.stt.provider, "model": agent.stt.name},
+        "llm": {"provider": agent.llm.provider, "model": agent.llm.name},
+        "tts": {"provider": agent.tts.provider, "model": agent.tts.name},
     }
 
 

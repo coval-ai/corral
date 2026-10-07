@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""A stack: a model per modality plus a scenario's prompt, with a slug and digest over all of it."""
+"""An agent: a model per modality plus a scenario's prompt, with a slug and digest over it."""
 
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ import json
 import re
 from dataclasses import dataclass
 
-from agent.config import IN_SAMPLE_RATE_HZ, INTERRUPT_MIN_WORDS, OUT_SAMPLE_RATE_HZ, VAD_STOP_SECS
-from agent.models import LlmModel, SttModel, TtsModel, catalog
-from agent.scenarios import load_prompt
+from corral.config import IN_SAMPLE_RATE_HZ, INTERRUPT_MIN_WORDS, OUT_SAMPLE_RATE_HZ, VAD_STOP_SECS
+from corral.models import LlmModel, SttModel, TtsModel, catalog
+from corral.scenarios import load_prompt
 
 
 @dataclass(frozen=True)
-class Stack:
+class Agent:
     scenario: str
     stt: SttModel
     llm: LlmModel
@@ -26,7 +26,7 @@ class Stack:
     digest: str
 
 
-def load_stack(scenario: str, stt_id: str, llm_id: str, tts_id: str) -> Stack:
+def load_agent(scenario: str, stt_id: str, llm_id: str, tts_id: str) -> Agent:
     """A model per modality, each named as provider/model, on the scenario's prompt."""
     offered = catalog()
     stt, llm, tts = offered.get_stt(stt_id), offered.get_llm(llm_id), offered.get_tts(tts_id)
@@ -47,4 +47,4 @@ def load_stack(scenario: str, stt_id: str, llm_id: str, tts_id: str) -> Stack:
         re.sub(r"[^a-z0-9.]+", "-", f"{model.provider}-{model.name}".lower())
         for model in (stt, llm, tts)
     )
-    return Stack(scenario, stt, llm, tts, system_prompt, slug, digest)
+    return Agent(scenario, stt, llm, tts, system_prompt, slug, digest)

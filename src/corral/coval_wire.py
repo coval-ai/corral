@@ -28,7 +28,7 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.serializers.base_serializer import FrameSerializer
 
-from agent.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
+from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
 
 SIMULATION_HEADER = "x-coval-simulation-id"
 SESSION_READY = {"type": "session_ready"}

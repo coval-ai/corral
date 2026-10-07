@@ -15,11 +15,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NoReturn
 
-from agent import benchmark, serve, talk
-from agent.config import Settings, get_settings
-from agent.logging import configure_logging
-from agent.models import MODALITIES, Modality, model_ids
-from agent.scenarios import (
+from corral import benchmark, serve, talk
+from corral.agent import load_agent
+from corral.config import Settings, get_settings
+from corral.logging import configure_logging
+from corral.models import MODALITIES, Modality, model_ids
+from corral.scenarios import (
     BENCHMARK_SCENARIO,
     TALK_SCENARIO,
     load_test_set,
@@ -27,7 +28,6 @@ from agent.scenarios import (
     scenario_names,
     scenario_summary,
 )
-from agent.stack import load_stack
 
 Reader = Callable[[str], str]
 
@@ -109,7 +109,7 @@ def fail(parser: argparse.ArgumentParser, interactive: bool, message: str) -> No
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="agent", description=__doc__)
+    parser = argparse.ArgumentParser(prog="corral", description=__doc__)
     parser.add_argument(
         "mode",
         nargs="?",
@@ -161,18 +161,18 @@ def main() -> None:
         request = benchmark.RunRequest(test_set, sample=1 if args.smoke else 0)
 
     if interactive:
-        stack = load_stack(scenario, *(choose_model(modality) for modality in MODALITIES))
+        agent = load_agent(scenario, *(choose_model(modality) for modality in MODALITIES))
     else:
-        stack = load_stack(scenario, args.stt, args.llm, args.tts)
+        agent = load_agent(scenario, args.stt, args.llm, args.tts)
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         if mode is TALK:
-            asyncio.run(talk.run(stack))
+            asyncio.run(talk.run(agent))
         elif mode is SERVE:
-            serve.serve(stack, args.port)
+            serve.serve(agent, args.port)
         else:
             assert request is not None  # noqa: S101
-            code = asyncio.run(benchmark.run(stack, args.port, not args.no_tunnel, request))
+            code = asyncio.run(benchmark.run(agent, args.port, not args.no_tunnel, request))
             raise SystemExit(code)
 
 

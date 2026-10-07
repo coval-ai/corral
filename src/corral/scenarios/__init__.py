@@ -12,7 +12,7 @@ import importlib.resources
 import json
 from importlib.resources.abc import Traversable
 
-from agent.models import JsonModel
+from corral.models import JsonModel
 
 PROMPT_FILE = "system-prompt.txt"
 SUMMARY_FILE = "summary.txt"

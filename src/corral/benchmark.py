@@ -17,22 +17,22 @@ import uvicorn
 from fastapi import FastAPI
 from websockets.asyncio.client import connect
 
-from agent.config import Settings, get_settings
-from agent.coval_api import (
+from corral.agent import Agent
+from corral.config import Settings, get_settings
+from corral.coval_api import (
     CovalClient,
-    CovalS2SAgent,
+    CovalTarget,
     is_terminal,
     launch_body,
     results_lines,
     run_id_of,
-    sync_agent,
+    sync_target,
 )
-from agent.coval_wire import SESSION_READY
-from agent.scenarios import TestSet
-from agent.serve import create_app
-from agent.stack import Stack
+from corral.coval_wire import SESSION_READY
+from corral.scenarios import TestSet
+from corral.serve import create_app
 
-logger = structlog.get_logger("agent")
+logger = structlog.get_logger("corral")
 
 PROBE_TIMEOUT_SECS = 30
 REACHABLE_TIMEOUT_SECS = 180
@@ -122,7 +122,7 @@ def _secret(settings: Settings, name: str) -> str:
 
 
 async def run_on_coval(
-    coval: CovalClient, stack: Stack, url: str, token: str | None, request: RunRequest
+    coval: CovalClient, agent: Agent, url: str, token: str | None, request: RunRequest
 ) -> dict[str, Any]:
     """Upsert the agent at this URL, launch one run, poll it to a terminal status.
 
@@ -130,8 +130,8 @@ async def run_on_coval(
     loop is also serving the calls, and a blocked loop is a stalled call.
     """
     test_set = request.test_set
-    definition = CovalS2SAgent(stack.slug, url, token, test_set.test_set_id)
-    agent_id = await asyncio.to_thread(sync_agent, coval, definition)
+    definition = CovalTarget(agent.slug, url, token, test_set.test_set_id)
+    agent_id = await asyncio.to_thread(sync_target, coval, definition)
     body = launch_body(
         agent_id,
         test_set.persona_id,
@@ -152,11 +152,11 @@ async def run_on_coval(
     return run
 
 
-async def run(stack: Stack, port: int, tunnel: bool, request: RunRequest) -> int:
+async def run(agent: Agent, port: int, tunnel: bool, request: RunRequest) -> int:
     settings = get_settings()
     token = settings.s2s_agent_token.get_secret_value() if settings.s2s_agent_token else None
     api_key = _secret(settings, "coval_api_key")
-    server, task, port = await serve_in_process(create_app(stack), port)
+    server, task, port = await serve_in_process(create_app(agent), port)
     process = None
     try:
         if tunnel:
@@ -168,7 +168,7 @@ async def run(stack: Stack, port: int, tunnel: bool, request: RunRequest) -> int
         logger.info("agent_up", url=url, **health)
         print(url, flush=True)
         with CovalClient(api_key, settings.coval_api_base) as coval:
-            final = await run_on_coval(coval, stack, url, token, request)
+            final = await run_on_coval(coval, agent, url, token, request)
         logger.info("run_finished", run_id=run_id_of(final), status=final.get("status"))
         print("\n".join(results_lines(final)), flush=True)
         return 0 if final.get("status") == "COMPLETED" else 1

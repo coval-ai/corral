@@ -3,7 +3,7 @@
 
 import pytest
 
-from agent.scenarios import load_test_set, require_test_set
+from corral.scenarios import load_test_set, require_test_set
 
 
 def test_a_scenario_carries_its_coval_ids_or_is_for_talking_only() -> None:

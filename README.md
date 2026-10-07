@@ -1,9 +1,9 @@
-# benchmark-harness
+# Corral
 
-Coval's own voice agent for the S2S leaderboard. It runs a speech-to-text,
-LLM, text-to-speech stack in Pipecat, lets Coval's simulator call it, and
-times every turn from inside the pipeline so we know which model the pause
-came from.
+Coval's own voice agent for the S2S leaderboard, and the harness around it.
+Corral rounds up a speech-to-text, LLM and text-to-speech model into one
+Pipecat agent, lets Coval's simulator call it, and times every turn from
+inside the pipeline so we know which model the pause came from.
 
 ## Setup
 
@@ -15,7 +15,7 @@ cp .env.example .env    # then fill in your keys
 ## Run
 
 ```bash
-uv run agent
+uv run corral
 ```
 
 Opens a tui that helps set up the agent. Defaults to a local test.
@@ -43,7 +43,7 @@ run.
 For scripts, pass the mode and flags instead of answering prompts:
 
 ```bash
-uv run agent benchmark --scenario baseline --stt soniox/stt-rt-v5 --llm google/gemini-2.5-flash --smoke
+uv run corral benchmark --scenario baseline --stt soniox/stt-rt-v5 --llm google/gemini-2.5-flash --smoke
 ```
 
 Leave a modality out and it gets the first model on the list. `S2S_STT`, `S2S_LLM`,
@@ -82,11 +82,11 @@ Comparisons between stacks are fine; absolute numbers are not yet.
 
 ## Adding things
 
-A **model** is an entry in `src/agent/models/stt.json`, `llm.json` or `tts.json`.
+A **model** is an entry in `src/corral/models/stt.json`, `llm.json` or `tts.json`.
 The first in each file is the default. If the provider is new, add its Pipecat class to the
-table in `src/agent/models/__init__.py` and its extra to `pyproject.toml`.
+table in `src/corral/models/__init__.py` and its extra to `pyproject.toml`.
 
-A **scenario** is a directory in `src/agent/scenarios/`. See the README there.
+A **scenario** is a directory in `src/corral/scenarios/`. See the README there.
 
 ## Checks
 

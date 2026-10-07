@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Talk to a stack on this machine's microphone and speakers. Ctrl-C hangs up and prints
+"""Talk to an agent on this machine's microphone and speakers. Ctrl-C hangs up and prints
 how long each stage took."""
 
 from __future__ import annotations
@@ -12,13 +12,13 @@ from typing import Any
 
 from pipecat.workers.runner import WorkerRunner
 
-from agent.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, get_settings
-from agent.observer import ModelsByModality, models_by_modality
-from agent.pipeline import build_call
-from agent.stack import Stack
+from corral.agent import Agent
+from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, get_settings
+from corral.observer import ModelsByModality, models_by_modality
+from corral.pipeline import build_call
 
 
-async def run(stack: Stack) -> None:
+async def run(agent: Agent) -> None:
     from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
     transport = LocalAudioTransport(
@@ -29,13 +29,13 @@ async def run(stack: Stack) -> None:
             audio_out_sample_rate=OUT_SAMPLE_RATE_HZ,
         )
     )
-    call = build_call(stack, transport, get_settings())
+    call = build_call(agent, transport, get_settings())
     runner = WorkerRunner()
     await runner.add_workers(call.worker)
     try:
         await runner.run()
     finally:
-        print(summary(call.observer.turns, models_by_modality(stack), stack.slug), flush=True)
+        print(summary(call.observer.turns, models_by_modality(agent), agent.slug), flush=True)
 
 
 STEPS = ("latency", "endpointing", "stt", "llm", "tts", "transport")

@@ -6,7 +6,7 @@ import shutil
 
 import pytest
 
-from agent.cli import BENCHMARK, TALK, choose_mode, choose_model, choose_scenario
+from corral.cli import BENCHMARK, TALK, choose_mode, choose_model, choose_scenario
 
 
 def test_each_role_lists_its_models_and_takes_a_number(capsys: pytest.CaptureFixture[str]) -> None:

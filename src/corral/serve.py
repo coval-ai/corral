@@ -17,32 +17,32 @@ from pipecat.transports.websocket.fastapi import (
 )
 from pipecat.workers.runner import WorkerRunner
 
-from agent.config import Settings, get_settings
-from agent.coval_wire import (
+from corral.agent import Agent
+from corral.config import Settings, get_settings
+from corral.coval_wire import (
     SESSION_READY,
     CovalFrameSerializer,
     authorized,
     simulation_id,
 )
-from agent.observer import coval_trace_provider
-from agent.pipeline import build_call
-from agent.stack import Stack
+from corral.observer import coval_trace_provider
+from corral.pipeline import build_call
 
-logger = structlog.get_logger("agent")
+logger = structlog.get_logger("corral")
 
 POLICY_VIOLATION = 1008
 
 
-def create_app(stack: Stack) -> FastAPI:
+def create_app(agent: Agent) -> FastAPI:
     app = FastAPI()
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {
             "status": "ok",
-            "scenario": stack.scenario,
-            "stack": stack.slug,
-            "digest": stack.digest,
+            "scenario": agent.scenario,
+            "agent": agent.slug,
+            "digest": agent.digest,
         }
 
     @app.websocket("/ws")
@@ -54,15 +54,15 @@ def create_app(stack: Stack) -> FastAPI:
             return
         await websocket.accept()
         sim = simulation_id(websocket.headers)
-        log = logger.bind(simulation_id=sim, stack=stack.slug, digest=stack.digest)
+        log = logger.bind(simulation_id=sim, agent=agent.slug, digest=agent.digest)
         log.info("call_started")
-        await run_call(websocket, stack, sim)
+        await run_call(websocket, agent, sim)
         log.info("call_ended")
 
     return app
 
 
-async def run_call(websocket: WebSocket, stack: Stack, sim: str | None) -> None:
+async def run_call(websocket: WebSocket, agent: Agent, sim: str | None) -> None:
     settings = get_settings()
     provider = _trace_provider(settings, sim)
     transport = FastAPIWebsocketTransport(
@@ -75,7 +75,7 @@ async def run_call(websocket: WebSocket, stack: Stack, sim: str | None) -> None:
         ),
     )
     call = build_call(
-        stack,
+        agent,
         transport,
         settings,
         attributes={"simulation.id": sim or ""},
@@ -105,8 +105,8 @@ def _trace_provider(settings: Settings, sim: str | None) -> TracerProvider | Non
     return coval_trace_provider(key, settings.coval_api_base, sim) if key else None
 
 
-def serve(stack: Stack, port: int) -> None:
+def serve(agent: Agent, port: int) -> None:
     """The image's command: the agent on every interface, no tunnel, until stopped."""
     import uvicorn
 
-    uvicorn.run(create_app(stack), host="0.0.0.0", port=port)  # noqa: S104
+    uvicorn.run(create_app(agent), host="0.0.0.0", port=port)  # noqa: S104

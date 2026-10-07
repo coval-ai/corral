@@ -21,7 +21,7 @@ from pipecat.frames.frames import (
 from pipecat.observers.base_observer import FramePushed
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from agent.observer import SPAN_NAME, TurnLatencyObserver
+from corral.observer import SPAN_NAME, TurnLatencyObserver
 
 MS = 1_000_000
 Exported = tuple[TurnLatencyObserver, "_Clock", InMemorySpanExporter]
@@ -81,7 +81,7 @@ def exported() -> Iterator[Exported]:
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     clock = _Clock()
     observer = TurnLatencyObserver(
-        attributes={"stack": "x"},
+        attributes={"agent": "x"},
         models={"llm": {"provider": "openai", "model": "gpt-4.1"}},
         tracer=provider.get_tracer("test"),
         clock=clock,
@@ -105,7 +105,7 @@ async def test_a_full_turn_breaks_the_pause_into_its_steps(exported: Exported) -
     assert span.name == SPAN_NAME
     assert span.attributes is not None
     a = dict(span.attributes)
-    assert a["stack"] == "x"
+    assert a["agent"] == "x"
     assert a["s2s.turn.number"] == 1
     assert a["s2s.latency.source"] == "utterance_end"
     assert a["s2s.latency_ms"] == 800.0

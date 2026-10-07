@@ -22,10 +22,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from pipecat.processors.frame_processor import FrameProcessor
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, Settings
+from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, Settings
 
 if TYPE_CHECKING:
-    from agent.stack import Stack
+    from corral.agent import Agent
 
 Modality = Literal["stt", "llm", "tts"]
 MODALITIES: tuple[Modality, ...] = ("stt", "llm", "tts")
@@ -153,33 +153,33 @@ def _build(
     return service
 
 
-def resolve(stack: Stack, settings: Settings) -> Services:
+def resolve(agent: Agent, settings: Settings) -> Services:
     """Every modality's vendor and key checked first, then the three services built."""
-    stt_path, stt_key = _resolve_vendor("stt", stack.stt.provider, settings)
-    llm_path, llm_key = _resolve_vendor("llm", stack.llm.provider, settings)
-    tts_path, tts_key = _resolve_vendor("tts", stack.tts.provider, settings)
+    stt_path, stt_key = _resolve_vendor("stt", agent.stt.provider, settings)
+    llm_path, llm_key = _resolve_vendor("llm", agent.llm.provider, settings)
+    tts_path, tts_key = _resolve_vendor("tts", agent.tts.provider, settings)
     return Services(
         stt=_build(
             stt_path,
             stt_key,
-            {"model": stack.stt.name, **stack.stt.options},
+            {"model": agent.stt.name, **agent.stt.options},
             IN_SAMPLE_RATE_HZ,
         ),
         llm=_build(
             llm_path,
             llm_key,
             {
-                "model": stack.llm.name,
-                "temperature": stack.llm.temperature,
-                "system_instruction": stack.system_prompt,
-                **stack.llm.options,
+                "model": agent.llm.name,
+                "temperature": agent.llm.temperature,
+                "system_instruction": agent.system_prompt,
+                **agent.llm.options,
             },
             None,
         ),
         tts=_build(
             tts_path,
             tts_key,
-            {"model": stack.tts.name, "voice": stack.tts.voice, **stack.tts.options},
+            {"model": agent.tts.name, "voice": agent.tts.voice, **agent.tts.options},
             OUT_SAMPLE_RATE_HZ,
         ),
     )

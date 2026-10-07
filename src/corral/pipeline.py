@@ -31,20 +31,20 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from agent.config import (
+from corral.agent import Agent
+from corral.config import (
     IN_SAMPLE_RATE_HZ,
     INTERRUPT_MIN_WORDS,
     OUT_SAMPLE_RATE_HZ,
     VAD_STOP_SECS,
     Settings,
 )
-from agent.models import resolve
-from agent.observer import TurnLatencyObserver, models_by_modality
-from agent.stack import Stack
+from corral.models import resolve
+from corral.observer import TurnLatencyObserver, models_by_modality
 
 
-def context_aggregators(stack: Stack) -> LLMContextAggregatorPair:
-    """The conversation context and the turn-taking the stack pins around it.
+def context_aggregators(agent: Agent) -> LLMContextAggregatorPair:
+    """The conversation context and the turn-taking the agent pins around it.
 
     The system prompt is not here; it rides on the LLM service's Settings so
     Pipecat composes it with its own instructions. Silero decides when the
@@ -88,7 +88,7 @@ class Call:
 
 
 def build_call(
-    stack: Stack,
+    agent: Agent,
     transport: BaseTransport,
     settings: Settings,
     *,
@@ -102,13 +102,13 @@ def build_call(
     Talk and serve both build their call here, so a change to how a call works
     reaches both and their latency numbers stay comparable.
     """
-    services = resolve(stack, settings)
+    services = resolve(agent, settings)
     observer = TurnLatencyObserver(
-        attributes={**(attributes or {}), "stack": stack.slug, "digest": stack.digest},
-        models=models_by_modality(stack),
+        attributes={**(attributes or {}), "agent": agent.slug, "digest": agent.digest},
+        models=models_by_modality(agent),
         tracer=tracer,
     )
-    aggregators = context_aggregators(stack)
+    aggregators = context_aggregators(agent)
     middle = cascade_processors(services.stt, services.llm, services.tts, aggregators)
     worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),

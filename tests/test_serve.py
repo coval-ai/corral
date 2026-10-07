@@ -11,10 +11,10 @@ from pipecat.frames.frames import Frame, InputAudioRawFrame, OutputAudioRawFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from starlette.websockets import WebSocketDisconnect
 
-from agent import pipeline, serve
-from agent.config import Settings
-from agent.models import Services
-from agent.stack import load_stack
+from corral import pipeline, serve
+from corral.agent import load_agent
+from corral.config import Settings
+from corral.models import Services
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 
@@ -41,20 +41,20 @@ class _Echo(FrameProcessor):
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    stack = load_stack("baseline", *REFERENCE)
+    agent = load_agent("baseline", *REFERENCE)
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (
         patch.object(pipeline, "resolve", return_value=fakes),
         patch.object(serve, "get_settings", return_value=settings),
     ):
-        yield TestClient(serve.create_app(stack))
+        yield TestClient(serve.create_app(agent))
 
 
-def test_healthz_names_the_stack_and_its_digest(client: TestClient) -> None:
+def test_healthz_names_the_agent_and_its_digest(client: TestClient) -> None:
     body = client.get("/healthz").json()
     assert body["status"] == "ok"
-    assert body["stack"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
+    assert body["agent"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
     assert len(body["digest"]) == 64
 
 

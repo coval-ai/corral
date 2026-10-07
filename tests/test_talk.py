@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-from agent.talk import summary
+from corral.talk import summary
 
 
 def test_hanging_up_prints_median_and_max_per_stage() -> None:

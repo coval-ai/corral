@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Coval's HTTP API: the agent record we point at the served stack, and the runs we launch."""
+"""Coval's HTTP API: the agent record we point at the served agent, and the runs we launch."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import Any, Self
 
 import httpx
 
-from agent.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
+from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
 
 COVAL_API_BASE = "https://api.coval.dev/v1"
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
@@ -92,7 +92,7 @@ TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED", "DELETED"})
 
 
 @dataclass(frozen=True)
-class CovalS2SAgent:
+class CovalTarget:
     slug: str
     url: str
     token: str | None
@@ -106,7 +106,7 @@ class CovalS2SAgent:
     def display_name(self) -> str:
         return f"Benchmarks: S2S {self.slug}"
 
-    def agent_body(self) -> dict[str, Any]:
+    def target_body(self) -> dict[str, Any]:
         metadata: dict[str, Any] = {
             "connection_mode": "direct",
             "endpoint": "wss" + self.url.removeprefix("https").removeprefix("http") + "/ws",
@@ -134,9 +134,9 @@ class CovalS2SAgent:
         }
 
 
-def sync_agent(client: CovalClient, definition: CovalS2SAgent) -> str:
+def sync_target(client: CovalClient, definition: CovalTarget) -> str:
     """Find-or-create the agent and point it at this serving; returns its id."""
-    wanted = definition.agent_body()
+    wanted = definition.target_body()
     live = client.find_agent(definition.customer_agent_id)
     if live is None:
         return str(client.create_agent(wanted)["id"])

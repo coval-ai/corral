@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
-from agent import benchmark, pipeline, serve
-from agent.config import Settings
-from agent.models import Services
-from agent.stack import load_stack
+from corral import benchmark, pipeline, serve
+from corral.agent import load_agent
+from corral.config import Settings
+from corral.models import Services
 from tests.test_serve import _Echo, _Passthrough
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
@@ -17,14 +17,14 @@ REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 
 @pytest.fixture
 async def url() -> AsyncIterator[str]:
-    stack = load_stack("baseline", *REFERENCE)
+    agent = load_agent("baseline", *REFERENCE)
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (
         patch.object(pipeline, "resolve", return_value=fakes),
         patch.object(serve, "get_settings", return_value=settings),
     ):
-        server, task, port = await benchmark.serve_in_process(serve.create_app(stack), 0)
+        server, task, port = await benchmark.serve_in_process(serve.create_app(agent), 0)
         try:
             yield f"http://127.0.0.1:{port}"
         finally:
@@ -35,7 +35,7 @@ async def url() -> AsyncIterator[str]:
 @pytest.mark.asyncio
 async def test_probe_reads_health_then_hears_session_ready(url: str) -> None:
     health = await benchmark.probe(url, "s3cret")
-    assert health["stack"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
+    assert health["agent"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
 
 
 @pytest.mark.asyncio

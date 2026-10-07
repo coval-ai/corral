@@ -11,7 +11,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.processors.frame_processor import FrameProcessorSetup
 
-from agent.coval_wire import (
+from corral.coval_wire import (
     SESSION_READY,
     CovalFrameSerializer,
     authorized,
