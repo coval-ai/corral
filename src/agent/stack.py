@@ -6,20 +6,14 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.resources
 import json
 import re
 from dataclasses import dataclass
 from typing import Literal
 
 from agent.annotated import AnnotatedModel
-from agent.catalog import LlmPin, SttPin, TtsPin, catalog, find
-
-SCENARIOS_PACKAGE = "agent.scenarios"
-PROMPT_FILE = "system-prompt.txt"
-SUMMARY_FILE = "summary.txt"
-TALK_SCENARIO = "default"
-BENCHMARK_SCENARIO = "baseline"
+from agent.models import LlmPin, SttPin, TtsPin, catalog, find
+from agent.scenarios import load_prompt
 
 
 class TurnTakingPin(AnnotatedModel):
@@ -50,22 +44,6 @@ class Stack:
     digest: str
 
 
-def scenario_names() -> list[str]:
-    """Every scenario directory that ships a prompt."""
-    scenarios = importlib.resources.files(SCENARIOS_PACKAGE)
-    return sorted(
-        entry.name
-        for entry in scenarios.iterdir()
-        if entry.is_dir() and entry.joinpath(PROMPT_FILE).is_file()
-    )
-
-
-def scenario_summary(scenario: str) -> str:
-    """The scenario's one line for a menu, from its summary.txt."""
-    path = importlib.resources.files(SCENARIOS_PACKAGE).joinpath(scenario, SUMMARY_FILE)
-    return path.read_text().strip() if path.is_file() else ""
-
-
 def load_stack(
     scenario: str, stt: str | None = None, llm: str | None = None, tts: str | None = None
 ) -> Stack:
@@ -74,12 +52,10 @@ def load_stack(
     stt_pin = find("stt", models.stt, stt)
     llm_pin = find("llm", models.llm, llm)
     tts_pin = find("tts", models.tts, tts)
-    prompt_bytes = (
-        importlib.resources.files(SCENARIOS_PACKAGE).joinpath(scenario, PROMPT_FILE).read_bytes()
-    )
+    prompt_bytes = load_prompt(scenario)
     system_prompt = prompt_bytes.decode().strip()
     if not system_prompt:
-        raise ValueError(f"{scenario}/{PROMPT_FILE} is empty")
+        raise ValueError(f"{scenario}'s prompt is empty")
     config = {
         "stt": stt_pin.model_dump(),
         "llm": llm_pin.model_dump(),

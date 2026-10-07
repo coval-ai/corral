@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 import pytest
 
-from agent import driver, serve
+from agent import benchmark, serve
 from agent.config import Settings
-from agent.services import Services
+from agent.models import Services
 from agent.stack import load_stack
 from tests.test_serve import _Echo, _Passthrough
 
@@ -22,7 +22,7 @@ async def url() -> AsyncIterator[str]:
         patch.object(serve, "resolve", return_value=fakes),
         patch.object(serve, "get_settings", return_value=settings),
     ):
-        server, task, port = await driver.serve_in_process(serve.create_app(stack), 0)
+        server, task, port = await benchmark.serve_in_process(serve.create_app(stack), 0)
         try:
             yield f"http://127.0.0.1:{port}"
         finally:
@@ -32,17 +32,17 @@ async def url() -> AsyncIterator[str]:
 
 @pytest.mark.asyncio
 async def test_probe_reads_health_then_hears_session_ready(url: str) -> None:
-    health = await driver.probe(url, "s3cret")
+    health = await benchmark.probe(url, "s3cret")
     assert health["stack"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
 
 
 @pytest.mark.asyncio
 async def test_probe_fails_on_a_wrong_bearer(url: str) -> None:
     with pytest.raises(Exception, match="403"):
-        await driver.probe(url, "nope")
+        await benchmark.probe(url, "nope")
 
 
 def test_the_tunnel_url_is_read_out_of_cloudflared_log_noise() -> None:
     line = "2026-10-02T21:33:43Z INF |  https://quiet-hill-abc.trycloudflare.com    |"
-    found = driver.TUNNEL_URL.search(line)
+    found = benchmark.TUNNEL_URL.search(line)
     assert found and found.group(0) == "https://quiet-hill-abc.trycloudflare.com"

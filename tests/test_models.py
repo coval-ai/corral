@@ -13,7 +13,7 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.soniox.stt import SonioxSTTService
 from pipecat.services.soniox.tts import SonioxTTSService
 
-from agent import services
+from agent import models
 from agent.config import Settings
 from agent.stack import load_stack
 
@@ -28,22 +28,20 @@ KEYS: dict[str, Any] = {
 
 
 def test_each_role_lists_the_vendors_that_fill_it() -> None:
-    assert services.supported("stt") == ["deepgram", "soniox"]
-    assert services.supported("llm") == ["google", "openai"]
-    assert services.supported("tts") == ["elevenlabs", "soniox"]
+    assert models.supported("stt") == ["deepgram", "soniox"]
+    assert models.supported("llm") == ["google", "openai"]
+    assert models.supported("tts") == ["elevenlabs", "soniox"]
 
 
 def test_the_reference_stack_resolves_to_deepgram_openai_elevenlabs() -> None:
-    built = services.resolve(load_stack("baseline"), Settings(_env_file=None, **KEYS))
+    built = models.resolve(load_stack("baseline"), Settings(_env_file=None, **KEYS))
     assert isinstance(built.stt, DeepgramSTTService)
     assert isinstance(built.llm, OpenAILLMService)
     assert isinstance(built.tts, ElevenLabsTTSService)
 
 
 def test_the_soniox_gemini_stack_resolves_to_soniox_google_soniox() -> None:
-    built = services.resolve(
-        load_stack("baseline", *SONIOX_GEMINI), Settings(_env_file=None, **KEYS)
-    )
+    built = models.resolve(load_stack("baseline", *SONIOX_GEMINI), Settings(_env_file=None, **KEYS))
     assert isinstance(built.stt, SonioxSTTService)
     assert isinstance(built.llm, GoogleLLMService)
     assert isinstance(built.tts, SonioxTTSService)
@@ -53,27 +51,27 @@ def test_an_unknown_provider_fails_before_anything_connects() -> None:
     stack = load_stack("baseline")
     bad = dataclasses.replace(stack, tts=stack.tts.model_copy(update={"provider": "nope"}))
     with pytest.raises(ValueError, match="no tts for 'nope'; have elevenlabs, soniox"):
-        services.resolve(bad, Settings(_env_file=None, **KEYS))
+        models.resolve(bad, Settings(_env_file=None, **KEYS))
 
 
 def test_a_missing_key_names_the_env_var() -> None:
     keys = {**KEYS, "soniox_api_key": None}
     with pytest.raises(RuntimeError, match="SONIOX_API_KEY is unset"):
-        services.resolve(load_stack("baseline", *SONIOX_GEMINI), Settings(_env_file=None, **keys))
+        models.resolve(load_stack("baseline", *SONIOX_GEMINI), Settings(_env_file=None, **keys))
 
 
 def test_the_system_prompt_rides_on_the_llm_service() -> None:
     stack = load_stack("baseline")
-    built = services.resolve(stack, Settings(_env_file=None, **KEYS))
+    built = models.resolve(stack, Settings(_env_file=None, **KEYS))
     assert isinstance(built.llm, LLMService)
     assert built.llm._settings.system_instruction == stack.system_prompt
 
 
 def test_every_stack_runs_its_stt_with_endpointing_off() -> None:
-    deepgram = services.resolve(load_stack("baseline"), Settings(_env_file=None, **KEYS))
+    deepgram = models.resolve(load_stack("baseline"), Settings(_env_file=None, **KEYS))
     assert isinstance(deepgram.stt, DeepgramSTTService)
     assert vars(deepgram.stt._settings)["endpointing"] is False
-    soniox = services.resolve(
+    soniox = models.resolve(
         load_stack("baseline", *SONIOX_GEMINI), Settings(_env_file=None, **KEYS)
     )
     assert isinstance(soniox.stt, SonioxSTTService)

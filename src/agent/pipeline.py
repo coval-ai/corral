@@ -25,8 +25,8 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
+from agent.models import Services
 from agent.observer import TurnLatencyObserver
-from agent.services import Services
 from agent.stack import Stack
 
 

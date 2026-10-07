@@ -13,7 +13,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from agent import serve
 from agent.config import Settings
-from agent.services import Services
+from agent.models import Services
 from agent.stack import load_stack
 
 SILENCE_16K_100MS = bytes(2 * 1600)

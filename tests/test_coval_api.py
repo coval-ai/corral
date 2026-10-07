@@ -5,19 +5,17 @@ import json
 from typing import Any
 
 import httpx
-import pytest
 
-from agent import coval_agent
-from agent.coval_agent import (
+from agent import coval_api
+from agent.coval_api import (
+    CovalClient,
     CovalS2SAgent,
     is_terminal,
     launch_body,
     results_lines,
     sync_agent,
 )
-from agent.coval_client import CovalClient
 from agent.stack import AudioPin
-from agent.testset import load_test_set, require_test_set
 
 AUDIO = AudioPin(in_sample_rate_hz=16000, out_sample_rate_hz=24000)
 DEFINITION = CovalS2SAgent("cascade-x", "https://quiet-hill.trycloudflare.com", "s3cret", "TSBANK")
@@ -48,7 +46,7 @@ def test_the_agent_speaks_raw_pcm_and_waits_for_session_ready() -> None:
     body = DEFINITION.agent_body(AUDIO)
     metadata = body["metadata"]
     assert body["customer_agent_id"] == "benchmarks-s2s-cascade-x"
-    assert body["model_type"] == coval_agent.MODEL_TYPE
+    assert body["model_type"] == coval_api.MODEL_TYPE
     assert metadata["endpoint"] == "wss://quiet-hill.trycloudflare.com/ws"
     assert metadata["send_audio_template"] == "{{audio_data}}"
     assert metadata["handshake_ready_message_type"] == "session_ready"
@@ -96,15 +94,6 @@ def test_launch_carries_the_boards_metrics_at_concurrency_one() -> None:
     assert sampled["options"]["sub_sample_size"] == 2
     assert not is_terminal({"status": "RUNNING"})
     assert is_terminal({"status": "COMPLETED"})
-
-
-def test_a_scenario_carries_its_coval_ids_or_is_for_talking_only() -> None:
-    baseline = require_test_set("baseline")
-    assert baseline.test_set_id == "QjkAPGkb"
-    assert baseline.persona_id and len(baseline.metric_ids) == 3
-    assert load_test_set("default") is None
-    with pytest.raises(ValueError, match="'default' has no coval.json"):
-        require_test_set("default")
 
 
 def test_results_print_one_line_per_metric() -> None:

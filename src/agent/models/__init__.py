@@ -1,27 +1,87 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Pipecat's stock services, picked by what the stack file names.
+"""The models on offer, and the Pipecat services that run them.
 
-Pipecat gives every STT, LLM and TTS service the same shape: ``api_key``,
-``sample_rate`` and a ``Settings`` whose base fields are ``model``, ``voice``,
-``language`` and ``temperature``. So a vendor here is just a class per modality
-and the Settings key it bills to. A stack is resolved before anything connects,
-so an unknown provider or a missing key fails at startup with the supported
-list, not mid-call.
+stt.json, llm.json and tts.json list what you can pick, the default first. The vendor
+table says which Pipecat class runs each provider and which key pays for it. Every
+Pipecat service takes the same ``api_key``, ``sample_rate`` and ``Settings``, so
+building one works the same for every vendor. Providers and keys are checked before
+anything connects, so a bad pick fails at startup with the list of what's supported.
 """
 
 from __future__ import annotations
 
+import functools
 import importlib
+import importlib.resources
+import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pipecat.processors.frame_processor import FrameProcessor
+from pydantic import Field
 
-from agent.catalog import Modality
+from agent.annotated import AnnotatedModel
 from agent.config import Settings
-from agent.stack import Stack
+
+if TYPE_CHECKING:
+    from agent.stack import Stack
+
+Modality = Literal["stt", "llm", "tts"]
+MODALITIES: tuple[Modality, ...] = ("stt", "llm", "tts")
+
+
+class ComponentPin(AnnotatedModel):
+    """One modality's vendor and model. ``options`` is for knobs only that vendor understands."""
+
+    provider: str
+    model: str
+    options: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def id(self) -> str:
+        return f"{self.provider}/{self.model}"
+
+
+class SttPin(ComponentPin):
+    pass
+
+
+class LlmPin(ComponentPin):
+    temperature: float
+
+
+class TtsPin(ComponentPin):
+    voice: str
+
+
+class Catalog(AnnotatedModel):
+    stt: list[SttPin]
+    llm: list[LlmPin]
+    tts: list[TtsPin]
+
+
+@functools.cache
+def catalog() -> Catalog:
+    folder = importlib.resources.files(__name__)
+    return Catalog.model_validate(
+        {kind: json.loads(folder.joinpath(f"{kind}.json").read_bytes()) for kind in MODALITIES}
+    )
+
+
+def model_ids(modality: Modality) -> list[str]:
+    """Every model offered for a modality, as provider/model. The first is the default."""
+    return [pin.id for pin in getattr(catalog(), modality)]
+
+
+def find[P: ComponentPin](modality: Modality, pins: list[P], model_id: str | None) -> P:
+    if model_id is None:
+        return pins[0]
+    for pin in pins:
+        if pin.id == model_id:
+            return pin
+    raise ValueError(f"no {modality} model {model_id!r}; have {', '.join(model_ids(modality))}")
 
 
 @dataclass(frozen=True)

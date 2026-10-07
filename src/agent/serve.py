@@ -19,15 +19,15 @@ from pipecat.transports.websocket.fastapi import (
 from pipecat.workers.runner import WorkerRunner
 
 from agent.config import Settings, get_settings
-from agent.coval import (
+from agent.coval_wire import (
     SESSION_READY,
     CovalFrameSerializer,
     authorized,
     simulation_id,
 )
+from agent.models import resolve
 from agent.observer import TurnLatencyObserver, coval_trace_provider, models_by_modality
 from agent.pipeline import build_worker
-from agent.services import resolve
 from agent.stack import Stack
 
 logger = structlog.get_logger("agent")

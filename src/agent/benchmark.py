@@ -18,8 +18,8 @@ from fastapi import FastAPI
 from websockets.asyncio.client import connect
 
 from agent.config import Settings, get_settings
-from agent.coval import SESSION_READY
-from agent.coval_agent import (
+from agent.coval_api import (
+    CovalClient,
     CovalS2SAgent,
     is_terminal,
     launch_body,
@@ -27,10 +27,10 @@ from agent.coval_agent import (
     run_id_of,
     sync_agent,
 )
-from agent.coval_client import CovalClient
+from agent.coval_wire import SESSION_READY
+from agent.scenarios import TestSet
 from agent.serve import create_app
 from agent.stack import Stack
-from agent.testset import TestSet
 
 logger = structlog.get_logger("agent")
 

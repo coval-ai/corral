@@ -84,7 +84,7 @@ Comparisons between stacks are fine; absolute numbers are not yet.
 
 A **model** is an entry in `src/agent/models/stt.json`, `llm.json` or `tts.json`.
 The first in each file is the default. If the provider is new, add its Pipecat class to the
-table in `src/agent/services/` and its extra to `pyproject.toml`.
+table in `src/agent/models/__init__.py` and its extra to `pyproject.toml`.
 
 A **scenario** is a directory in `src/agent/scenarios/`. See the README there.
 

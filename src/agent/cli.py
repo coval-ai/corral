@@ -15,18 +15,19 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NoReturn
 
-from agent import app, driver, serve
-from agent.catalog import MODALITIES, Modality, model_ids
+from agent import benchmark, serve, talk
 from agent.config import Settings, get_settings
 from agent.logging import configure_logging
-from agent.stack import (
+from agent.models import MODALITIES, Modality, model_ids
+from agent.scenarios import (
     BENCHMARK_SCENARIO,
     TALK_SCENARIO,
-    load_stack,
+    load_test_set,
+    require_test_set,
     scenario_names,
     scenario_summary,
 )
-from agent.testset import load_test_set, require_test_set
+from agent.stack import load_stack
 
 Reader = Callable[[str], str]
 
@@ -157,7 +158,7 @@ def main() -> None:
             test_set = require_test_set(scenario)
         except ValueError as error:
             fail(parser, interactive, str(error))
-        request = driver.RunRequest(test_set, sample=1 if args.smoke else 0)
+        request = benchmark.RunRequest(test_set, sample=1 if args.smoke else 0)
 
     if interactive:
         stack = load_stack(scenario, *(choose_model(modality) for modality in MODALITIES))
@@ -166,12 +167,12 @@ def main() -> None:
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         if mode is TALK:
-            asyncio.run(app.run(stack))
+            asyncio.run(talk.run(stack))
         elif mode is SERVE:
             serve.serve(stack, args.port)
         else:
             assert request is not None  # noqa: S101
-            code = asyncio.run(driver.run(stack, args.port, not args.no_tunnel, request))
+            code = asyncio.run(benchmark.run(stack, args.port, not args.no_tunnel, request))
             raise SystemExit(code)
 
 

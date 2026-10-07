@@ -15,9 +15,9 @@ from pipecat.pipeline.worker import PipelineWorker
 from pipecat.workers.runner import WorkerRunner
 
 from agent.config import get_settings
+from agent.models import resolve
 from agent.observer import ModelsByModality, TurnLatencyObserver, models_by_modality
 from agent.pipeline import build_worker
-from agent.services import resolve
 from agent.stack import Stack
 
 
