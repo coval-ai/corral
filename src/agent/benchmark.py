@@ -35,7 +35,7 @@ from agent.stack import Stack
 logger = structlog.get_logger("agent")
 
 PROBE_TIMEOUT_SECS = 30
-REACHABLE_TIMEOUT_SECS = 180  # a quick tunnel's hostname takes about 80 s to resolve
+REACHABLE_TIMEOUT_SECS = 180
 POLL_SECS = 30
 TUNNEL_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
@@ -110,7 +110,7 @@ async def _drain(stream: asyncio.StreamReader) -> None:
 @dataclass(frozen=True)
 class RunRequest:
     test_set: TestSet
-    sample: int  # test cases to run; 0 is the whole set
+    sample: int
 
 
 def _secret(settings: Settings, name: str) -> str:

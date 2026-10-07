@@ -42,7 +42,7 @@ TALK = Mode("talk", "to the agent")
 BENCHMARK = Mode("benchmark", "with Coval")
 SERVE = Mode("serve", "the image's command: serve on PORT with no tunnel and no run")
 MODES = (TALK, BENCHMARK, SERVE)
-MENU_MODES = (TALK, BENCHMARK)  # serve is for the image, not for someone at a terminal
+MENU_MODES = (TALK, BENCHMARK)
 
 
 def missing_for(mode: Mode) -> str | None:

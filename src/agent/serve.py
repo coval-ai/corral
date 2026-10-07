@@ -86,8 +86,6 @@ async def run_call(websocket: WebSocket, stack: Stack, sim: str | None) -> None:
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
     async def _ready(started: PipelineWorker, _frame: Frame) -> None:
-        # Fires once StartFrame has passed every processor, so every service is
-        # up. Coval holds the persona until session_ready, then the agent greets.
         await started.queue_frame(OutputTransportMessageUrgentFrame(message=SESSION_READY))
         await started.queue_frame(LLMRunFrame())
 
@@ -101,7 +99,6 @@ async def run_call(websocket: WebSocket, stack: Stack, sim: str | None) -> None:
         await runner.run()
     finally:
         if provider is not None:
-            # shutdown flushes, so every span of this call is out before the call is
             await asyncio.to_thread(provider.shutdown)
 
 

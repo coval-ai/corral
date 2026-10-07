@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     soniox_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
 
-    # Bearer Coval must present to the served agent; unset means open.
     s2s_agent_token: SecretStr | None = None
 
     coval_api_key: SecretStr | None = None

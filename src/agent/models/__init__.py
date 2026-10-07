@@ -87,7 +87,7 @@ def find[P: ComponentPin](modality: Modality, pins: list[P], model_id: str | Non
 @dataclass(frozen=True)
 class Vendor:
     key_attr: str
-    stt: str | None = None  # "module:Class" for each modality the vendor fills
+    stt: str | None = None
     llm: str | None = None
     tts: str | None = None
 

@@ -57,7 +57,7 @@ SERVICE_NAME = "coval-bench-s2s-agent"
 EXPORT_TIMEOUT_SECS = 30
 UTTERANCE_END = "utterance_end"
 
-ModelsByModality = Mapping[str, Mapping[str, str]]  # stage -> {"provider": ..., "model": ...}
+ModelsByModality = Mapping[str, Mapping[str, str]]
 
 
 def _ms(later: int, earlier: int) -> float:
@@ -179,7 +179,7 @@ class TurnLatencyObserver(BaseObserver):
         self._clock = clock
         self._turn = 0
         self._moment = Moments()
-        self.turns: list[dict[str, Any]] = []  # every emitted turn's attributes, in order
+        self.turns: list[dict[str, Any]] = []
 
     async def on_push_frame(self, data: FramePushed) -> None:
         if not data.first_push:
@@ -199,10 +199,10 @@ class TurnLatencyObserver(BaseObserver):
                 moment.vad_stop_secs = secs
             case UserStoppedSpeakingFrame():
                 moment.vad_done = now
-                moment.llm_first_token = None  # the answer to this turn hasn't started
+                moment.llm_first_token = None
                 moment.tts_first_audio = None
             case TranscriptionFrame() if moment.llm_first_token is None:
-                moment.stt_done = now  # keep the latest one until the model starts
+                moment.stt_done = now
             # The model only runs once Pipecat ends the caller's turn, so text or audio
             # before vad_done is the previous answer still streaming. Ignore it.
             case LLMTextFrame() if moment.vad_done is not None and moment.llm_first_token is None:
@@ -212,7 +212,7 @@ class TurnLatencyObserver(BaseObserver):
             ):
                 moment.tts_first_audio = now
             case InterruptionFrame():
-                self._moment = Moments()  # caller cut the agent off, start fresh
+                self._moment = Moments()
             case BotStartedSpeakingFrame():
                 moment.audio_start = now
                 if moment.caller_stopped is not None and moment.tts_first_audio is not None:

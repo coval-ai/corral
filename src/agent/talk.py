@@ -22,7 +22,6 @@ from agent.stack import Stack
 
 
 async def run(stack: Stack) -> None:
-    # pyaudio comes with the local extra only; nothing else needs it.
     from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
     services = resolve(stack, get_settings())
@@ -43,7 +42,6 @@ async def run(stack: Stack) -> None:
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
     async def _greet(started: PipelineWorker, _frame: Frame) -> None:
-        # Fires once StartFrame has passed every processor, so every service is up.
         await started.queue_frame(LLMRunFrame())
 
     runner = WorkerRunner()
