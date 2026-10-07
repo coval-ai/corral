@@ -1,6 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
+import dataclasses
 from typing import Any
 
 import pytest
@@ -16,6 +17,7 @@ from agent import services
 from agent.config import Settings
 from agent.stack import load_stack
 
+SONIOX_GEMINI = ("soniox/stt-rt-v5", "google/gemini-2.5-flash", "soniox/tts-rt-v2")
 KEYS: dict[str, Any] = {
     "deepgram_api_key": "dg",
     "openai_api_key": "oa",
@@ -32,9 +34,7 @@ def test_each_role_lists_the_vendors_that_fill_it() -> None:
 
 
 def test_the_reference_stack_resolves_to_deepgram_openai_elevenlabs() -> None:
-    built = services.resolve(
-        load_stack("baseline", "cascade-nova3-gpt41-flash"), Settings(_env_file=None, **KEYS)
-    )
+    built = services.resolve(load_stack("baseline"), Settings(_env_file=None, **KEYS))
     assert isinstance(built.stt, DeepgramSTTService)
     assert isinstance(built.llm, OpenAILLMService)
     assert isinstance(built.tts, ElevenLabsTTSService)
@@ -42,7 +42,7 @@ def test_the_reference_stack_resolves_to_deepgram_openai_elevenlabs() -> None:
 
 def test_the_soniox_gemini_stack_resolves_to_soniox_google_soniox() -> None:
     built = services.resolve(
-        load_stack("baseline", "cascade-soniox-gemini"), Settings(_env_file=None, **KEYS)
+        load_stack("baseline", *SONIOX_GEMINI), Settings(_env_file=None, **KEYS)
     )
     assert isinstance(built.stt, SonioxSTTService)
     assert isinstance(built.llm, GoogleLLMService)
@@ -50,39 +50,31 @@ def test_the_soniox_gemini_stack_resolves_to_soniox_google_soniox() -> None:
 
 
 def test_an_unknown_provider_fails_before_anything_connects() -> None:
-    loaded = load_stack("baseline", "cascade-nova3-gpt41-flash")
-    bad = loaded.stack.model_copy(
-        update={"tts": loaded.stack.tts.model_copy(update={"provider": "nope"})}
-    )
+    stack = load_stack("baseline")
+    bad = dataclasses.replace(stack, tts=stack.tts.model_copy(update={"provider": "nope"}))
     with pytest.raises(ValueError, match="no tts for 'nope'; have elevenlabs, soniox"):
-        services.resolve(
-            loaded.__class__(**{**loaded.__dict__, "stack": bad}), Settings(_env_file=None, **KEYS)
-        )
+        services.resolve(bad, Settings(_env_file=None, **KEYS))
 
 
 def test_a_missing_key_names_the_env_var() -> None:
     keys = {**KEYS, "soniox_api_key": None}
     with pytest.raises(RuntimeError, match="SONIOX_API_KEY is unset"):
-        services.resolve(
-            load_stack("baseline", "cascade-soniox-gemini"), Settings(_env_file=None, **keys)
-        )
+        services.resolve(load_stack("baseline", *SONIOX_GEMINI), Settings(_env_file=None, **keys))
 
 
 def test_the_system_prompt_rides_on_the_llm_service() -> None:
-    loaded = load_stack("baseline", "cascade-nova3-gpt41-flash")
-    built = services.resolve(loaded, Settings(_env_file=None, **KEYS))
+    stack = load_stack("baseline")
+    built = services.resolve(stack, Settings(_env_file=None, **KEYS))
     assert isinstance(built.llm, LLMService)
-    assert built.llm._settings.system_instruction == loaded.system_prompt
+    assert built.llm._settings.system_instruction == stack.system_prompt
 
 
 def test_every_stack_runs_its_stt_with_endpointing_off() -> None:
-    deepgram = services.resolve(
-        load_stack("baseline", "cascade-nova3-gpt41-flash"), Settings(_env_file=None, **KEYS)
-    )
+    deepgram = services.resolve(load_stack("baseline"), Settings(_env_file=None, **KEYS))
     assert isinstance(deepgram.stt, DeepgramSTTService)
     assert vars(deepgram.stt._settings)["endpointing"] is False
     soniox = services.resolve(
-        load_stack("baseline", "cascade-soniox-gemini"), Settings(_env_file=None, **KEYS)
+        load_stack("baseline", *SONIOX_GEMINI), Settings(_env_file=None, **KEYS)
     )
     assert isinstance(soniox.stt, SonioxSTTService)
     assert soniox.stt._vad_force_turn_endpoint is True

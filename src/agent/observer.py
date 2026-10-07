@@ -48,7 +48,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 
-from agent.stack import S2SStack
+from agent.stack import Stack
 
 logger = structlog.get_logger("agent")
 
@@ -57,7 +57,7 @@ SERVICE_NAME = "coval-bench-s2s-agent"
 EXPORT_TIMEOUT_SECS = 30
 UTTERANCE_END = "utterance_end"
 
-Roles = Mapping[str, Mapping[str, str]]  # stage -> {"provider": ..., "model": ...}
+ModelsByModality = Mapping[str, Mapping[str, str]]  # stage -> {"provider": ..., "model": ...}
 
 
 def _ms(later: int, earlier: int) -> float:
@@ -142,7 +142,7 @@ class Moments:
         return out
 
 
-def role_attributes(stack: S2SStack) -> dict[str, dict[str, str]]:
+def models_by_modality(stack: Stack) -> dict[str, dict[str, str]]:
     """Provider and model per stage, for the child spans."""
     return {
         "stt": {"provider": stack.stt.provider, "model": stack.stt.model},
@@ -168,13 +168,13 @@ class TurnLatencyObserver(BaseObserver):
         self,
         *,
         attributes: dict[str, Any],
-        roles: Roles | None = None,
+        models: ModelsByModality | None = None,
         tracer: Tracer | None = None,
         clock: Callable[[], int] = time.time_ns,
     ) -> None:
         super().__init__()
         self._attributes = attributes
-        self._roles = roles or {}
+        self._models = models or {}
         self._tracer = tracer
         self._clock = clock
         self._turn = 0
@@ -241,7 +241,7 @@ class TurnLatencyObserver(BaseObserver):
         inside = trace.set_span_in_context(turn)
         for stage, (stage_start, stage_end) in moment.stages().items():
             child = tracer.start_span(
-                stage, context=inside, start_time=stage_start, attributes=self._roles.get(stage)
+                stage, context=inside, start_time=stage_start, attributes=self._models.get(stage)
             )
             child.end(end_time=stage_end)
         turn.end(end_time=end)

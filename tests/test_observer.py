@@ -82,7 +82,7 @@ def exported() -> Iterator[Exported]:
     clock = _Clock()
     observer = TurnLatencyObserver(
         attributes={"stack": "x"},
-        roles={"llm": {"provider": "openai", "model": "gpt-4.1"}},
+        models={"llm": {"provider": "openai", "model": "gpt-4.1"}},
         tracer=provider.get_tracer("test"),
         clock=clock,
     )
@@ -178,7 +178,7 @@ async def test_each_stage_is_a_child_span_with_its_provider_and_model(exported: 
     assert (stages["llm"].start_time, stages["llm"].end_time) == (1_350 * MS, 1_600 * MS)
     assert (stages["tts"].start_time, stages["tts"].end_time) == (1_600 * MS, 1_800 * MS)
     assert dict(stages["llm"].attributes or {}) == {"provider": "openai", "model": "gpt-4.1"}
-    assert not stages["stt"].attributes  # no role given for stt in this fixture
+    assert not stages["stt"].attributes
 
 
 async def test_a_transcript_before_silero_fired_gets_no_stt_span(exported: Exported) -> None:

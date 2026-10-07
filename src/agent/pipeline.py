@@ -27,10 +27,10 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from agent.observer import TurnLatencyObserver
 from agent.services import Services
-from agent.stack import LoadedStack
+from agent.stack import Stack
 
 
-def context_aggregators(loaded: LoadedStack) -> LLMContextAggregatorPair:
+def context_aggregators(stack: Stack) -> LLMContextAggregatorPair:
     """The conversation context and the turn-taking the stack pins around it.
 
     The system prompt is not here; it rides on the LLM service's Settings so
@@ -41,7 +41,7 @@ def context_aggregators(loaded: LoadedStack) -> LLMContextAggregatorPair:
     speaking, the caller has to say ``interrupt_min_words`` before it yields,
     so a backchannel does not cut it off.
     """
-    turn_taking = loaded.stack.turn_taking
+    turn_taking = stack.turn_taking
     context = LLMContext()
     return LLMContextAggregatorPair(
         context,
@@ -70,7 +70,7 @@ def cascade_processors(
 
 
 def build_worker(
-    loaded: LoadedStack,
+    stack: Stack,
     services: Services,
     transport: BaseTransport,
     observer: TurnLatencyObserver,
@@ -83,8 +83,8 @@ def build_worker(
     to the pipeline's shape or parameters reaches both and their latency
     numbers stay comparable.
     """
-    audio = loaded.stack.audio
-    aggregators = context_aggregators(loaded)
+    audio = stack.audio
+    aggregators = context_aggregators(stack)
     middle = cascade_processors(services.stt, services.llm, services.tts, aggregators)
     return PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),

@@ -7,27 +7,27 @@ import shutil
 import pytest
 
 from agent.app import summary
-from agent.cli import BENCHMARK, TALK, choose_mode, choose_scenario, choose_stack
+from agent.cli import BENCHMARK, TALK, choose_mode, choose_model, choose_scenario
 
 
-def test_the_stack_menu_lists_slugs_and_takes_a_number(capsys: pytest.CaptureFixture[str]) -> None:
+def test_each_role_lists_its_models_and_takes_a_number(capsys: pytest.CaptureFixture[str]) -> None:
     answers = iter(["zero", "9", "2"])
-    chosen = choose_stack("baseline", read=lambda _prompt: next(answers))
+    chosen = choose_model("llm", read=lambda _prompt: next(answers))
     out = capsys.readouterr().out
-    assert "1. cascade-nova3-gpt41-flash\n2. cascade-soniox-gemini\n" in out
+    assert "1. openai/gpt-4.1\n2. google/gemini-2.5-flash\n" in out
     assert out.count("pick a number from 1 to 2, or Enter for 1") == 2
-    assert chosen.slug == "cascade-soniox-gemini"
+    assert chosen == "google/gemini-2.5-flash"
 
 
-def test_enter_takes_the_first_option(capsys: pytest.CaptureFixture[str]) -> None:
+def test_enter_takes_the_first_option() -> None:
     prompts: list[str] = []
 
     def read(prompt: str) -> str:
         prompts.append(prompt)
         return "  "
 
-    assert choose_stack("baseline", read=read).slug == "cascade-nova3-gpt41-flash"
-    assert prompts == ["Stack [1-2, default 1]: "]
+    assert choose_model("stt", read=read) == "deepgram/nova-3"
+    assert prompts == ["STT [1-2, default 1]: "]
 
 
 def test_the_mode_menu_offers_talk_and_benchmark_but_not_serve(
@@ -74,12 +74,12 @@ def test_hanging_up_prints_median_and_max_per_stage() -> None:
         {"s2s.latency_ms": 1000.0, "s2s.stt_ms": 50.0, "s2s.llm_ms": 700.0, "s2s.tts_ms": 250.0},
         {"s2s.latency_ms": 900.0, "s2s.llm_ms": 600.0, "s2s.tts_ms": 300.0, "s2s.transport_ms": 1},
     ]
-    roles = {"llm": {"provider": "openai", "model": "gpt-4.1"}}
-    out = summary(turns, roles, "cascade-x").splitlines()
+    models = {"llm": {"provider": "openai", "model": "gpt-4.1"}}
+    out = summary(turns, models, "cascade-x").splitlines()
     assert out[0] == "3 turns on cascade-x"
     assert out[2].split() == ["latency", "900", "1000"]
     assert "endpointing" not in "\n".join(out)  # no marker in talk mode, so no row
     assert out[3].split() == ["stt", "75", "100"]
     assert out[4].split() == ["llm", "(openai/gpt-4.1)", "600", "700"]
     assert out[6].split() == ["transport", "1", "1"]
-    assert summary([], roles, "cascade-x") == "no answered turns"
+    assert summary([], models, "cascade-x") == "no answered turns"

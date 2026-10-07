@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""One command. With no arguments it asks mode, scenario, stack; with them it is a script."""
+"""One command. No arguments opens the menu; a mode and flags make it a script."""
 
 from __future__ import annotations
 
@@ -16,17 +16,15 @@ from dataclasses import dataclass
 from typing import NoReturn
 
 from agent import app, driver, serve
+from agent.catalog import MODALITIES, Modality, model_ids
 from agent.config import Settings, get_settings
 from agent.logging import configure_logging
 from agent.stack import (
     BENCHMARK_SCENARIO,
-    DEFAULT_STACK,
     TALK_SCENARIO,
-    LoadedStack,
     load_stack,
     scenario_names,
     scenario_summary,
-    stack_slugs,
 )
 from agent.testset import load_test_set, require_test_set
 
@@ -93,9 +91,9 @@ def choose_scenario(mode: Mode, read: Reader = input) -> str:
     return names[pick(options, "Scenario", read)]
 
 
-def choose_stack(scenario: str, read: Reader = input) -> LoadedStack:
-    stacks = [load_stack(scenario, slug) for slug in stack_slugs()]
-    return stacks[pick([loaded.slug for loaded in stacks], "Stack", read)]
+def choose_model(modality: Modality, read: Reader = input) -> str:
+    ids = model_ids(modality)
+    return ids[pick(ids, modality.upper(), read)]
 
 
 def has_coval_key(settings: Settings) -> bool:
@@ -117,7 +115,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=[mode.name for mode in MODES],
         help="; ".join(f"{mode.name}: {mode.summary}" for mode in MODES),
     )
-    parser.add_argument("--stack", default=os.environ.get("S2S_STACK", DEFAULT_STACK))
+    for modality in MODALITIES:
+        parser.add_argument(
+            f"--{modality}",
+            choices=model_ids(modality),
+            default=os.environ.get(f"S2S_{modality.upper()}"),
+            help=f"default: {model_ids(modality)[0]}",
+        )
     parser.add_argument(
         "--scenario",
         default=os.environ.get("S2S_SCENARIO"),
@@ -155,16 +159,19 @@ def main() -> None:
             fail(parser, interactive, str(error))
         request = driver.RunRequest(test_set, sample=1 if args.smoke else 0)
 
-    loaded = choose_stack(scenario) if interactive else load_stack(scenario, args.stack)
+    if interactive:
+        stack = load_stack(scenario, *(choose_model(modality) for modality in MODALITIES))
+    else:
+        stack = load_stack(scenario, args.stt, args.llm, args.tts)
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         if mode is TALK:
-            asyncio.run(app.run(loaded))
+            asyncio.run(app.run(stack))
         elif mode is SERVE:
-            serve.serve(loaded, args.port)
+            serve.serve(stack, args.port)
         else:
             assert request is not None  # noqa: S101
-            code = asyncio.run(driver.run(loaded, args.port, not args.no_tunnel, request))
+            code = asyncio.run(driver.run(stack, args.port, not args.no_tunnel, request))
             raise SystemExit(code)
 
 

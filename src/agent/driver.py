@@ -29,7 +29,7 @@ from agent.coval_agent import (
 )
 from agent.coval_client import CovalClient
 from agent.serve import create_app
-from agent.stack import LoadedStack
+from agent.stack import Stack
 from agent.testset import TestSet
 
 logger = structlog.get_logger("agent")
@@ -122,7 +122,7 @@ def _secret(settings: Settings, name: str) -> str:
 
 
 async def run_on_coval(
-    coval: CovalClient, loaded: LoadedStack, url: str, token: str | None, request: RunRequest
+    coval: CovalClient, stack: Stack, url: str, token: str | None, request: RunRequest
 ) -> dict[str, Any]:
     """Upsert the agent at this URL, launch one run, poll it to a terminal status.
 
@@ -130,8 +130,8 @@ async def run_on_coval(
     loop is also serving the calls, and a blocked loop is a stalled call.
     """
     test_set = request.test_set
-    definition = CovalS2SAgent(loaded.slug, url, token, test_set.test_set_id)
-    agent_id = await asyncio.to_thread(sync_agent, coval, definition, loaded.stack.audio)
+    definition = CovalS2SAgent(stack.slug, url, token, test_set.test_set_id)
+    agent_id = await asyncio.to_thread(sync_agent, coval, definition, stack.audio)
     body = launch_body(
         agent_id,
         test_set.persona_id,
@@ -152,11 +152,11 @@ async def run_on_coval(
     return run
 
 
-async def run(loaded: LoadedStack, port: int, tunnel: bool, request: RunRequest) -> int:
+async def run(stack: Stack, port: int, tunnel: bool, request: RunRequest) -> int:
     settings = get_settings()
     token = settings.s2s_agent_token.get_secret_value() if settings.s2s_agent_token else None
     api_key = _secret(settings, "coval_api_key")
-    server, task, port = await serve_in_process(create_app(loaded), port)
+    server, task, port = await serve_in_process(create_app(stack), port)
     process = None
     try:
         if tunnel:
@@ -168,7 +168,7 @@ async def run(loaded: LoadedStack, port: int, tunnel: bool, request: RunRequest)
         logger.info("agent_up", url=url, **health)
         print(url, flush=True)
         with CovalClient(api_key, settings.coval_api_base) as coval:
-            final = await run_on_coval(coval, loaded, url, token, request)
+            final = await run_on_coval(coval, stack, url, token, request)
         logger.info("run_finished", run_id=run_id_of(final), status=final.get("status"))
         print("\n".join(results_lines(final)), flush=True)
         return 0 if final.get("status") == "COMPLETED" else 1

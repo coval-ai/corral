@@ -26,7 +26,7 @@ Opens a tui that helps set up the agent. Defaults to a local test.
 Mode [1-2, default 1]:
 ```
 
-**talk** puts a stack on your mic and speakers. The agent greets you, you
+**talk** puts the models on your mic and speakers. The agent greets you, you
 talk, Ctrl-C hangs up. Latency per turn is logged. Needs a mic, so first:
 `brew install portaudio && uv sync --extra local`.
 
@@ -43,11 +43,12 @@ run.
 For scripts, pass the mode and flags instead of answering prompts:
 
 ```bash
-uv run agent benchmark --scenario baseline --stack cascade-soniox-gemini --smoke
+uv run agent benchmark --scenario baseline --stt soniox/stt-rt-v5 --llm google/gemini-2.5-flash --smoke
 ```
 
-`S2S_STACK` and `S2S_SCENARIO` set the defaults. Benchmarks need
-`COVAL_API_KEY`; talk needs the provider keys for the stack you picked. If
+Leave a modality out and it gets the first model on the list. `S2S_STT`, `S2S_LLM`,
+`S2S_TTS` and `S2S_SCENARIO` set the defaults. Benchmarks need
+`COVAL_API_KEY`; talk needs the provider keys for the models you picked. If
 something is missing, the menu says so and gives the command.
 
 ## What gets measured
@@ -71,8 +72,8 @@ runs. Locally it's when Silero fired minus its silence window, which is when
 you actually stopped. `s2s.latency.source` says which.
 
 `s2s.stt_ms` is `vad_stop` to `stt_done`, how long the STT took to answer the
-finalize. Every stack turns its STT's own endpointing off so they're all
-measured the same way. On Coval runs, `s2s.endpointing_ms` is `utterance_end` to
+finalize. Every STT in the catalog runs with its own endpointing off so they're
+all measured the same way. On Coval runs, `s2s.endpointing_ms` is `utterance_end` to
 `vad_stop`, how long after the caller stopped Silero noticed.
 
 Known caveat: Coval currently sends `utterance_end` about 350 ms after the
@@ -81,9 +82,9 @@ Comparisons between stacks are fine; absolute numbers are not yet.
 
 ## Adding things
 
-A **stack** is a JSON file in `src/agent/stacks/` naming a provider and model
-per role. If the provider is new, add its Pipecat class to the table in
-`src/agent/services/` and its extra to `pyproject.toml`.
+A **model** is an entry in `src/agent/models/stt.json`, `llm.json` or `tts.json`.
+The first in each file is the default. If the provider is new, add its Pipecat class to the
+table in `src/agent/services/` and its extra to `pyproject.toml`.
 
 A **scenario** is a directory in `src/agent/scenarios/`. See the README there.
 

@@ -5,7 +5,7 @@
 
 Pipecat gives every STT, LLM and TTS service the same shape: ``api_key``,
 ``sample_rate`` and a ``Settings`` whose base fields are ``model``, ``voice``,
-``language`` and ``temperature``. So a vendor here is just a class per role
+``language`` and ``temperature``. So a vendor here is just a class per modality
 and the Settings key it bills to. A stack is resolved before anything connects,
 so an unknown provider or a missing key fails at startup with the supported
 list, not mid-call.
@@ -15,20 +15,19 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from pipecat.processors.frame_processor import FrameProcessor
 
+from agent.catalog import Modality
 from agent.config import Settings
-from agent.stack import LoadedStack
-
-Role = Literal["stt", "llm", "tts"]
+from agent.stack import Stack
 
 
 @dataclass(frozen=True)
 class Vendor:
     key_attr: str
-    stt: str | None = None  # "module:Class" for each role the vendor fills
+    stt: str | None = None  # "module:Class" for each modality the vendor fills
     llm: str | None = None
     tts: str | None = None
 
@@ -55,16 +54,16 @@ class Services:
     tts: FrameProcessor
 
 
-def supported(role: Role) -> list[str]:
-    return sorted(name for name, vendor in VENDORS.items() if getattr(vendor, role) is not None)
+def supported(modality: Modality) -> list[str]:
+    return sorted(name for name, vendor in VENDORS.items() if getattr(vendor, modality) is not None)
 
 
-def _resolve_vendor(role: Role, provider: str, settings: Settings) -> tuple[str, str]:
-    """The class path for this role and the key that pays for it, or why not."""
+def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tuple[str, str]:
+    """The class path for this modality and the key that pays for it, or why not."""
     vendor = VENDORS.get(provider)
-    path: str | None = getattr(vendor, role) if vendor else None
+    path: str | None = getattr(vendor, modality) if vendor else None
     if vendor is None or path is None:
-        raise ValueError(f"no {role} for {provider!r}; have {', '.join(supported(role))}")
+        raise ValueError(f"no {modality} for {provider!r}; have {', '.join(supported(modality))}")
     value = getattr(settings, vendor.key_attr)
     if value is None or not value.get_secret_value():
         raise RuntimeError(f"{vendor.key_attr.upper()} is unset")
@@ -84,9 +83,8 @@ def _build(
     return service
 
 
-def resolve(loaded: LoadedStack, settings: Settings) -> Services:
-    """Every role's vendor and key checked first, then the three services built."""
-    stack = loaded.stack
+def resolve(stack: Stack, settings: Settings) -> Services:
+    """Every modality's vendor and key checked first, then the three services built."""
     stt_path, stt_key = _resolve_vendor("stt", stack.stt.provider, settings)
     llm_path, llm_key = _resolve_vendor("llm", stack.llm.provider, settings)
     tts_path, tts_key = _resolve_vendor("tts", stack.tts.provider, settings)
@@ -103,7 +101,7 @@ def resolve(loaded: LoadedStack, settings: Settings) -> Services:
             {
                 "model": stack.llm.model,
                 "temperature": stack.llm.temperature,
-                "system_instruction": loaded.system_prompt,
+                "system_instruction": stack.system_prompt,
                 **stack.llm.options,
             },
             None,

@@ -1,0 +1,4 @@
+[
+  { "provider": "deepgram", "model": "nova-3", "options": { "endpointing": false } },
+  { "provider": "soniox", "model": "stt-rt-v5" }
+]

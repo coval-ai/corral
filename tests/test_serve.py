@@ -39,21 +39,20 @@ class _Echo(FrameProcessor):
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    loaded = load_stack("baseline", "cascade-nova3-gpt41-flash")
+    stack = load_stack("baseline")
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (
         patch.object(serve, "resolve", return_value=fakes),
         patch.object(serve, "get_settings", return_value=settings),
     ):
-        yield TestClient(serve.create_app(loaded))
+        yield TestClient(serve.create_app(stack))
 
 
 def test_healthz_names_the_stack_and_its_digest(client: TestClient) -> None:
     body = client.get("/healthz").json()
     assert body["status"] == "ok"
-    assert body["stack"] == "cascade-nova3-gpt41-flash"
-    assert body["prompt"] == "system-prompt.txt"
+    assert body["stack"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
     assert len(body["digest"]) == 64
 
 

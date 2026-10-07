@@ -15,14 +15,14 @@ from tests.test_serve import _Echo, _Passthrough
 
 @pytest.fixture
 async def url() -> AsyncIterator[str]:
-    loaded = load_stack("baseline", "cascade-nova3-gpt41-flash")
+    stack = load_stack("baseline")
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (
         patch.object(serve, "resolve", return_value=fakes),
         patch.object(serve, "get_settings", return_value=settings),
     ):
-        server, task, port = await driver.serve_in_process(serve.create_app(loaded), 0)
+        server, task, port = await driver.serve_in_process(serve.create_app(stack), 0)
         try:
             yield f"http://127.0.0.1:{port}"
         finally:
@@ -33,7 +33,7 @@ async def url() -> AsyncIterator[str]:
 @pytest.mark.asyncio
 async def test_probe_reads_health_then_hears_session_ready(url: str) -> None:
     health = await driver.probe(url, "s3cret")
-    assert health["stack"] == "cascade-nova3-gpt41-flash"
+    assert health["stack"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
 
 
 @pytest.mark.asyncio

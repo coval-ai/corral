@@ -1,0 +1,4 @@
+[
+  { "provider": "elevenlabs", "model": "eleven_flash_v2", "voice": "EXAVITQu4vr4xnSDxMaL", "_voice": "Sarah" },
+  { "provider": "soniox", "model": "tts-rt-v2", "voice": "Emma" }
+]

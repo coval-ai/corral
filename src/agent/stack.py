@@ -1,48 +1,25 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""One S2S stack: its settings file, the components it names, and the prompt it runs."""
+"""A stack: a model per modality, the harness's turn-taking and audio, and a scenario's prompt."""
 
 from __future__ import annotations
 
 import hashlib
 import importlib.resources
 import json
+import re
 from dataclasses import dataclass
-from typing import Any, Literal
-
-from pydantic import Field
+from typing import Literal
 
 from agent.annotated import AnnotatedModel
+from agent.catalog import LlmPin, SttPin, TtsPin, catalog, find
 
-STACKS_PACKAGE = "agent"
-STACKS_DIR = "stacks"
 SCENARIOS_PACKAGE = "agent.scenarios"
-DEFAULT_PROMPT_FILE = "system-prompt.txt"
+PROMPT_FILE = "system-prompt.txt"
 SUMMARY_FILE = "summary.txt"
-TALK_SCENARIO = "default"  # a generic assistant for trying a stack by voice
-BENCHMARK_SCENARIO = "baseline"  # what a scripted benchmark runs
-DEFAULT_STACK = "cascade-nova3-gpt41-flash"
-
-
-class ComponentPin(AnnotatedModel):
-    """One role's vendor and model. ``options`` is for knobs only that vendor understands."""
-
-    provider: str
-    model: str
-    options: dict[str, Any] = Field(default_factory=dict)
-
-
-class SttPin(ComponentPin):
-    pass
-
-
-class LlmPin(ComponentPin):
-    temperature: float
-
-
-class TtsPin(ComponentPin):
-    voice: str
+TALK_SCENARIO = "default"
+BENCHMARK_SCENARIO = "baseline"
 
 
 class TurnTakingPin(AnnotatedModel):
@@ -56,41 +33,30 @@ class AudioPin(AnnotatedModel):
     out_sample_rate_hz: int
 
 
-class S2SStack(AnnotatedModel):
-    architecture: Literal["cascade"]
+TURN_TAKING = TurnTakingPin(vad_stop_secs=0.2, turn_analyzer="smart-turn-v3", interrupt_min_words=3)
+AUDIO = AudioPin(in_sample_rate_hz=16000, out_sample_rate_hz=24000)
+
+
+@dataclass(frozen=True)
+class Stack:
+    scenario: str
     stt: SttPin
     llm: LlmPin
     tts: TtsPin
     turn_taking: TurnTakingPin
     audio: AudioPin
-
-
-@dataclass(frozen=True)
-class LoadedStack:
-    scenario: str
-    slug: str
-    stack: S2SStack
     system_prompt: str
-    prompt_file: str
+    slug: str
     digest: str
 
 
-def stack_slugs() -> list[str]:
-    stacks = importlib.resources.files(STACKS_PACKAGE).joinpath(STACKS_DIR)
-    return sorted(
-        entry.name.removesuffix(".json")
-        for entry in stacks.iterdir()
-        if entry.name.endswith(".json")
-    )
-
-
 def scenario_names() -> list[str]:
-    """Every scenario directory that ships a default prompt."""
+    """Every scenario directory that ships a prompt."""
     scenarios = importlib.resources.files(SCENARIOS_PACKAGE)
     return sorted(
         entry.name
         for entry in scenarios.iterdir()
-        if entry.is_dir() and entry.joinpath(DEFAULT_PROMPT_FILE).is_file()
+        if entry.is_dir() and entry.joinpath(PROMPT_FILE).is_file()
     )
 
 
@@ -100,36 +66,32 @@ def scenario_summary(scenario: str) -> str:
     return path.read_text().strip() if path.is_file() else ""
 
 
-def _stack_bytes(slug: str) -> bytes:
-    path = importlib.resources.files(STACKS_PACKAGE).joinpath(STACKS_DIR, f"{slug}.json")
-    if not path.is_file():
-        raise ValueError(f"no stack {slug!r}; have {', '.join(stack_slugs())}")
-    return path.read_bytes()
-
-
-def prompt_file(scenario: str, slug: str) -> str:
-    """The stack's own prompt when the scenario ships one, else the scenario default."""
-    override = f"system-prompt.{slug}.txt"
-    scenario_dir = importlib.resources.files(SCENARIOS_PACKAGE).joinpath(scenario)
-    return override if scenario_dir.joinpath(override).is_file() else DEFAULT_PROMPT_FILE
-
-
-def _prompt_bytes(scenario: str, filename: str) -> bytes:
-    return importlib.resources.files(SCENARIOS_PACKAGE).joinpath(scenario, filename).read_bytes()
-
-
-def stack_sha256(scenario: str, slug: str) -> str:
-    """One SHA-256 over the stack file and the prompt actually used, in that order."""
-    digest = hashlib.sha256()
-    digest.update(_stack_bytes(slug))
-    digest.update(_prompt_bytes(scenario, prompt_file(scenario, slug)))
-    return digest.hexdigest()
-
-
-def load_stack(scenario: str, slug: str) -> LoadedStack:
-    stack = S2SStack.model_validate(json.loads(_stack_bytes(slug)))
-    filename = prompt_file(scenario, slug)
-    system_prompt = _prompt_bytes(scenario, filename).decode().strip()
+def load_stack(
+    scenario: str, stt: str | None = None, llm: str | None = None, tts: str | None = None
+) -> Stack:
+    """A model per modality, by provider/model. Any left out gets the catalog's first."""
+    models = catalog()
+    stt_pin = find("stt", models.stt, stt)
+    llm_pin = find("llm", models.llm, llm)
+    tts_pin = find("tts", models.tts, tts)
+    prompt_bytes = (
+        importlib.resources.files(SCENARIOS_PACKAGE).joinpath(scenario, PROMPT_FILE).read_bytes()
+    )
+    system_prompt = prompt_bytes.decode().strip()
     if not system_prompt:
-        raise ValueError(f"{scenario}/{filename} is empty")
-    return LoadedStack(scenario, slug, stack, system_prompt, filename, stack_sha256(scenario, slug))
+        raise ValueError(f"{scenario}/{PROMPT_FILE} is empty")
+    config = {
+        "stt": stt_pin.model_dump(),
+        "llm": llm_pin.model_dump(),
+        "tts": tts_pin.model_dump(),
+        "turn_taking": TURN_TAKING.model_dump(),
+        "audio": AUDIO.model_dump(),
+    }
+    digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode() + prompt_bytes).hexdigest()
+    slug = "--".join(
+        re.sub(r"[^a-z0-9.]+", "-", f"{pin.provider}-{pin.model}".lower())
+        for pin in (stt_pin, llm_pin, tts_pin)
+    )
+    return Stack(
+        scenario, stt_pin, llm_pin, tts_pin, TURN_TAKING, AUDIO, system_prompt, slug, digest
+    )

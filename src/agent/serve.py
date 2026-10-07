@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Serve ``S2S_STACK`` running ``S2S_SCENARIO`` to Coval, one pipeline per WebSocket call."""
+"""Serve the chosen models to Coval, one pipeline per WebSocket call."""
 
 from __future__ import annotations
 
@@ -25,27 +25,26 @@ from agent.coval import (
     authorized,
     simulation_id,
 )
-from agent.observer import TurnLatencyObserver, coval_trace_provider, role_attributes
+from agent.observer import TurnLatencyObserver, coval_trace_provider, models_by_modality
 from agent.pipeline import build_worker
 from agent.services import resolve
-from agent.stack import LoadedStack
+from agent.stack import Stack
 
 logger = structlog.get_logger("agent")
 
 POLICY_VIOLATION = 1008
 
 
-def create_app(loaded: LoadedStack) -> FastAPI:
+def create_app(stack: Stack) -> FastAPI:
     app = FastAPI()
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {
             "status": "ok",
-            "scenario": loaded.scenario,
-            "stack": loaded.slug,
-            "prompt": loaded.prompt_file,
-            "digest": loaded.digest,
+            "scenario": stack.scenario,
+            "stack": stack.slug,
+            "digest": stack.digest,
         }
 
     @app.websocket("/ws")
@@ -57,21 +56,21 @@ def create_app(loaded: LoadedStack) -> FastAPI:
             return
         await websocket.accept()
         sim = simulation_id(websocket.headers)
-        log = logger.bind(simulation_id=sim, stack=loaded.slug, digest=loaded.digest)
+        log = logger.bind(simulation_id=sim, stack=stack.slug, digest=stack.digest)
         log.info("call_started")
-        await run_call(websocket, loaded, sim)
+        await run_call(websocket, stack, sim)
         log.info("call_ended")
 
     return app
 
 
-async def run_call(websocket: WebSocket, loaded: LoadedStack, sim: str | None) -> None:
+async def run_call(websocket: WebSocket, stack: Stack, sim: str | None) -> None:
     settings = get_settings()
-    services = resolve(loaded, settings)
+    services = resolve(stack, settings)
     provider = _trace_provider(settings, sim)
     observer = TurnLatencyObserver(
-        attributes={"simulation.id": sim or "", "stack": loaded.slug, "digest": loaded.digest},
-        roles=role_attributes(loaded.stack),
+        attributes={"simulation.id": sim or "", "stack": stack.slug, "digest": stack.digest},
+        models=models_by_modality(stack),
         tracer=provider.get_tracer(__name__) if provider else None,
     )
     transport = FastAPIWebsocketTransport(
@@ -83,7 +82,7 @@ async def run_call(websocket: WebSocket, loaded: LoadedStack, sim: str | None) -
             allowed_origins=[],
         ),
     )
-    worker = build_worker(loaded, services, transport, observer, conversation_id=sim)
+    worker = build_worker(stack, services, transport, observer, conversation_id=sim)
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
     async def _ready(started: PipelineWorker, _frame: Frame) -> None:
@@ -114,8 +113,8 @@ def _trace_provider(settings: Settings, sim: str | None) -> TracerProvider | Non
     return coval_trace_provider(key, settings.coval_api_base, sim) if key else None
 
 
-def serve(loaded: LoadedStack, port: int) -> None:
+def serve(stack: Stack, port: int) -> None:
     """The image's command: the agent on every interface, no tunnel, until stopped."""
     import uvicorn
 
-    uvicorn.run(create_app(loaded), host="0.0.0.0", port=port)  # noqa: S104
+    uvicorn.run(create_app(stack), host="0.0.0.0", port=port)  # noqa: S104
