@@ -107,6 +107,8 @@ def build_call(
         attributes={**(attributes or {}), "agent": agent.slug, "digest": agent.digest},
         models=models_by_modality(agent),
         stt=services.stt,
+        llm=services.llm,
+        tts=services.tts,
         tracer=tracer,
     )
     aggregators = context_aggregators(agent)
@@ -116,6 +118,7 @@ def build_call(
         params=PipelineParams(
             audio_in_sample_rate=IN_SAMPLE_RATE_HZ,
             audio_out_sample_rate=OUT_SAMPLE_RATE_HZ,
+            enable_metrics=True,
         ),
         conversation_id=conversation_id,
         enable_rtvi=False,

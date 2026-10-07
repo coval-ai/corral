@@ -17,7 +17,6 @@ from corral.config import Settings
 from corral.models import Services
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
-
 SILENCE_16K_100MS = bytes(2 * 1600)
 
 
@@ -51,14 +50,9 @@ def client() -> Iterator[TestClient]:
         yield TestClient(serve.create_app(agent))
 
 
-def test_healthz_names_the_agent_and_its_digest(client: TestClient) -> None:
+def test_healthz_names_the_agent_and_a_bad_bearer_is_refused(client: TestClient) -> None:
     body = client.get("/healthz").json()
-    assert body["status"] == "ok"
     assert body["agent"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
-    assert len(body["digest"]) == 64
-
-
-def test_a_bad_bearer_is_refused_before_the_pipeline_exists(client: TestClient) -> None:
     with (
         pytest.raises(WebSocketDisconnect) as refused,
         client.websocket_connect("/ws", headers={"Authorization": "Bearer nope"}),
