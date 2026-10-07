@@ -10,7 +10,7 @@ from typing import Any, Self
 
 import httpx
 
-from agent.stack import AudioPin
+from agent.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
 
 COVAL_API_BASE = "https://api.coval.dev/v1"
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
@@ -106,7 +106,7 @@ class CovalS2SAgent:
     def display_name(self) -> str:
         return f"Benchmarks: S2S {self.slug}"
 
-    def agent_body(self, audio: AudioPin) -> dict[str, Any]:
+    def agent_body(self) -> dict[str, Any]:
         metadata: dict[str, Any] = {
             "connection_mode": "direct",
             "endpoint": "wss" + self.url.removeprefix("https").removeprefix("http") + "/ws",
@@ -117,8 +117,8 @@ class CovalS2SAgent:
             "message_type_path": "type",
             "send_audio_template": "{{audio_data}}",
             "audio_encoding": "pcm",
-            "send_sample_rate_hertz": audio.in_sample_rate_hz,
-            "receive_sample_rate_hertz": audio.out_sample_rate_hz,
+            "send_sample_rate_hertz": IN_SAMPLE_RATE_HZ,
+            "receive_sample_rate_hertz": OUT_SAMPLE_RATE_HZ,
             "receive_audio_channels": 1,
             "pace_inbound_binary_audio": True,
             "speech_activity_enabled": True,
@@ -134,9 +134,9 @@ class CovalS2SAgent:
         }
 
 
-def sync_agent(client: CovalClient, definition: CovalS2SAgent, audio: AudioPin) -> str:
+def sync_agent(client: CovalClient, definition: CovalS2SAgent) -> str:
     """Find-or-create the agent and point it at this serving; returns its id."""
-    wanted = definition.agent_body(audio)
+    wanted = definition.agent_body()
     live = client.find_agent(definition.customer_agent_id)
     if live is None:
         return str(client.create_agent(wanted)["id"])

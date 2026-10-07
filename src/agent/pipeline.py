@@ -31,7 +31,13 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from agent.config import Settings
+from agent.config import (
+    IN_SAMPLE_RATE_HZ,
+    INTERRUPT_MIN_WORDS,
+    OUT_SAMPLE_RATE_HZ,
+    VAD_STOP_SECS,
+    Settings,
+)
 from agent.models import resolve
 from agent.observer import TurnLatencyObserver, models_by_modality
 from agent.stack import Stack
@@ -48,14 +54,13 @@ def context_aggregators(stack: Stack) -> LLMContextAggregatorPair:
     speaking, the caller has to say ``interrupt_min_words`` before it yields,
     so a backchannel does not cut it off.
     """
-    turn_taking = stack.turn_taking
     context = LLMContext()
     return LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=turn_taking.vad_stop_secs)),
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS)),
             user_turn_strategies=UserTurnStrategies(
-                start=[MinWordsUserTurnStartStrategy(min_words=turn_taking.interrupt_min_words)],
+                start=[MinWordsUserTurnStartStrategy(min_words=INTERRUPT_MIN_WORDS)],
                 stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())],
             ),
         ),
@@ -108,8 +113,8 @@ def build_call(
     worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
         params=PipelineParams(
-            audio_in_sample_rate=stack.audio.in_sample_rate_hz,
-            audio_out_sample_rate=stack.audio.out_sample_rate_hz,
+            audio_in_sample_rate=IN_SAMPLE_RATE_HZ,
+            audio_out_sample_rate=OUT_SAMPLE_RATE_HZ,
         ),
         conversation_id=conversation_id,
         enable_rtvi=False,

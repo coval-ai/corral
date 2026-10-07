@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Settings from the environment or the repo-root ``.env``."""
+"""Keys from the environment or the repo-root ``.env``, and the harness's fixed numbers."""
 
 from __future__ import annotations
 
@@ -12,6 +12,11 @@ from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
+
+VAD_STOP_SECS = 0.2
+INTERRUPT_MIN_WORDS = 3
+IN_SAMPLE_RATE_HZ = 16000
+OUT_SAMPLE_RATE_HZ = 24000
 
 
 class Settings(BaseSettings):

@@ -28,9 +28,9 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameProcessorSetup
 from pipecat.serializers.base_serializer import FrameSerializer
 
+from agent.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
+
 SIMULATION_HEADER = "x-coval-simulation-id"
-COVAL_SEND_SAMPLE_RATE_HZ = 16000
-COVAL_RECEIVE_SAMPLE_RATE_HZ = 24000
 SESSION_READY = {"type": "session_ready"}
 SPEECH_ACTIVITY_TYPES = frozenset({"utterance_started", "utterance_end"})
 
@@ -61,8 +61,8 @@ class CovalFrameSerializer(FrameSerializer):
     def __init__(
         self,
         *,
-        coval_send_hz: int = COVAL_SEND_SAMPLE_RATE_HZ,
-        coval_receive_hz: int = COVAL_RECEIVE_SAMPLE_RATE_HZ,
+        coval_send_hz: int = IN_SAMPLE_RATE_HZ,
+        coval_receive_hz: int = OUT_SAMPLE_RATE_HZ,
     ) -> None:
         super().__init__()
         self._coval_send_hz = coval_send_hz

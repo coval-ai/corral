@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pipecat.processors.frame_processor import FrameProcessor
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent.config import Settings
+from agent.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, Settings
 
 if TYPE_CHECKING:
     from agent.stack import Stack
@@ -156,7 +156,7 @@ def resolve(stack: Stack, settings: Settings) -> Services:
             stt_path,
             stt_key,
             {"model": stack.stt.model, **stack.stt.options},
-            stack.audio.in_sample_rate_hz,
+            IN_SAMPLE_RATE_HZ,
         ),
         llm=_build(
             llm_path,
@@ -173,6 +173,6 @@ def resolve(stack: Stack, settings: Settings) -> Services:
             tts_path,
             tts_key,
             {"model": stack.tts.model, "voice": stack.tts.voice, **stack.tts.options},
-            stack.audio.out_sample_rate_hz,
+            OUT_SAMPLE_RATE_HZ,
         ),
     )

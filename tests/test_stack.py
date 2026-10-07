@@ -14,7 +14,6 @@ def test_the_catalog_offers_models_per_role_and_the_first_is_the_default() -> No
     stack = stacks.load_stack("baseline")
     picked = (stack.stt.id, stack.llm.id, stack.tts.id)
     assert picked == ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
-    assert stack.turn_taking.vad_stop_secs == 0.2
     assert stack.slug == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
     assert stack.system_prompt.startswith("# Role & Objective")
 

@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""A stack: a model per modality, the harness's turn-taking and audio, and a scenario's prompt."""
+"""A stack: a model per modality plus a scenario's prompt, with a slug and digest over all of it."""
 
 from __future__ import annotations
 
@@ -9,25 +9,10 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from typing import Literal
 
-from agent.models import JsonModel, LlmPin, SttPin, TtsPin, catalog, find
+from agent.config import IN_SAMPLE_RATE_HZ, INTERRUPT_MIN_WORDS, OUT_SAMPLE_RATE_HZ, VAD_STOP_SECS
+from agent.models import LlmPin, SttPin, TtsPin, catalog, find
 from agent.scenarios import load_prompt
-
-
-class TurnTakingPin(JsonModel):
-    vad_stop_secs: float
-    turn_analyzer: Literal["smart-turn-v3"]
-    interrupt_min_words: int
-
-
-class AudioPin(JsonModel):
-    in_sample_rate_hz: int
-    out_sample_rate_hz: int
-
-
-TURN_TAKING = TurnTakingPin(vad_stop_secs=0.2, turn_analyzer="smart-turn-v3", interrupt_min_words=3)
-AUDIO = AudioPin(in_sample_rate_hz=16000, out_sample_rate_hz=24000)
 
 
 @dataclass(frozen=True)
@@ -36,8 +21,6 @@ class Stack:
     stt: SttPin
     llm: LlmPin
     tts: TtsPin
-    turn_taking: TurnTakingPin
-    audio: AudioPin
     system_prompt: str
     slug: str
     digest: str
@@ -59,14 +42,13 @@ def load_stack(
         "stt": stt_pin.model_dump(),
         "llm": llm_pin.model_dump(),
         "tts": tts_pin.model_dump(),
-        "turn_taking": TURN_TAKING.model_dump(),
-        "audio": AUDIO.model_dump(),
+        "vad_stop_secs": VAD_STOP_SECS,
+        "interrupt_min_words": INTERRUPT_MIN_WORDS,
+        "sample_rates_hz": [IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ],
     }
     digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode() + prompt_bytes).hexdigest()
     slug = "--".join(
         re.sub(r"[^a-z0-9.]+", "-", f"{pin.provider}-{pin.model}".lower())
         for pin in (stt_pin, llm_pin, tts_pin)
     )
-    return Stack(
-        scenario, stt_pin, llm_pin, tts_pin, TURN_TAKING, AUDIO, system_prompt, slug, digest
-    )
+    return Stack(scenario, stt_pin, llm_pin, tts_pin, system_prompt, slug, digest)

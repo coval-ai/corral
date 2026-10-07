@@ -12,7 +12,7 @@ from typing import Any
 
 from pipecat.workers.runner import WorkerRunner
 
-from agent.config import get_settings
+from agent.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, get_settings
 from agent.observer import ModelsByModality, models_by_modality
 from agent.pipeline import build_call
 from agent.stack import Stack
@@ -21,13 +21,12 @@ from agent.stack import Stack
 async def run(stack: Stack) -> None:
     from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
-    audio = stack.audio
     transport = LocalAudioTransport(
         LocalAudioTransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            audio_in_sample_rate=audio.in_sample_rate_hz,
-            audio_out_sample_rate=audio.out_sample_rate_hz,
+            audio_in_sample_rate=IN_SAMPLE_RATE_HZ,
+            audio_out_sample_rate=OUT_SAMPLE_RATE_HZ,
         )
     )
     call = build_call(stack, transport, get_settings())

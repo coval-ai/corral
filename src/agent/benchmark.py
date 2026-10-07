@@ -131,7 +131,7 @@ async def run_on_coval(
     """
     test_set = request.test_set
     definition = CovalS2SAgent(stack.slug, url, token, test_set.test_set_id)
-    agent_id = await asyncio.to_thread(sync_agent, coval, definition, stack.audio)
+    agent_id = await asyncio.to_thread(sync_agent, coval, definition)
     body = launch_body(
         agent_id,
         test_set.persona_id,

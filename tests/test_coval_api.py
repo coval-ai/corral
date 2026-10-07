@@ -15,9 +15,7 @@ from agent.coval_api import (
     results_lines,
     sync_agent,
 )
-from agent.stack import AudioPin
 
-AUDIO = AudioPin(in_sample_rate_hz=16000, out_sample_rate_hz=24000)
 DEFINITION = CovalS2SAgent("cascade-x", "https://quiet-hill.trycloudflare.com", "s3cret", "TSBANK")
 
 
@@ -43,7 +41,7 @@ def _client(state: dict[str, Any]) -> CovalClient:
 
 
 def test_the_agent_speaks_raw_pcm_and_waits_for_session_ready() -> None:
-    body = DEFINITION.agent_body(AUDIO)
+    body = DEFINITION.agent_body()
     metadata = body["metadata"]
     assert body["customer_agent_id"] == "benchmarks-s2s-cascade-x"
     assert body["model_type"] == coval_api.MODEL_TYPE
@@ -63,10 +61,10 @@ def test_the_agent_speaks_raw_pcm_and_waits_for_session_ready() -> None:
 def test_sync_creates_once_then_patches_only_the_new_url() -> None:
     state: dict[str, Any] = {"agents": [], "writes": []}
     client = _client(state)
-    assert sync_agent(client, DEFINITION, AUDIO) == "A" * 22
-    assert sync_agent(client, DEFINITION, AUDIO) == "A" * 22
+    assert sync_agent(client, DEFINITION) == "A" * 22
+    assert sync_agent(client, DEFINITION) == "A" * 22
     moved = CovalS2SAgent("cascade-x", "https://other-hill.trycloudflare.com", "s3cret", "TSBANK")
-    assert sync_agent(client, moved, AUDIO) == "A" * 22
+    assert sync_agent(client, moved) == "A" * 22
     methods = [(method, path) for method, path, _ in state["writes"]]
     assert methods == [("POST", "/agents"), ("PATCH", "/agents/" + "A" * 22)]
     patch = state["writes"][1][2]
@@ -77,10 +75,10 @@ def test_sync_creates_once_then_patches_only_the_new_url() -> None:
 def test_sync_attaches_a_new_test_set_without_detaching_the_old() -> None:
     state: dict[str, Any] = {"agents": [], "writes": []}
     client = _client(state)
-    sync_agent(client, DEFINITION, AUDIO)
+    sync_agent(client, DEFINITION)
     challenge = CovalS2SAgent("cascade-x", DEFINITION.url, "s3cret", "TSHARD")
-    sync_agent(client, challenge, AUDIO)
-    sync_agent(client, DEFINITION, AUDIO)
+    sync_agent(client, challenge)
+    sync_agent(client, DEFINITION)
     patches = [body for method, _, body in state["writes"] if method == "PATCH"]
     assert patches == [{"test_set_ids": ["TSBANK", "TSHARD"]}]
 
