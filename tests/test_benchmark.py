@@ -12,10 +12,12 @@ from agent.models import Services
 from agent.stack import load_stack
 from tests.test_serve import _Echo, _Passthrough
 
+REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
+
 
 @pytest.fixture
 async def url() -> AsyncIterator[str]:
-    stack = load_stack("baseline")
+    stack = load_stack("baseline", *REFERENCE)
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (

@@ -35,34 +35,43 @@ class JsonModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class ComponentPin(JsonModel):
-    """One modality's vendor and model. ``options`` is for knobs only that vendor understands."""
+class Model(JsonModel):
+    """One entry in a models file. ``options`` is for knobs only that vendor understands."""
 
     provider: str
-    model: str
+    name: str
     options: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def id(self) -> str:
-        return f"{self.provider}/{self.model}"
+        return f"{self.provider}/{self.name}"
 
 
-class SttPin(ComponentPin):
+class SttModel(Model):
     pass
 
 
-class LlmPin(ComponentPin):
+class LlmModel(Model):
     temperature: float
 
 
-class TtsPin(ComponentPin):
+class TtsModel(Model):
     voice: str
 
 
 class Catalog(JsonModel):
-    stt: list[SttPin]
-    llm: list[LlmPin]
-    tts: list[TtsPin]
+    stt: list[SttModel]
+    llm: list[LlmModel]
+    tts: list[TtsModel]
+
+    def get_stt(self, model_id: str) -> SttModel:
+        return _get("stt", self.stt, model_id)
+
+    def get_llm(self, model_id: str) -> LlmModel:
+        return _get("llm", self.llm, model_id)
+
+    def get_tts(self, model_id: str) -> TtsModel:
+        return _get("tts", self.tts, model_id)
 
 
 @functools.cache
@@ -75,16 +84,14 @@ def catalog() -> Catalog:
 
 def model_ids(modality: Modality) -> list[str]:
     """Every model offered for a modality, as provider/model. The first is the default."""
-    return [pin.id for pin in getattr(catalog(), modality)]
+    return [model.id for model in getattr(catalog(), modality)]
 
 
-def find[P: ComponentPin](modality: Modality, pins: list[P], model_id: str | None) -> P:
-    if model_id is None:
-        return pins[0]
-    for pin in pins:
-        if pin.id == model_id:
-            return pin
-    raise ValueError(f"no {modality} model {model_id!r}; have {', '.join(model_ids(modality))}")
+def _get[M: Model](modality: Modality, offered: list[M], model_id: str) -> M:
+    for model in offered:
+        if model.id == model_id:
+            return model
+    raise ValueError(f"no {modality} model {model_id!r}; have {', '.join(m.id for m in offered)}")
 
 
 @dataclass(frozen=True)
@@ -155,14 +162,14 @@ def resolve(stack: Stack, settings: Settings) -> Services:
         stt=_build(
             stt_path,
             stt_key,
-            {"model": stack.stt.model, **stack.stt.options},
+            {"model": stack.stt.name, **stack.stt.options},
             IN_SAMPLE_RATE_HZ,
         ),
         llm=_build(
             llm_path,
             llm_key,
             {
-                "model": stack.llm.model,
+                "model": stack.llm.name,
                 "temperature": stack.llm.temperature,
                 "system_instruction": stack.system_prompt,
                 **stack.llm.options,
@@ -172,7 +179,7 @@ def resolve(stack: Stack, settings: Settings) -> Services:
         tts=_build(
             tts_path,
             tts_key,
-            {"model": stack.tts.model, "voice": stack.tts.voice, **stack.tts.options},
+            {"model": stack.tts.name, "voice": stack.tts.voice, **stack.tts.options},
             OUT_SAMPLE_RATE_HZ,
         ),
     )

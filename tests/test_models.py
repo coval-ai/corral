@@ -17,6 +17,7 @@ from agent import models
 from agent.config import Settings
 from agent.stack import load_stack
 
+REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 SONIOX_GEMINI = ("soniox/stt-rt-v5", "google/gemini-2.5-flash", "soniox/tts-rt-v2")
 KEYS: dict[str, Any] = {
     "deepgram_api_key": "dg",
@@ -34,7 +35,7 @@ def test_each_role_lists_the_vendors_that_fill_it() -> None:
 
 
 def test_the_reference_stack_resolves_to_deepgram_openai_elevenlabs() -> None:
-    built = models.resolve(load_stack("baseline"), Settings(_env_file=None, **KEYS))
+    built = models.resolve(load_stack("baseline", *REFERENCE), Settings(_env_file=None, **KEYS))
     assert isinstance(built.stt, DeepgramSTTService)
     assert isinstance(built.llm, OpenAILLMService)
     assert isinstance(built.tts, ElevenLabsTTSService)
@@ -48,7 +49,7 @@ def test_the_soniox_gemini_stack_resolves_to_soniox_google_soniox() -> None:
 
 
 def test_an_unknown_provider_fails_before_anything_connects() -> None:
-    stack = load_stack("baseline")
+    stack = load_stack("baseline", *REFERENCE)
     bad = dataclasses.replace(stack, tts=stack.tts.model_copy(update={"provider": "nope"}))
     with pytest.raises(ValueError, match="no tts for 'nope'; have elevenlabs, soniox"):
         models.resolve(bad, Settings(_env_file=None, **KEYS))
@@ -61,14 +62,14 @@ def test_a_missing_key_names_the_env_var() -> None:
 
 
 def test_the_system_prompt_rides_on_the_llm_service() -> None:
-    stack = load_stack("baseline")
+    stack = load_stack("baseline", *REFERENCE)
     built = models.resolve(stack, Settings(_env_file=None, **KEYS))
     assert isinstance(built.llm, LLMService)
     assert built.llm._settings.system_instruction == stack.system_prompt
 
 
 def test_every_stack_runs_its_stt_with_endpointing_off() -> None:
-    deepgram = models.resolve(load_stack("baseline"), Settings(_env_file=None, **KEYS))
+    deepgram = models.resolve(load_stack("baseline", *REFERENCE), Settings(_env_file=None, **KEYS))
     assert isinstance(deepgram.stt, DeepgramSTTService)
     assert vars(deepgram.stt._settings)["endpointing"] is False
     soniox = models.resolve(

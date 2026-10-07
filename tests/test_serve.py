@@ -16,6 +16,8 @@ from agent.config import Settings
 from agent.models import Services
 from agent.stack import load_stack
 
+REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
+
 SILENCE_16K_100MS = bytes(2 * 1600)
 
 
@@ -39,7 +41,7 @@ class _Echo(FrameProcessor):
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    stack = load_stack("baseline")
+    stack = load_stack("baseline", *REFERENCE)
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (

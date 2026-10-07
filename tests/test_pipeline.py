@@ -7,9 +7,11 @@ from pipecat.processors.frame_processor import FrameProcessor
 from agent.pipeline import cascade_processors, context_aggregators
 from agent.stack import load_stack
 
+REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
+
 
 def test_cascade_runs_transcribe_accumulate_generate_synthesize() -> None:
-    aggregators = context_aggregators(load_stack("baseline"))
+    aggregators = context_aggregators(load_stack("baseline", *REFERENCE))
     stt, llm, tts = FrameProcessor(), FrameProcessor(), FrameProcessor()
     assert cascade_processors(stt, llm, tts, aggregators) == [
         stt,

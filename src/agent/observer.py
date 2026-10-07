@@ -145,9 +145,9 @@ class Moments:
 def models_by_modality(stack: Stack) -> dict[str, dict[str, str]]:
     """Provider and model per stage, for the child spans."""
     return {
-        "stt": {"provider": stack.stt.provider, "model": stack.stt.model},
-        "llm": {"provider": stack.llm.provider, "model": stack.llm.model},
-        "tts": {"provider": stack.tts.provider, "model": stack.tts.model},
+        "stt": {"provider": stack.stt.provider, "model": stack.stt.name},
+        "llm": {"provider": stack.llm.provider, "model": stack.llm.name},
+        "tts": {"provider": stack.tts.provider, "model": stack.tts.name},
     }
 
 

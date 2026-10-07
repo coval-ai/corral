@@ -120,8 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
         parser.add_argument(
             f"--{modality}",
             choices=model_ids(modality),
-            default=os.environ.get(f"S2S_{modality.upper()}"),
-            help=f"default: {model_ids(modality)[0]}",
+            default=os.environ.get(f"S2S_{modality.upper()}", model_ids(modality)[0]),
+            help="default: %(default)s",
         )
     parser.add_argument(
         "--scenario",
