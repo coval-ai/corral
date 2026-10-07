@@ -12,7 +12,7 @@ import importlib.resources
 import json
 from importlib.resources.abc import Traversable
 
-from agent.annotated import AnnotatedModel
+from agent.models import JsonModel
 
 PROMPT_FILE = "system-prompt.txt"
 SUMMARY_FILE = "summary.txt"
@@ -21,7 +21,7 @@ TALK_SCENARIO = "default"
 BENCHMARK_SCENARIO = "baseline"
 
 
-class TestSet(AnnotatedModel):
+class TestSet(JsonModel):
     test_set_id: str
     persona_id: str
     metric_ids: list[str]

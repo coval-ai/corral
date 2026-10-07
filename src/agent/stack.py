@@ -11,18 +11,17 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-from agent.annotated import AnnotatedModel
-from agent.models import LlmPin, SttPin, TtsPin, catalog, find
+from agent.models import JsonModel, LlmPin, SttPin, TtsPin, catalog, find
 from agent.scenarios import load_prompt
 
 
-class TurnTakingPin(AnnotatedModel):
+class TurnTakingPin(JsonModel):
     vad_stop_secs: float
     turn_analyzer: Literal["smart-turn-v3"]
     interrupt_min_words: int
 
 
-class AudioPin(AnnotatedModel):
+class AudioPin(JsonModel):
     in_sample_rate_hz: int
     out_sample_rate_hz: int
 

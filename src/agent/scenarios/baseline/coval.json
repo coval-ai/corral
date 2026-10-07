@@ -1,12 +1,9 @@
 {
   "test_set_id": "QjkAPGkb",
-  "_test_set": "Instruction Following (Ultra Bank): 2 cases, runs daily",
   "persona_id": "NWTe6Q7B7WvhUfU52A3NY8",
-  "_persona": "Clean Speech Baseline",
   "metric_ids": [
     "Mg65N9kJRDvykhLwUcb2SP",
     "7VHk6dTjvBcuV6XYPmaeGq",
     "m83kLcWEfrbNeths6rykzj"
-  ],
-  "_metrics": ["Validate Expected Behaviors", "Turn Count", "SQLInterruption Rate"]
+  ]
 }

@@ -20,9 +20,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from pipecat.processors.frame_processor import FrameProcessor
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from agent.annotated import AnnotatedModel
 from agent.config import Settings
 
 if TYPE_CHECKING:
@@ -32,7 +31,11 @@ Modality = Literal["stt", "llm", "tts"]
 MODALITIES: tuple[Modality, ...] = ("stt", "llm", "tts")
 
 
-class ComponentPin(AnnotatedModel):
+class JsonModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ComponentPin(JsonModel):
     """One modality's vendor and model. ``options`` is for knobs only that vendor understands."""
 
     provider: str
@@ -56,7 +59,7 @@ class TtsPin(ComponentPin):
     voice: str
 
 
-class Catalog(AnnotatedModel):
+class Catalog(JsonModel):
     stt: list[SttPin]
     llm: list[LlmPin]
     tts: list[TtsPin]

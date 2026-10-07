@@ -34,8 +34,8 @@ def test_an_unknown_model_names_the_ones_that_exist() -> None:
         stacks.load_stack("baseline", llm="openai/nope")
 
 
-def test_the_catalog_rejects_unknown_keys_but_keeps_rationale() -> None:
+def test_a_misspelled_key_in_the_catalog_fails_to_load() -> None:
     entry = {"provider": "elevenlabs", "model": "x", "voice": "v"}
-    assert models.TtsPin.model_validate({**entry, "_voice": "Sarah"})
-    with pytest.raises(ValueError, match="unknown key"):
+    assert models.TtsPin.model_validate(entry)
+    with pytest.raises(ValueError, match="voise"):
         models.TtsPin.model_validate({**entry, "voise": "x"})
