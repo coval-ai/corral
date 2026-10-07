@@ -73,3 +73,16 @@ def test_the_system_prompt_rides_on_the_llm_service() -> None:
     built = services.resolve(loaded, Settings(_env_file=None, **KEYS))
     assert isinstance(built.llm, LLMService)
     assert built.llm._settings.system_instruction == loaded.system_prompt
+
+
+def test_every_stack_runs_its_stt_with_endpointing_off() -> None:
+    deepgram = services.resolve(
+        load_stack("baseline", "cascade-nova3-gpt41-flash"), Settings(_env_file=None, **KEYS)
+    )
+    assert isinstance(deepgram.stt, DeepgramSTTService)
+    assert vars(deepgram.stt._settings)["endpointing"] is False
+    soniox = services.resolve(
+        load_stack("baseline", "cascade-soniox-gemini"), Settings(_env_file=None, **KEYS)
+    )
+    assert isinstance(soniox.stt, SonioxSTTService)
+    assert soniox.stt._vad_force_turn_endpoint is True

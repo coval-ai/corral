@@ -3,17 +3,20 @@
 
 """One ``turn`` span per answered turn, with ``stt``, ``llm`` and ``tts`` under it.
 
-We grab the time at six moments:
+We grab the time at seven moments:
 
 - ``utterance_end``: Coval tells us the caller finished talking
-- ``vad_done``: our VAD and smart-turn agree the caller is done
-- ``stt_done``: the last transcript the model actually got to read
+- ``vad_stop``: Silero hears enough silence and Pipecat asks the STT to finalize
+- ``stt_done``: the STT sends back the transcript the model will read
+- ``vad_done``: smart-turn agrees and the transcript is in, so the turn is over
 - ``llm_first_token``: the model says its first word
 - ``tts_first_audio``: we have the first bit of synthesized audio
 - ``audio_start``: we send the first audio chunk back to Coval
 
-The turn runs from when the caller stopped (``utterance_end``, or ``vad_done``
-if Coval didn't send one) to ``audio_start``. It carries each moment as
+The turn runs from when the caller stopped to ``audio_start``. On Coval that's
+``utterance_end``. Locally it's ``vad_stop`` minus Silero's silence window, and
+``vad_done`` only if Silero never fired. STT latency is ``vad_stop`` to
+``stt_done``: how long the STT took to answer the finalize. It carries each moment as
 ``s2s.<moment>.unix_ms`` and the gaps as ``s2s.<step>_ms``; ``s2s.latency_ms``
 is the headline, caller stopped to first synthesized audio. The three child
 spans are the stages, as long as the stage took, tagged with provider and model.
@@ -41,6 +44,7 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
     TTSAudioRawFrame,
     UserStoppedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 
@@ -65,8 +69,9 @@ class Moments:
     """When each moment happened this turn, in unix ns."""
 
     utterance_end: int | None = None
-    vad_done: int | None = None
+    vad_stop: int | None = None
     stt_done: int | None = None
+    vad_done: int | None = None
     llm_first_token: int | None = None
     tts_first_audio: int | None = None
     audio_start: int | None = None
@@ -74,15 +79,22 @@ class Moments:
     # whose start we saw this turn, so a marker that shows up after we've already
     # answered can't start the next turn's clock.
     utterance_id: str | None = None
+    vad_stop_secs: float = 0.0
 
     @property
     def caller_stopped(self) -> int | None:
-        return self.utterance_end if self.utterance_end is not None else self.vad_done
+        if self.utterance_end is not None:
+            return self.utterance_end
+        if self.vad_stop is not None:
+            return self.vad_stop - int(self.vad_stop_secs * 1e9)
+        return self.vad_done
 
     @property
     def source(self) -> str:
         """Which moment counts as the caller stopping."""
-        return UTTERANCE_END if self.utterance_end is not None else "vad_done"
+        if self.utterance_end is not None:
+            return UTTERANCE_END
+        return "vad_stop" if self.vad_stop is not None else "vad_done"
 
     @property
     def model_ready(self) -> int | None:
@@ -95,7 +107,7 @@ class Moments:
         return {
             f"s2s.{field.name}.unix_ms": value / 1e6
             for field in dataclasses.fields(self)
-            if field.name != "utterance_id" and (value := getattr(self, field.name)) is not None
+            if isinstance(value := getattr(self, field.name), int)
         }
 
     def step_attributes(self) -> dict[str, float]:
@@ -104,10 +116,10 @@ class Moments:
         if stopped is None or tts is None or out is None:
             return {}
         steps = {"s2s.latency_ms": _ms(tts, stopped), "s2s.transport_ms": _ms(out, tts)}
-        if self.utterance_end is not None and self.vad_done is not None:
-            steps["s2s.endpointing_ms"] = _ms(self.vad_done, self.utterance_end)
-        if self.stt_done is not None:
-            steps["s2s.stt_ms"] = _ms(self.stt_done, stopped)
+        if self.utterance_end is not None and self.vad_stop is not None:
+            steps["s2s.endpointing_ms"] = _ms(self.vad_stop, self.utterance_end)
+        if self.vad_stop is not None and self.stt_done is not None:
+            steps["s2s.stt_ms"] = _ms(self.stt_done, self.vad_stop)
         if self.llm_first_token is not None and self.model_ready is not None:
             steps["s2s.llm_ms"] = _ms(self.llm_first_token, self.model_ready)
             steps["s2s.tts_ms"] = _ms(tts, self.llm_first_token)
@@ -116,13 +128,13 @@ class Moments:
     def stages(self) -> dict[str, tuple[int, int]]:
         """Start and end of each stage, in unix ns.
 
-        No stt stage when the transcript beat the caller-stopped moment (Coval's
-        marker runs late); a span can't run backwards. ``s2s.stt_ms`` still says so.
+        No stt stage when the transcript came before Silero fired; a span can't run
+        backwards. ``s2s.stt_ms`` still says so.
         """
         out: dict[str, tuple[int, int]] = {}
-        stopped = self.caller_stopped
-        if stopped is not None and self.stt_done is not None and self.stt_done >= stopped:
-            out["stt"] = (stopped, self.stt_done)
+        silero, stt = self.vad_stop, self.stt_done
+        if silero is not None and stt is not None and stt >= silero:
+            out["stt"] = (silero, stt)
         if self.llm_first_token is not None and self.model_ready is not None:
             out["llm"] = (self.model_ready, self.llm_first_token)
             if self.tts_first_audio is not None:
@@ -182,6 +194,9 @@ class TurnLatencyObserver(BaseObserver):
                 "utterance_id"
             ) in (None, moment.utterance_id):
                 moment.utterance_end = now
+            case VADUserStoppedSpeakingFrame(stop_secs=secs) if moment.llm_first_token is None:
+                moment.vad_stop = now
+                moment.vad_stop_secs = secs
             case UserStoppedSpeakingFrame():
                 moment.vad_done = now
                 moment.llm_first_token = None  # the answer to this turn hasn't started

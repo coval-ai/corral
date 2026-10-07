@@ -3,7 +3,8 @@
 
   "stt": {
     "provider": "deepgram",
-    "model": "nova-3"
+    "model": "nova-3",
+    "options": { "endpointing": false }
   },
 
   "llm": {
