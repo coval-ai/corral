@@ -19,7 +19,6 @@ def test_hanging_up_prints_median_and_max_per_stage() -> None:
     out = summary(turns, models, "cascade-x").splitlines()
     assert out[0] == "3 turns on cascade-x"
     assert out[2].split() == ["latency", "900", "1000"]
-    assert "endpointing" not in "\n".join(out)
     assert out[3].split() == ["stt", "75", "100"]
     assert out[4].split() == ["llm", "(openai/gpt-4.1)", "600", "700"]
     assert out[-1] == "1 turns the STT never confirmed"

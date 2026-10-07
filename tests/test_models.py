@@ -42,6 +42,7 @@ def test_each_stack_resolves_to_its_vendors_with_our_endpointing() -> None:
     assert isinstance(soniox.llm, GoogleLLMService)
     assert isinstance(soniox.tts, SonioxTTSService)
     assert soniox.stt._vad_force_turn_endpoint is True
+    assert vars(soniox.llm._settings)["thinking"].thinking_budget == 0
 
 
 def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> None:

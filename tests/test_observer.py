@@ -87,9 +87,8 @@ async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None
     await call.at(1_800, AUDIO)
     await call.at(1_820, BotStartedSpeakingFrame())
     (turn,) = call.turns
-    assert turn["s2s.turn_latency.source"] == "utterance_end"
-    assert turn["s2s.turn_latency_ms"] == 800.0
-    assert turn["s2s.turn_latency.endpointing_ms"] == 200.0
+    assert turn["s2s.turn_latency_ms"] == 600.0
+    assert turn["s2s.utterance_end.unix_ms"] == 1_000.0
     assert turn["s2s.turn_latency.stt_ms"] == 60.0
     assert turn["s2s.turn_latency.llm_ms"] == 250.0
     assert turn["s2s.turn_latency.tts_ms"] == 150.0
@@ -100,13 +99,13 @@ async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None
     assert dict(stages["llm"].attributes or {}) == {"provider": "openai", "model": "gpt-4.1"}
 
 
-async def test_without_covals_marker_the_pause_starts_at_silero(call: Call) -> None:
+async def test_the_pause_starts_at_silero_minus_its_window(call: Call) -> None:
+    await call.at(1_000, _marker("utterance_end"))
     await call.at(1_200, VADUserStoppedSpeakingFrame(stop_secs=0.2))
     await call.at(1_860, LLMTextFrame("Hi"))
     await call.at(2_121, AUDIO)
     await call.at(2_122, BotStartedSpeakingFrame())
     (turn,) = call.turns
-    assert turn["s2s.turn_latency.source"] == "vad_stop"
     assert turn["s2s.turn_latency_ms"] == 1_121.0
     assert call.stages() == {}
 
@@ -168,7 +167,7 @@ async def test_an_stt_that_never_confirms_is_flagged_not_timed(call: Call) -> No
     assert "s2s.turn_latency.stt_ms" not in turn
 
 
-async def test_covals_markers_are_paired_by_utterance_id(call: Call) -> None:
+async def test_covals_marker_is_recorded_on_the_turn_it_belongs_to(call: Call) -> None:
     await call.at(500, _marker("utterance_started", "u-1"))
     await call.at(520, InterruptionFrame())
     await call.at(1_000, _marker("utterance_end", "u-1"))
@@ -180,5 +179,5 @@ async def test_covals_markers_are_paired_by_utterance_id(call: Call) -> None:
     await call.at(6_600, AUDIO)
     await call.at(6_650, BotStartedSpeakingFrame())
     first, second = call.turns
-    assert first["s2s.turn_latency_ms"] == 700.0
-    assert second["s2s.turn_latency.source"] == "vad_stop"
+    assert first["s2s.utterance_end.unix_ms"] == 1_000.0
+    assert "s2s.utterance_end.unix_ms" not in second

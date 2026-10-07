@@ -38,7 +38,7 @@ async def run(agent: Agent) -> None:
         print(summary(call.observer.turns, models_by_modality(agent), agent.slug), flush=True)
 
 
-STEPS = ("endpointing", "stt", "llm", "tts")
+STEPS = ("stt", "llm", "tts")
 COLUMNS = {"latency": "s2s.turn_latency_ms"} | {s: f"s2s.turn_latency.{s}_ms" for s in STEPS}
 
 

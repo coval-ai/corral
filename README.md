@@ -57,7 +57,6 @@ Every answered turn becomes a `turn_latency` span in Coval, with `stt`, `llm`
 and `tts` spans under it showing how long each provider took and which model
 ran. We grab the time at these moments:
 
-- `utterance_end`: Coval tells us the caller finished talking
 - `vad_stop`: Silero hears enough silence and Pipecat asks the STT to finalize
 - `stt_done`: the STT confirms the transcript is final
 - `vad_done`: smart-turn agrees the caller is done
@@ -69,9 +68,9 @@ ran. We grab the time at these moments:
 
 Each one is on the span as `s2s.<moment>.unix_ms`. The headline is
 `s2s.turn_latency_ms`: caller stopped to first synthesized audio. "Caller
-stopped" is Coval's `utterance_end` marker on Coval runs. Locally it's when
-Silero fired minus its silence window, which is when you actually stopped.
-`s2s.turn_latency.source` says which.
+stopped" is when Silero fired minus its silence window, which is when the
+caller's last word reached us. It's our clock, so it means the same thing
+locally and on Coval, and the same thing for every stack.
 
 Each stage is measured at its own request boundary, so it's that provider's
 time and nothing else: `s2s.turn_latency.stt_ms` is Silero firing to the STT
@@ -83,12 +82,7 @@ confirm our finalize request: that confirmation is the only thing that ends the
 STT stage. A turn where it never came has no `stt_ms` and
 `s2s.turn_latency.stt_confirmed` false, so a provider that drops finalizes shows
 up as that rather than as a slow one. The stages don't add up
-to the headline; the rest is turn-taking and plumbing, which is ours. On Coval
-runs, `endpointing_ms` is `utterance_end` to `vad_stop`.
-
-Known caveat: Coval currently sends `utterance_end` about 350 ms after the
-persona actually stops, so the headline reads about 350 ms low on every stack.
-Comparisons between stacks are fine; absolute numbers are not yet.
+to the headline; the rest is turn-taking and plumbing, which is ours.
 
 ## Adding things
 

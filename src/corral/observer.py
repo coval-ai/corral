@@ -5,7 +5,6 @@
 
 We grab the time at these moments:
 
-- ``utterance_end``: Coval tells us the caller finished talking
 - ``vad_stop``: Silero hears enough silence and Pipecat asks the STT to finalize
 - ``stt_done``: the STT confirms the transcript is final
 - ``vad_done``: smart-turn agrees the caller is done
@@ -14,9 +13,12 @@ We grab the time at these moments:
 - ``tts_start``: the first text goes to the TTS
 - ``tts_first_audio``: we have the first bit of synthesized audio
 - ``audio_start``: we send the first audio chunk back to Coval
+- ``utterance_end``: Coval's own marker that the caller finished, recorded but not used
 
-Latency is from when the caller stopped to ``tts_first_audio``. On Coval the caller
-stopped at ``utterance_end``. Locally it's ``vad_stop`` minus Silero's silence window.
+Latency is from when the caller stopped to ``tts_first_audio``. The caller stopped at
+``vad_stop`` minus Silero's silence window, on our clock, the same locally and on Coval.
+Coval's marker trails the caller's last word by a few hundred ms and that gap depends on
+the persona, so it's on the span for reference and nothing is computed from it.
 
 Each stage is measured at its own request boundary, so it's the provider's time and
 nothing else: ``stt`` is ``vad_stop`` to ``stt_done``, ``llm`` is ``llm_start`` to
@@ -59,7 +61,6 @@ from corral.agent import Agent
 SPAN_NAME = "turn_latency"
 SERVICE_NAME = "coval-bench-s2s-agent"
 EXPORT_TIMEOUT_SECS = 30
-UTTERANCE_END = "utterance_end"
 
 ModelsByModality = Mapping[str, Mapping[str, str]]
 
@@ -92,25 +93,16 @@ class Moments:
     audio_start: int | None = None
     # Coval pairs utterance_started and utterance_end by id. We only take an end
     # whose start we saw this turn, so a marker that shows up after we've already
-    # answered can't start the next turn's clock.
+    # answered isn't recorded against the next turn.
     utterance_id: str | None = None
     vad_stop_secs: float = 0.0
 
     @property
     def caller_stopped(self) -> int | None:
-        """Coval's marker if we have it, else Silero firing minus its silence window."""
-        if self.utterance_end is not None:
-            return self.utterance_end
+        """Silero firing minus its silence window, or smart-turn if Silero never fired."""
         if self.vad_stop is not None:
             return self.vad_stop - int(self.vad_stop_secs * 1e9)
         return self.vad_done
-
-    @property
-    def source(self) -> str:
-        """Which moment stood in for the caller stopping."""
-        if self.utterance_end is not None:
-            return UTTERANCE_END
-        return "vad_stop" if self.vad_stop is not None else "vad_done"
 
     def unix_ms_attributes(self) -> dict[str, float]:
         """``s2s.<moment>.unix_ms`` for each moment we saw."""
@@ -134,7 +126,7 @@ class Moments:
         }
 
     def step_attributes(self) -> dict[str, float]:
-        """The headline, transport, endpointing and each stage as ``s2s.turn_latency.*_ms``."""
+        """The headline, transport and each stage as ``s2s.turn_latency.*_ms``."""
         stopped, tts, out = self.caller_stopped, self.tts_first_audio, self.audio_start
         if stopped is None or tts is None or out is None:
             return {}
@@ -142,8 +134,6 @@ class Moments:
             "s2s.turn_latency_ms": _ms(tts, stopped),
             "s2s.turn_latency.transport_ms": _ms(out, tts),
         }
-        if self.utterance_end is not None and self.vad_stop is not None:
-            steps["s2s.turn_latency.endpointing_ms"] = _ms(self.vad_stop, self.utterance_end)
         for name, (start, end) in self.stages().items():
             steps[f"s2s.turn_latency.{name}_ms"] = _ms(end, start)
         return steps
@@ -155,7 +145,7 @@ def _describe(number: int, moment: Moments, attributes: dict[str, Any]) -> str:
     if moment.stt_done is None:
         parts.insert(0, "stt unconfirmed")
     latency = attributes["s2s.turn_latency_ms"]
-    return f"Turn {number}: {latency:.0f} ms from {moment.source} ({', '.join(parts)})"
+    return f"Turn {number}: {latency:.0f} ms ({', '.join(parts)})"
 
 
 def models_by_modality(agent: Agent) -> dict[str, dict[str, str]]:
@@ -260,7 +250,6 @@ class TurnLatencyObserver(BaseObserver):
         attributes: dict[str, Any] = {
             **self._attributes,
             "s2s.turn.number": self._turn,
-            "s2s.turn_latency.source": moment.source,
             "s2s.turn_latency.stt_confirmed": moment.stt_done is not None,
             **moment.unix_ms_attributes(),
             **moment.step_attributes(),

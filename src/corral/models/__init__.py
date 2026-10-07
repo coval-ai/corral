@@ -152,7 +152,11 @@ def _build(
     """Import the Pipecat class and build it with its Settings, the key and anything extra."""
     module_name, class_name = path.split(":")
     cls = getattr(importlib.import_module(module_name), class_name)
-    kwargs: dict[str, Any] = {"api_key": api_key, "settings": cls.Settings(**fields), **extra}
+    kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "settings": cls.Settings.from_mapping(fields),
+        **extra,
+    }
     if sample_rate is not None:
         kwargs["sample_rate"] = sample_rate
     service: FrameProcessor = cls(**kwargs)
