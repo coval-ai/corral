@@ -32,14 +32,9 @@ async def url() -> AsyncIterator[str]:
             await task
 
 
-@pytest.mark.asyncio
-async def test_probe_reads_health_then_hears_session_ready(url: str) -> None:
+async def test_probe_reads_health_behind_the_bearer(url: str) -> None:
     health = await benchmark.probe(url, "s3cret")
     assert health["agent"] == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
-
-
-@pytest.mark.asyncio
-async def test_probe_fails_on_a_wrong_bearer(url: str) -> None:
     with pytest.raises(Exception, match="403"):
         await benchmark.probe(url, "nope")
 

@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-import structlog
 import uvicorn
 from fastapi import FastAPI
+from loguru import logger
 from websockets.asyncio.client import connect
 
 from corral.agent import Agent
@@ -32,8 +32,6 @@ from corral.coval_wire import SESSION_READY
 from corral.scenarios import TestSet
 from corral.serve import create_app
 
-logger = structlog.get_logger("corral")
-
 PROBE_TIMEOUT_SECS = 30
 REACHABLE_TIMEOUT_SECS = 180
 POLL_SECS = 30
@@ -44,7 +42,9 @@ async def serve_in_process(
     app: FastAPI, port: int
 ) -> tuple[uvicorn.Server, asyncio.Task[None], int]:
     """Start uvicorn on the loop we are on; returns the server, its task and the bound port."""
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", log_config=None)
+    )
     task = asyncio.create_task(server.serve(), name="s2s-serve")
     while not server.started:
         if task.done():
@@ -64,9 +64,10 @@ async def probe(url: str, token: str | None) -> dict[str, Any]:
                 response = await http.get(f"{url}/healthz")
                 response.raise_for_status()
                 break
-            except httpx.HTTPError:
+            except httpx.HTTPError as error:
                 if asyncio.get_running_loop().time() > deadline:
                     raise
+                logger.debug(f"healthz not up yet ({error!r}), retrying")
                 await asyncio.sleep(2)
         health: dict[str, Any] = response.json()
     headers = {"Authorization": f"Bearer {token}"} if token else {}
@@ -142,13 +143,11 @@ async def run_on_coval(
     )
     run = await asyncio.to_thread(coval.launch_run, body)
     run_id = run_id_of(run)
-    logger.info("run_launched", run_id=run_id, agent_id=agent_id, status=run.get("status"))
+    logger.info(f"Run {run_id} launched on agent {agent_id}: {run.get('status')}")
     while not is_terminal(run):
         await asyncio.sleep(POLL_SECS)
         run = await asyncio.to_thread(coval.get_run, run_id)
-        logger.info(
-            "run_status", run_id=run_id, status=run.get("status"), progress=run.get("progress")
-        )
+        logger.info(f"Run {run_id}: {run.get('status')} {run.get('progress') or ''}".rstrip())
     return run
 
 
@@ -163,15 +162,17 @@ async def run(agent: Agent, port: int, tunnel: bool, request: RunRequest) -> int
             process, url = await open_tunnel(port)
         else:
             url = f"http://127.0.0.1:{port}"
-        logger.info("probing", url=url)
+        logger.debug(f"Probing {url}")
         health = await probe(url, token)
-        logger.info("agent_up", url=url, **health)
+        logger.info(f"Agent {health['agent']} is up at {url}")
         print(url, flush=True)
         with CovalClient(api_key, settings.coval_api_base) as coval:
             final = await run_on_coval(coval, agent, url, token, request)
-        logger.info("run_finished", run_id=run_id_of(final), status=final.get("status"))
+        completed = final.get("status") == "COMPLETED"
+        level = "INFO" if completed else "WARNING"
+        logger.log(level, f"Run {run_id_of(final)} finished: {final.get('status')}")
         print("\n".join(results_lines(final)), flush=True)
-        return 0 if final.get("status") == "COMPLETED" else 1
+        return 0 if completed else 1
     finally:
         if process is not None and process.returncode is None:
             process.terminate()

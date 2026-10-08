@@ -38,7 +38,8 @@ async def run(agent: Agent) -> None:
         print(summary(call.observer.turns, models_by_modality(agent), agent.slug), flush=True)
 
 
-STEPS = ("latency", "endpointing", "stt", "handoff", "llm", "tts", "transport")
+STEPS = ("stt", "llm", "tts")
+COLUMNS = {"latency": "s2s.turn_latency_ms"} | {s: f"s2s.turn_latency.{s}_ms" for s in STEPS}
 
 
 def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str) -> str:
@@ -46,11 +47,17 @@ def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str
     if not turns:
         return "no answered turns"
     lines = [f"{len(turns)} turns on {slug}", f"{'':34}{'median':>8}{'max':>8}"]
-    for step in STEPS:
-        values = [t[f"s2s.{step}_ms"] for t in turns if f"s2s.{step}_ms" in t]
+    for step, key in COLUMNS.items():
+        values = [t[key] for t in turns if key in t]
         if not values:
             continue
         model = models.get(step)
         label = f"{step} ({model['provider']}/{model['model']})" if model else step
         lines.append(f"{label:34}{statistics.median(values):>7.0f} {max(values):>7.0f}")
+    unconfirmed = sum(not t.get("s2s.turn_latency.stt_confirmed", True) for t in turns)
+    if unconfirmed:
+        lines.append(f"{unconfirmed} turns the STT never confirmed")
+    timed_out = sum(bool(t.get("s2s.turn_latency.turn_detection_timed_out")) for t in turns)
+    if timed_out:
+        lines.append(f"{timed_out} turns where turn detection timed out")
     return "\n".join(lines)

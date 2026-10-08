@@ -22,7 +22,12 @@ from typing import TYPE_CHECKING, Any, Literal
 from pipecat.processors.frame_processor import FrameProcessor
 from pydantic import BaseModel, ConfigDict, Field
 
-from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, Settings
+from corral.config import (
+    IN_SAMPLE_RATE_HZ,
+    OUT_SAMPLE_RATE_HZ,
+    STT_FINALIZE_FALLBACK_SECS,
+    Settings,
+)
 
 if TYPE_CHECKING:
     from corral.agent import Agent
@@ -142,11 +147,16 @@ def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tu
 
 
 def _build(
-    path: str, api_key: str, fields: dict[str, Any], sample_rate: int | None
+    path: str, api_key: str, fields: dict[str, Any], sample_rate: int | None, **extra: float
 ) -> FrameProcessor:
+    """Import the Pipecat class and build it with its Settings, the key and anything extra."""
     module_name, class_name = path.split(":")
     cls = getattr(importlib.import_module(module_name), class_name)
-    kwargs: dict[str, Any] = {"api_key": api_key, "settings": cls.Settings(**fields)}
+    kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "settings": cls.Settings.from_mapping(fields),
+        **extra,
+    }
     if sample_rate is not None:
         kwargs["sample_rate"] = sample_rate
     service: FrameProcessor = cls(**kwargs)
@@ -164,6 +174,7 @@ def resolve(agent: Agent, settings: Settings) -> Services:
             stt_key,
             {"model": agent.stt.name, **agent.stt.options},
             IN_SAMPLE_RATE_HZ,
+            stt_ttfb_timeout=STT_FINALIZE_FALLBACK_SECS,
         ),
         llm=_build(
             llm_path,
