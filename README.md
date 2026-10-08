@@ -71,6 +71,8 @@ Each one is on the span as `s2s.<moment>.unix_ms`. The headline is
 stopped" is when Silero fired minus its silence window, which is when the
 caller's last word reached us. It's our clock, so it means the same thing
 locally and on Coval, and the same thing for every stack.
+When smart-turn never decides and its silence fallback ends the turn,
+`s2s.turn_latency.turn_detection_timed_out` is true.
 
 Each stage is measured at its own request boundary, so it's that provider's
 time and nothing else: `s2s.turn_latency.stt_ms` is Silero firing to the STT

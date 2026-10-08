@@ -57,4 +57,7 @@ def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str
     unconfirmed = sum(not t.get("s2s.turn_latency.stt_confirmed", True) for t in turns)
     if unconfirmed:
         lines.append(f"{unconfirmed} turns the STT never confirmed")
+    timed_out = sum(bool(t.get("s2s.turn_latency.turn_detection_timed_out")) for t in turns)
+    if timed_out:
+        lines.append(f"{timed_out} turns where turn detection timed out")
     return "\n".join(lines)

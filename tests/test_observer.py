@@ -88,6 +88,7 @@ async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None
     await call.at(1_820, BotStartedSpeakingFrame())
     (turn,) = call.turns
     assert turn["s2s.turn_latency_ms"] == 600.0
+    assert turn["s2s.turn_latency.turn_detection_timed_out"] is False
     assert turn["s2s.utterance_end.unix_ms"] == 1_000.0
     assert turn["s2s.turn_latency.stt_ms"] == 60.0
     assert turn["s2s.turn_latency.llm_ms"] == 250.0
@@ -155,6 +156,17 @@ async def test_the_stt_stage_ends_only_when_the_stt_confirms(call: Call) -> None
     (turn,) = call.turns
     assert turn["s2s.turn_latency.stt_confirmed"] is True
     assert turn["s2s.turn_latency.stt_ms"] == 70.0
+
+
+async def test_smart_turns_silence_fallback_is_flagged(call: Call) -> None:
+    await call.at(1_200, VADUserStoppedSpeakingFrame(stop_secs=0.2))
+    await call.at(4_000, UserStoppedSpeakingFrame())
+    await call.at(4_600, LLMTextFrame("Hi"))
+    await call.at(4_800, AUDIO)
+    await call.at(4_820, BotStartedSpeakingFrame())
+    (turn,) = call.turns
+    assert turn["s2s.turn_latency.turn_detection_timed_out"] is True
+    assert turn["s2s.turn_latency_ms"] == 3_800.0
 
 
 async def test_an_stt_that_never_confirms_is_flagged_not_timed(call: Call) -> None:
