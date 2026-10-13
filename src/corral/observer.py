@@ -13,12 +13,9 @@ We grab the time at these moments:
 - ``tts_start``: the first text goes to the TTS
 - ``tts_first_audio``: we have the first bit of synthesized audio
 - ``audio_start``: we send the first audio chunk back to Coval
-- ``utterance_end``: Coval's own marker that the caller finished, recorded but not used
 
 Latency is from when the caller stopped to ``tts_first_audio``. The caller stopped at
 ``vad_stop`` minus Silero's silence window, on our clock, the same locally and on Coval.
-Coval's marker trails the caller's last word by a few hundred ms and that gap depends on
-the persona, so it's on the span for reference and nothing is computed from it.
 
 Each stage is measured at its own request boundary, so it's the provider's time and
 nothing else: ``stt`` is ``vad_stop`` to ``stt_done``, ``llm`` is ``llm_start`` to
@@ -45,7 +42,6 @@ from opentelemetry.trace import Tracer
 from pipecat.audio.turn.smart_turn.base_smart_turn import STOP_SECS as SMART_TURN_STOP_SECS
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
-    InputTransportMessageFrame,
     InterruptionFrame,
     LLMTextFrame,
     MetricsFrame,
@@ -83,7 +79,6 @@ def _ttfb_ns(reports: list[Any]) -> int | None:
 class Moments:
     """When each moment happened this turn, in unix ns."""
 
-    utterance_end: int | None = None
     vad_stop: int | None = None
     stt_done: int | None = None
     vad_done: int | None = None
@@ -92,10 +87,6 @@ class Moments:
     tts_start: int | None = None
     tts_first_audio: int | None = None
     audio_start: int | None = None
-    # Coval pairs utterance_started and utterance_end by id. We only take an end
-    # whose start we saw this turn, so a marker that shows up after we've already
-    # answered isn't recorded against the next turn.
-    utterance_id: str | None = None
     vad_stop_secs: float = 0.0
 
     @property
@@ -208,13 +199,6 @@ class TurnLatencyObserver(BaseObserver):
         now = self._clock()
         moment = self._moment
         match data.frame:
-            case InputTransportMessageFrame(message={"type": "utterance_started", **rest}):
-                started = rest.get("utterance_id")
-                moment.utterance_id = started if isinstance(started, str) else None
-            case InputTransportMessageFrame(message={"type": "utterance_end", **rest}) if rest.get(
-                "utterance_id"
-            ) in (None, moment.utterance_id):
-                moment.utterance_end = now
             case VADUserStoppedSpeakingFrame(stop_secs=secs) if moment.llm_first_token is None:
                 moment.vad_stop = now
                 moment.vad_stop_secs = secs
@@ -235,7 +219,7 @@ class TurnLatencyObserver(BaseObserver):
             ):
                 moment.tts_first_audio = now
             case InterruptionFrame():
-                self._moment = Moments(utterance_id=moment.utterance_id)
+                self._moment = Moments()
             case BotStartedSpeakingFrame():
                 moment.audio_start = now
                 if moment.caller_stopped is not None and moment.tts_first_audio is not None:

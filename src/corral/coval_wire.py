@@ -5,8 +5,7 @@
 
 Coval streams raw PCM both ways: binary frames in at its pipeline rate, binary
 frames back at the rate its agent config declares. Text frames are JSON control
-messages. Coval waits for ``session_ready`` before the persona speaks and, with
-speech-activity markers on, reports when the persona starts and stops.
+messages. Coval waits for ``session_ready`` before the persona speaks.
 """
 
 from __future__ import annotations
@@ -14,14 +13,12 @@ from __future__ import annotations
 import json
 import secrets
 from collections.abc import Mapping
-from typing import Any
 
 from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import (
     AudioRawFrame,
     Frame,
     InputAudioRawFrame,
-    InputTransportMessageFrame,
     OutputTransportMessageFrame,
     OutputTransportMessageUrgentFrame,
 )
@@ -32,7 +29,6 @@ from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
 
 SIMULATION_HEADER = "x-coval-simulation-id"
 SESSION_READY = {"type": "session_ready"}
-SPEECH_ACTIVITY_TYPES = frozenset({"utterance_started", "utterance_end"})
 
 
 def simulation_id(headers: Mapping[str, str]) -> str | None:
@@ -50,7 +46,7 @@ def authorized(headers: Mapping[str, str], token: str | None) -> bool:
 
 
 class CovalFrameSerializer(FrameSerializer):
-    """Raw PCM each way, JSON for control; speech markers become transport messages.
+    """Raw PCM each way, JSON for control.
 
     Inbound audio is resampled once here, from Coval's rate to the pipeline's,
     so the provider service downstream sees the rate it expects. Outbound audio
@@ -96,15 +92,4 @@ class CovalFrameSerializer(FrameSerializer):
             if not audio:
                 return None
             return InputAudioRawFrame(audio=audio, sample_rate=self._pipeline_in_hz, num_channels=1)
-        message = _control_message(data)
-        if message is None or message.get("type") not in SPEECH_ACTIVITY_TYPES:
-            return None
-        return InputTransportMessageFrame(message=message)
-
-
-def _control_message(data: str) -> dict[str, Any] | None:
-    try:
-        parsed = json.loads(data)
-    except json.JSONDecodeError:
         return None
-    return parsed if isinstance(parsed, dict) else None

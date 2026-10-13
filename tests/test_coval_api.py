@@ -47,7 +47,7 @@ def test_the_target_speaks_raw_pcm_and_waits_for_session_ready() -> None:
     assert metadata["endpoint"] == "wss://quiet-hill.trycloudflare.com/ws"
     assert metadata["authorization_header"] == "Bearer s3cret"
     assert metadata["handshake_ready_message_type"] == "session_ready"
-    assert metadata["speech_activity_enabled"] is True
+    assert metadata["speech_activity_enabled"] is False
     assert (metadata["send_sample_rate_hertz"], metadata["receive_sample_rate_hertz"]) == (
         16000,
         24000,
