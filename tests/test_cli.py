@@ -37,3 +37,13 @@ def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFi
     assert "1. default   helpful assistant\n2. baseline  Ultra Bank\n" in capsys.readouterr().out
     assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "baseline"
     assert "default" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("key", [KeyboardInterrupt, EOFError])
+def test_ctrl_c_or_ctrl_d_at_a_menu_exits_without_a_traceback(key: type[BaseException]) -> None:
+    def read(_prompt: str) -> str:
+        raise key
+
+    with pytest.raises(SystemExit) as exited:
+        choose_scenario(TALK, read=read)
+    assert exited.value.code == 130

@@ -59,7 +59,11 @@ def pick(options: list[str], prompt: str, read: Reader) -> int:
     for index, option in enumerate(options, start=1):
         print(f"{index}. {option}")
     while True:
-        answer = read(f"{prompt} [1-{len(options)}, default 1]: ").strip()
+        try:
+            answer = read(f"{prompt} [1-{len(options)}, default 1]: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            raise SystemExit(130) from None
         if not answer:
             return 0
         if answer.isdigit() and 1 <= int(answer) <= len(options):
