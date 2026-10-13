@@ -18,13 +18,14 @@ from typing import NoReturn
 from corral import benchmark, serve, talk
 from corral.agent import load_agent
 from corral.config import Settings, get_settings
+from corral.coval_api import SyncError
 from corral.logging import configure_logging
 from corral.models import MODALITIES, Modality, model_ids
 from corral.scenarios import (
     BENCHMARK_SCENARIO,
     TALK_SCENARIO,
-    load_test_set,
-    require_test_set,
+    load_suite,
+    require_suite,
     scenario_names,
     scenario_summary,
 )
@@ -81,7 +82,7 @@ def scenarios_for(mode: Mode) -> list[str]:
     """Every scenario to talk to; only those with Coval ids to benchmark. Default first."""
     names = sorted(scenario_names(), key=lambda name: (name != TALK_SCENARIO, name))
     if mode is BENCHMARK:
-        names = [name for name in names if load_test_set(name) is not None]
+        names = [name for name in names if load_suite(name) is not None]
     return names
 
 
@@ -155,10 +156,11 @@ def main() -> None:
     request = None
     if mode is BENCHMARK:
         try:
-            test_set = require_test_set(scenario)
+            suite = require_suite(scenario)
         except ValueError as error:
             fail(parser, interactive, str(error))
-        request = benchmark.RunRequest(test_set, sample=1 if args.smoke else 0)
+        workspace_id = suite.workspace or get_settings().corral_workspace_id
+        request = benchmark.RunRequest(suite, workspace_id, sample=1 if args.smoke else 0)
 
     if interactive:
         agent = load_agent(scenario, *(choose_model(modality) for modality in MODALITIES))
@@ -172,7 +174,10 @@ def main() -> None:
             serve.serve(agent, args.port)
         else:
             assert request is not None  # noqa: S101
-            code = asyncio.run(benchmark.run(agent, args.port, not args.no_tunnel, request))
+            try:
+                code = asyncio.run(benchmark.run(agent, args.port, not args.no_tunnel, request))
+            except SyncError as error:
+                raise SystemExit(f"corral: {error}") from None
             raise SystemExit(code)
 
 

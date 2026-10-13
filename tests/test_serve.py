@@ -40,7 +40,7 @@ class _Echo(FrameProcessor):
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    agent = load_agent("baseline", *REFERENCE)
+    agent = load_agent("ultrabank", *REFERENCE)
     fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (

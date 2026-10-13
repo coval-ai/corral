@@ -29,7 +29,7 @@ KEYS: dict[str, Any] = {
 
 def test_each_stack_resolves_to_its_vendors_with_our_endpointing() -> None:
     settings = Settings(_env_file=None, **KEYS)
-    agent = load_agent("baseline", *REFERENCE)
+    agent = load_agent("ultrabank", *REFERENCE)
     reference = models.resolve(agent, settings)
     assert isinstance(reference.stt, DeepgramSTTService)
     assert isinstance(reference.llm, OpenAILLMService)
@@ -37,7 +37,7 @@ def test_each_stack_resolves_to_its_vendors_with_our_endpointing() -> None:
     assert vars(reference.stt._settings)["endpointing"] is False
     assert reference.stt._stt_ttfb_timeout == STT_FINALIZE_FALLBACK_SECS
     assert vars(reference.llm._settings)["system_instruction"] == agent.system_prompt
-    soniox = models.resolve(load_agent("baseline", *SONIOX_GEMINI), settings)
+    soniox = models.resolve(load_agent("ultrabank", *SONIOX_GEMINI), settings)
     assert isinstance(soniox.stt, SonioxSTTService)
     assert isinstance(soniox.llm, GoogleLLMService)
     assert isinstance(soniox.tts, SonioxTTSService)
@@ -46,10 +46,10 @@ def test_each_stack_resolves_to_its_vendors_with_our_endpointing() -> None:
 
 
 def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> None:
-    agent = load_agent("baseline", *REFERENCE)
+    agent = load_agent("ultrabank", *REFERENCE)
     bad = dataclasses.replace(agent, tts=agent.tts.model_copy(update={"provider": "nope"}))
     with pytest.raises(ValueError, match="no tts for 'nope'; have elevenlabs, soniox"):
         models.resolve(bad, Settings(_env_file=None, **KEYS))
     unpaid = Settings(_env_file=None, **{**KEYS, "soniox_api_key": None})
     with pytest.raises(RuntimeError, match="SONIOX_API_KEY is unset"):
-        models.resolve(load_agent("baseline", *SONIOX_GEMINI), unpaid)
+        models.resolve(load_agent("ultrabank", *SONIOX_GEMINI), unpaid)

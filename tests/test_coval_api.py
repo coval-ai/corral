@@ -15,7 +15,8 @@ from corral.coval_api import (
     sync_target,
 )
 
-DEFINITION = CovalTarget("cascade-x", "https://quiet-hill.trycloudflare.com", "s3cret", "TSBANK")
+URL = "https://quiet-hill.trycloudflare.com"
+DEFINITION = CovalTarget("cascade-x", URL, "s3cret", "TSBANK", "W1")
 
 
 def _client(state: dict[str, Any]) -> CovalClient:
@@ -42,7 +43,7 @@ def _client(state: dict[str, Any]) -> CovalClient:
 def test_the_target_speaks_raw_pcm_and_waits_for_session_ready() -> None:
     body = DEFINITION.target_body()
     metadata = body["metadata"]
-    assert body["customer_agent_id"] == "cascade-x"
+    assert body["customer_agent_id"] == "cascade-x--W1"
     assert body["test_set_ids"] == ["TSBANK"]
     assert metadata["endpoint"] == "wss://quiet-hill.trycloudflare.com/ws"
     assert metadata["authorization_header"] == "Bearer s3cret"
@@ -60,12 +61,19 @@ def test_sync_creates_once_then_patches_only_what_changed() -> None:
     assert sync_target(client, DEFINITION) == "A" * 22
     assert sync_target(client, DEFINITION) == "A" * 22
     other = "https://other-hill.trycloudflare.com"
-    sync_target(client, CovalTarget("cascade-x", other, "s3cret", "TSBANK"))
-    sync_target(client, CovalTarget("cascade-x", other, "s3cret", "TSHARD"))
+    sync_target(client, CovalTarget("cascade-x", other, "s3cret", "TSBANK", "W1"))
+    sync_target(client, CovalTarget("cascade-x", other, "s3cret", "TSHARD", "W1"))
     (_, _, created), (_, _, moved), (_, _, attached) = state["writes"]
-    assert created["customer_agent_id"] == "cascade-x"
+    assert created["customer_agent_id"] == "cascade-x--W1"
     assert moved == {"metadata": {**created["metadata"], "endpoint": "wss://" + other[8:] + "/ws"}}
     assert attached == {"test_set_ids": ["TSBANK", "TSHARD"]}
+
+
+def test_an_agent_made_before_workspaces_is_found_under_its_bare_slug() -> None:
+    old = {**DEFINITION.target_body(), "customer_agent_id": "cascade-x", "id": "OLD"}
+    state: dict[str, Any] = {"agents": [old], "writes": []}
+    assert sync_target(_client(state), DEFINITION) == "OLD"
+    assert [method for method, _, _ in state["writes"]] == []
 
 
 def test_launch_runs_the_boards_metrics_one_call_at_a_time() -> None:

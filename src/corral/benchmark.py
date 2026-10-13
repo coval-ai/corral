@@ -18,7 +18,7 @@ from loguru import logger
 from websockets.asyncio.client import connect
 
 from corral.agent import Agent
-from corral.config import Settings, get_settings
+from corral.config import Settings, get_settings, remember
 from corral.coval_api import (
     CovalClient,
     CovalTarget,
@@ -29,8 +29,9 @@ from corral.coval_api import (
     sync_target,
 )
 from corral.coval_wire import SESSION_READY
-from corral.scenarios import TestSet
+from corral.scenarios import Suite
 from corral.serve import create_app
+from corral.suite import choose_workspace, sync_suite
 
 PROBE_TIMEOUT_SECS = 30
 REACHABLE_TIMEOUT_SECS = 180
@@ -110,7 +111,8 @@ async def _drain(stream: asyncio.StreamReader) -> None:
 
 @dataclass(frozen=True)
 class RunRequest:
-    test_set: TestSet
+    suite: Suite
+    workspace_id: str | None
     sample: int
 
 
@@ -124,31 +126,44 @@ def _secret(settings: Settings, name: str) -> str:
 
 async def run_on_coval(
     coval: CovalClient, agent: Agent, url: str, token: str | None, request: RunRequest
-) -> dict[str, Any]:
-    """Upsert the agent at this URL, launch one run, poll it to a terminal status.
+) -> list[dict[str, Any]]:
+    """Pick the workspace, sync the suite and agent, then run each persona in turn.
 
     The Coval client is synchronous, so every call goes through a thread: this
     loop is also serving the calls, and a blocked loop is a stalled call.
     """
-    test_set = request.test_set
-    definition = CovalTarget(agent.slug, url, token, test_set.test_set_id)
+    choice = await asyncio.to_thread(choose_workspace, coval, request.workspace_id)
+    coval.use_workspace(choice.workspace_id)
+    logger.info(f"Using Coval workspace {choice.workspace_id}")
+    if choice.found_by_name:
+        if remember("CORRAL_WORKSPACE_ID", choice.workspace_id):
+            logger.info("Saved CORRAL_WORKSPACE_ID to .env; later runs use it")
+        else:
+            logger.info(f"Set CORRAL_WORKSPACE_ID={choice.workspace_id} to pin this workspace")
+    ids = await asyncio.to_thread(sync_suite, coval, request.suite)
+    definition = CovalTarget(agent.slug, url, token, ids.test_set_id, choice.workspace_id)
     agent_id = await asyncio.to_thread(sync_target, coval, definition)
-    body = launch_body(
-        agent_id,
-        test_set.persona_id,
-        test_set.test_set_id,
-        test_set.metric_ids,
-        sample=request.sample,
-        display_name=definition.display_name,
-    )
-    run = await asyncio.to_thread(coval.launch_run, body)
-    run_id = run_id_of(run)
-    logger.info(f"Run {run_id} launched on agent {agent_id}: {run.get('status')}")
-    while not is_terminal(run):
-        await asyncio.sleep(POLL_SECS)
-        run = await asyncio.to_thread(coval.get_run, run_id)
-        logger.info(f"Run {run_id}: {run.get('status')} {run.get('progress') or ''}".rstrip())
-    return run
+    # One persona at a time, like one test case at a time, so no two calls share the machine.
+    runs = []
+    for persona_id in ids.persona_ids:
+        body = launch_body(
+            agent_id,
+            persona_id,
+            ids.test_set_id,
+            ids.metric_ids,
+            sample=request.sample,
+            display_name=definition.display_name,
+        )
+        run = await asyncio.to_thread(coval.launch_run, body)
+        logger.info(f"Run {run_id_of(run)} launched on agent {agent_id}: {run.get('status')}")
+        while not is_terminal(run):
+            await asyncio.sleep(POLL_SECS)
+            run = await asyncio.to_thread(coval.get_run, run_id_of(run))
+            logger.info(
+                f"Run {run_id_of(run)}: {run.get('status')} {run.get('progress') or ''}".rstrip()
+            )
+        runs.append(run)
+    return runs
 
 
 async def run(agent: Agent, port: int, tunnel: bool, request: RunRequest) -> int:
@@ -167,12 +182,12 @@ async def run(agent: Agent, port: int, tunnel: bool, request: RunRequest) -> int
         logger.info(f"Agent {health['agent']} is up at {url}")
         print(url, flush=True)
         with CovalClient(api_key, settings.coval_api_base) as coval:
-            final = await run_on_coval(coval, agent, url, token, request)
-        completed = final.get("status") == "COMPLETED"
-        level = "INFO" if completed else "WARNING"
-        logger.log(level, f"Run {run_id_of(final)} finished: {final.get('status')}")
-        print("\n".join(results_lines(final)), flush=True)
-        return 0 if completed else 1
+            finals = await run_on_coval(coval, agent, url, token, request)
+        for final in finals:
+            level = "INFO" if final.get("status") == "COMPLETED" else "WARNING"
+            logger.log(level, f"Run {run_id_of(final)} finished: {final.get('status')}")
+            print("\n".join(results_lines(final)), flush=True)
+        return 0 if all(final.get("status") == "COMPLETED" for final in finals) else 1
     finally:
         if process is not None and process.returncode is None:
             process.terminate()

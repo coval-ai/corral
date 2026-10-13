@@ -41,8 +41,20 @@ class Settings(BaseSettings):
 
     coval_api_key: SecretStr | None = None
     coval_api_base: str = "https://api.coval.dev/v1"
+    corral_workspace_id: str | None = None
 
 
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+def remember(name: str, value: str, env_file: Path = ROOT / ".env") -> bool:
+    """Set ``name=value`` in the repo's .env, replacing its line. False if there's no .env."""
+    if not env_file.is_file():
+        return False
+    lines = [
+        line for line in env_file.read_text().splitlines() if line.split("=", 1)[0].strip() != name
+    ]
+    env_file.write_text("\n".join([*lines, f"{name}={value}"]) + "\n")
+    return True
