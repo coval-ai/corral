@@ -121,7 +121,7 @@ class CovalTarget:
             "receive_sample_rate_hertz": OUT_SAMPLE_RATE_HZ,
             "receive_audio_channels": 1,
             "pace_inbound_binary_audio": True,
-            "speech_activity_enabled": True,
+            "speech_activity_enabled": False,
         }
         if self.token:
             metadata["authorization_header"] = f"Bearer {self.token}"

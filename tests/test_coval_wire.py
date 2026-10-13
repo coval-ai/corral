@@ -7,7 +7,6 @@ from typing import Any
 
 from pipecat.frames.frames import (
     InputAudioRawFrame,
-    InputTransportMessageFrame,
     OutputTransportMessageUrgentFrame,
     TTSAudioRawFrame,
 )
@@ -46,12 +45,10 @@ async def test_inbound_pcm_is_resampled_to_the_pipeline_rate() -> None:
     assert isinstance(same, InputAudioRawFrame) and same.audio == SILENCE_16K_100MS
 
 
-async def test_speech_markers_become_transport_messages_and_other_text_is_dropped() -> None:
+async def test_inbound_text_is_dropped() -> None:
     serializer = await _serializer(24000)
     marker = {"type": "utterance_end", "utterance_id": "utterance-3"}
-    frame = await serializer.deserialize(json.dumps(marker))
-    assert isinstance(frame, InputTransportMessageFrame) and frame.message == marker
-    assert await serializer.deserialize(json.dumps({"type": "mark"})) is None
+    assert await serializer.deserialize(json.dumps(marker)) is None
     assert await serializer.deserialize("not json") is None
 
 

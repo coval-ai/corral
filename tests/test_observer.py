@@ -10,7 +10,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     Frame,
-    InputTransportMessageFrame,
     InterruptionFrame,
     LLMTextFrame,
     MetricsFrame,
@@ -28,13 +27,6 @@ MS = 1_000_000
 STT, LLM, TTS = FrameProcessor(), FrameProcessor(), FrameProcessor()
 AUDIO = TTSAudioRawFrame(audio=b"\x00\x00", sample_rate=24000, num_channels=1)
 USAGE = MetricsFrame(data=[STTUsageMetricsData(processor="x", value=STTUsage(audio_seconds=1))])
-
-
-def _marker(kind: str, utterance_id: str | None = None) -> InputTransportMessageFrame:
-    message = {"type": kind}
-    if utterance_id:
-        message["utterance_id"] = utterance_id
-    return InputTransportMessageFrame(message=message)
 
 
 def _ttfb(seconds: float) -> MetricsFrame:
@@ -77,7 +69,6 @@ def call() -> Call:
 
 
 async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None:
-    await call.at(1_000, _marker("utterance_end"))
     await call.at(1_200, VADUserStoppedSpeakingFrame())
     await call.at(1_260, _ttfb(0.0), source=STT)
     await call.at(1_300, UserStoppedSpeakingFrame())
@@ -89,7 +80,6 @@ async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None
     (turn,) = call.turns
     assert turn["s2s.turn_latency_ms"] == 600.0
     assert turn["s2s.turn_latency.turn_detection_timed_out"] is False
-    assert turn["s2s.utterance_end.unix_ms"] == 1_000.0
     assert turn["s2s.turn_latency.stt_ms"] == 60.0
     assert turn["s2s.turn_latency.llm_ms"] == 250.0
     assert turn["s2s.turn_latency.tts_ms"] == 150.0
@@ -101,7 +91,6 @@ async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None
 
 
 async def test_the_pause_starts_at_silero_minus_its_window(call: Call) -> None:
-    await call.at(1_000, _marker("utterance_end"))
     await call.at(1_200, VADUserStoppedSpeakingFrame(stop_secs=0.2))
     await call.at(1_860, LLMTextFrame("Hi"))
     await call.at(2_121, AUDIO)
@@ -177,19 +166,3 @@ async def test_an_stt_that_never_confirms_is_flagged_not_timed(call: Call) -> No
     (turn,) = call.turns
     assert turn["s2s.turn_latency.stt_confirmed"] is False
     assert "s2s.turn_latency.stt_ms" not in turn
-
-
-async def test_covals_marker_is_recorded_on_the_turn_it_belongs_to(call: Call) -> None:
-    await call.at(500, _marker("utterance_started", "u-1"))
-    await call.at(520, InterruptionFrame())
-    await call.at(1_000, _marker("utterance_end", "u-1"))
-    await call.at(1_200, VADUserStoppedSpeakingFrame())
-    await call.at(1_700, AUDIO)
-    await call.at(1_720, BotStartedSpeakingFrame())
-    await call.at(1_800, _marker("utterance_end", "u-1"))
-    await call.at(6_100, VADUserStoppedSpeakingFrame())
-    await call.at(6_600, AUDIO)
-    await call.at(6_650, BotStartedSpeakingFrame())
-    first, second = call.turns
-    assert first["s2s.utterance_end.unix_ms"] == 1_000.0
-    assert "s2s.utterance_end.unix_ms" not in second
