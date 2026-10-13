@@ -24,7 +24,7 @@ PROMPT_FILE = "system-prompt.txt"
 SUMMARY_FILE = "summary.txt"
 COVAL_FILE = "coval.json"
 TALK_SCENARIO = "default"
-BENCHMARK_SCENARIO = "ultrabank"
+BENCHMARK_SCENARIO = "baseline"
 
 
 Entry = str | dict[str, Any]

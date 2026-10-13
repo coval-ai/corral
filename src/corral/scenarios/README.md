@@ -7,8 +7,9 @@ A scenario is a directory here with:
 - `coval.json`: the Coval suite it's benchmarked with. Leave this out for a
   talk-only scenario.
 
-`default` is a plain assistant for trying models by voice. `ultrabank` is
-Ultra Bank with the short daily test set.
+`default` is a plain assistant for trying models by voice. `baseline` is
+the benchmark Corral runs by default, and builds its whole suite in your
+Coval workspace. `ultrabank` is Ultra Bank with the short daily test set.
 
 ## coval.json
 
@@ -70,5 +71,5 @@ Every persona gets its own run.
 `CORRAL_WORKSPACE_ID` from your `.env`. If that's empty too, it finds the
 workspace called Corral, or makes it, and saves the id to your `.env`.
 
-To benchmark your own agent, add a directory with a prompt, a summary and
-a `coval.json`. It shows up in the menu on its own.
+To benchmark your own agent, copy `baseline`, rename it, and change the
+prompt and `coval.json`. It shows up in the menu on its own.

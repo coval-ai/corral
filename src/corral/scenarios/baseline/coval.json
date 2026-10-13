@@ -1,0 +1,58 @@
+{
+  "test_set": {
+    "display_name": "Corral baseline suite",
+    "description": "Everyday questions for a general voice assistant.",
+    "test_cases": [
+      {
+        "input_str": "Ask for a quick dinner idea using chicken and rice, then ask how long it takes.",
+        "expected_behaviors": [
+          "Suggests a dish that uses chicken and rice",
+          "Gives a cooking time when asked"
+        ]
+      },
+      {
+        "input_str": "Ask how many days are left until the end of the year, then thank the assistant and hang up.",
+        "expected_behaviors": [
+          "Answers or explains how to work it out",
+          "Ends the call politely"
+        ]
+      }
+    ]
+  },
+  "personas": [
+    {
+      "name": "Corral easy caller",
+      "persona_prompt": "You are calling a voice assistant. Speak clearly, answer its questions, and stay on task.",
+      "voice_name": "aria",
+      "language_code": "en-US",
+      "conversation_initiation": "wait_for_user"
+    },
+    {
+      "name": "Corral hard caller",
+      "persona_prompt": "You are calling a voice assistant while busy. Talk quickly, change your mind once, and cut in when it rambles.",
+      "voice_name": "aria",
+      "language_code": "en-US",
+      "conversation_initiation": "wait_for_user",
+      "interruption_rate": "MEDIUM",
+      "situate_speaker": "speakerphone-easy",
+      "background_sound": "cafe"
+    }
+  ],
+  "metrics": [
+    {
+      "metric_name": "Corral answered the request",
+      "description": "Did the assistant give the caller what they asked for?",
+      "metric_type": "METRIC_LLM_BINARY",
+      "prompt": "Did the assistant answer every request the caller made, accurately and without making things up?"
+    },
+    {
+      "metric_name": "Corral turn latency",
+      "description": "Average time from the caller's last word to the agent's first audio, from Corral's own spans.",
+      "metric_type": "METRIC_CUSTOM_TRACE",
+      "span_name": "turn_latency",
+      "metric_attribute": "s2s.turn_latency_ms",
+      "aggregation_method": "average",
+      "unit": "ms"
+    }
+  ]
+}

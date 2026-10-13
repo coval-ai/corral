@@ -33,9 +33,9 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
 
 
 def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFixture[str]) -> None:
-    assert choose_scenario(TALK, read=lambda _prompt: "2") == "ultrabank"
+    assert choose_scenario(TALK, read=lambda _prompt: "3") == "ultrabank"
     out = capsys.readouterr().out
-    assert "1. default    helpful assistant\n" in out
-    assert "2. ultrabank  Instruction adherence test set (internal)\n" in out
-    assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "ultrabank"
+    assert "1. default    helpful assistant\n2. baseline   Corral baseline suite\n" in out
+    assert "3. ultrabank  Instruction adherence test set (internal)\n" in out
+    assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "baseline"
     assert "default" not in capsys.readouterr().out
