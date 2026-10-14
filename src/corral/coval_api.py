@@ -10,7 +10,7 @@ from typing import Any, Self
 
 import httpx
 
-from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
+from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, Settings
 
 COVAL_API_BASE = "https://api.coval.dev/v1"
 WORKSPACE_HEADER = "X-Coval-Workspace-Id"
@@ -19,6 +19,23 @@ _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 class SyncError(RuntimeError):
     pass
+
+
+def coval_problem(settings: Settings, transport: httpx.BaseTransport | None = None) -> str | None:
+    """One authenticated GET to Coval: None when it answered 200, else why not."""
+    if settings.coval_api_key is None or not settings.coval_api_key.get_secret_value():
+        return "COVAL_API_KEY is unset"
+    headers = {"X-API-Key": settings.coval_api_key.get_secret_value()}
+    try:
+        with httpx.Client(
+            base_url=settings.coval_api_base, headers=headers, timeout=_TIMEOUT, transport=transport
+        ) as client:
+            response = client.get("/workspaces")
+    except httpx.HTTPError as error:
+        return f"coval is unreachable: {error}"
+    if response.status_code != 200:
+        return f"coval returned {response.status_code}"
+    return None
 
 
 class CovalClient:

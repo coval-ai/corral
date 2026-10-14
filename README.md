@@ -35,8 +35,14 @@ uv run corral benchmark --scenario ultrabank --stt soniox/stt-rt-v5 --llm google
 ```
 
 Leave a model out and you get the first one in its list, or whatever
-`S2S_STT`, `S2S_LLM`, `S2S_TTS` and `S2S_SCENARIO` are set to. If a key is
-missing, the menu says which one.
+`S2S_STT`, `S2S_LLM`, `S2S_TTS` and `S2S_SCENARIO` are set to.
+
+The menu marks every model whose key is missing from `.env` and defaults to
+the first one that has a key. Each pick sends one request to its provider
+before the next question, and a provider that answers anything but 200 is
+shown with the code so you can pick another. Picking benchmark asks Coval
+the same way. A scripted run makes the same checks before anything else, so
+a bad key fails before the tunnel.
 
 ## What gets measured
 
@@ -71,5 +77,5 @@ A **scenario** is a directory in `src/corral/scenarios/`. See the README there.
 ```bash
 uv run ruff check . && uv run ruff format --check .
 uv run mypy --strict src tests
-uv run pytest -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1
+uv run pytest
 ```
