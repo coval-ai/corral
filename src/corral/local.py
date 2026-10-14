@@ -15,6 +15,7 @@ import threading
 from collections.abc import Generator
 
 import miniaudio
+from loguru import logger
 from pipecat.frames.frames import InputAudioRawFrame, OutputAudioRawFrame, StartFrame
 from pipecat.processors.frame_processor import FrameProcessor, FrameProcessorSetup
 from pipecat.transports.base_input import BaseInputTransport
@@ -59,6 +60,20 @@ class Playout:
             self._changed.notify_all()
 
 
+def close_device(device: miniaudio.AbstractDevice) -> None:
+    """Close the device, and when it won't stop, unplugged say, don't let miniaudio try again.
+
+    miniaudio only clears its running flag once the native stop succeeds, and tries the
+    stop again from ``__del__`` at exit, by then against a freed handle.
+    """
+    try:
+        device.stop()
+    except miniaudio.MiniaudioError as error:
+        logger.warning(f"The audio device did not stop ({error}); was it unplugged?")
+        device.running = False
+    device.close()
+
+
 class _Mic(BaseInputTransport):
     def __init__(self, canceller: EchoCanceller, params: TransportParams) -> None:
         super().__init__(params)
@@ -84,7 +99,7 @@ class _Mic(BaseInputTransport):
     async def cleanup(self) -> None:
         await super().cleanup()  # type: ignore[no-untyped-call]
         if self._device is not None:
-            self._device.close()
+            close_device(self._device)
             self._device = None
         self._canceller.close()
 
@@ -128,7 +143,7 @@ class _Speakers(BaseOutputTransport):
         if self._playout is not None:
             self._playout.close()
         if self._device is not None:
-            self._device.close()
+            close_device(self._device)
             self._device = None
         self._canceller.close()
 
