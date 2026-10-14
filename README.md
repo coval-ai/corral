@@ -21,7 +21,7 @@ uv run corral
 The TUI menu walks you through picking a mode, a scenario and the models.
 
 - **talk** puts the agent on your mic and speakers. Ctrl-C hangs up and
-  prints a latency table. Needs `brew install portaudio && uv sync --extra local`.
+  prints a latency table.
 - **benchmark** serves the agent behind a Cloudflare tunnel, runs one Coval
   benchmark against it, prints the metrics and exits. The tunnel takes about
   80 seconds to come up. `--smoke` runs a single test case. Needs

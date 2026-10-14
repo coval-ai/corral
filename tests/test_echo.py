@@ -4,11 +4,6 @@
 import math
 import struct
 
-import pytest
-
-pytest.importorskip("livekit")
-pytest.importorskip("pyaudio")
-
 from corral.echo import EchoCanceller
 
 

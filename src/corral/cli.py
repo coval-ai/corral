@@ -48,8 +48,8 @@ MENU_MODES = (TALK, BENCHMARK)
 
 def missing_for(mode: Mode) -> str | None:
     """What this machine still needs before the mode can run, or None."""
-    if mode is TALK and importlib.util.find_spec("pyaudio") is None:
-        return "brew install portaudio && uv sync --extra local"
+    if mode is TALK and importlib.util.find_spec("miniaudio") is None:
+        return "uv sync"
     if mode is BENCHMARK and shutil.which("cloudflared") is None:
         return "brew install cloudflared"
     return None

@@ -27,7 +27,7 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/local/bin/cloudflared")
     assert choose_mode(read=lambda _prompt: "2").name == "benchmark"
     talk, benchmark, *rest = capsys.readouterr().out.splitlines()
-    assert talk.startswith("1. talk") and "(needs: brew install portaudio" in talk
+    assert talk.startswith("1. talk") and "(needs: uv sync)" in talk
     assert benchmark.startswith("2. benchmark") and "(needs" not in benchmark
     assert "3." not in "\n".join(rest)
 
