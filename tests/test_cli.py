@@ -71,7 +71,7 @@ def test_only_models_with_a_key_are_offered(
     monkeypatch.delenv("S2S_STT", raising=False)
     parser = build_parser(no_deepgram)
     assert parser.parse_args(["benchmark"]).stt == "soniox/stt-rt-v5"
-    assert "--stt {soniox/stt-rt-v5}" in parser.format_help()
+    assert "  stt  soniox/stt-rt-v5\n" in parser.format_help()
     with pytest.raises(SystemExit):
         parser.parse_args(["benchmark", "--stt", "deepgram/nova-3"])
     monkeypatch.setenv("S2S_STT", "deepgram/nova-3")

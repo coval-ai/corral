@@ -195,18 +195,26 @@ def fail(parser: argparse.ArgumentParser, interactive: bool, message: str) -> No
 
 def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     settings = settings or get_settings()
-    parser = argparse.ArgumentParser(prog="corral", description=__doc__)
+    offered = {m: [model.id for model in offered_models(m, settings)] for m in MODALITIES}
+    models = "\n".join(f"  {m}  {', '.join(ids)}" for m, ids in offered.items())
+    parser = argparse.ArgumentParser(
+        prog="corral",
+        description=__doc__,
+        epilog=f"models with a key in .env:\n{models}",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "mode",
         nargs="?",
         choices=[mode.name for mode in MODES],
+        metavar="mode",
         help="; ".join(f"{mode.name}: {mode.summary}" for mode in MODES),
     )
-    for modality in MODALITIES:
-        ids = [model.id for model in offered_models(modality, settings)]
+    for modality, ids in offered.items():
         parser.add_argument(
             f"--{modality}",
             choices=ids,
+            metavar="MODEL",
             default=os.environ.get(f"S2S_{modality.upper()}", ids[0]),
             help="default: %(default)s",
         )
