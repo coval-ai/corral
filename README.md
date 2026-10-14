@@ -26,7 +26,8 @@ The TUI menu walks you through picking a mode, a scenario and the models.
   benchmark against it, prints the metrics and exits. The tunnel takes about
   80 seconds to come up. `--smoke` runs a single test case. Needs
   `brew install cloudflared`.
-- **serve** is what the Docker image runs: the agent on a port, nothing else.
+- **serve** is what the Docker image runs. It puts the agent on port 7873.
+  Use `--port` or set `PORT` to run it on a different port.
 
 For scripts, pass the mode and flags instead of answering prompts:
 

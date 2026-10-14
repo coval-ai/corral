@@ -3,11 +3,22 @@
 
 import importlib.util
 import shutil
+import socket
 from typing import Any
 
 import pytest
 
-from corral.cli import BENCHMARK, TALK, checker, choose_mode, choose_model, choose_scenario
+from corral.cli import (
+    BENCHMARK,
+    SERVE,
+    TALK,
+    checker,
+    choose_mode,
+    choose_model,
+    choose_port,
+    choose_scenario,
+    port_in_use,
+)
 from corral.config import Settings
 
 KEYS: dict[str, Any] = {
@@ -125,3 +136,20 @@ def test_ctrl_c_or_ctrl_d_at_a_menu_exits_without_a_traceback(key: type[BaseExce
     with pytest.raises(SystemExit) as exited:
         choose_scenario(TALK, read=read)
     assert exited.value.code == 130
+
+
+def test_a_benchmark_takes_any_free_port_and_serve_takes_the_images() -> None:
+    assert choose_port(BENCHMARK, None, None) == 0
+    assert choose_port(SERVE, None, None) == 7873
+    assert choose_port(BENCHMARK, None, "9000") == 9000
+    assert choose_port(SERVE, 8080, "9000") == 8080
+
+
+def test_a_pinned_port_that_is_taken_is_noticed_before_anything_runs() -> None:
+    with socket.socket() as taken:
+        taken.bind(("127.0.0.1", 0))
+        taken.listen()
+        port = taken.getsockname()[1]
+        assert port_in_use(port)
+    assert not port_in_use(port)
+    assert not port_in_use(0)
