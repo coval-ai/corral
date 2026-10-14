@@ -174,11 +174,12 @@ def choose_port(mode: Mode, flag: int | None, env: str | None) -> int:
 
 
 def port_in_use(port: int) -> bool:
+    """A benchmark binds loopback, and a port held there blocks serve's every-interface bind too."""
     if port == 0:
         return False
     with socket.socket() as probe:
         try:
-            probe.bind(("", port))
+            probe.bind(("127.0.0.1", port))
         except OSError:
             return True
     return False
