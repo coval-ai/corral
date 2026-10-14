@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Coval's HTTP API: the agent record we point at the served agent, and the runs we launch."""
+"""Coval's HTTP API: the suite and agent records a benchmark needs, and the runs we launch."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import httpx
 from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
 
 COVAL_API_BASE = "https://api.coval.dev/v1"
+WORKSPACE_HEADER = "X-Coval-Workspace-Id"
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
@@ -63,25 +64,52 @@ class CovalClient:
                 return agent
         return None
 
+    def use_workspace(self, workspace_id: str) -> None:
+        """Every later call acts in this workspace."""
+        self._client.headers[WORKSPACE_HEADER] = workspace_id
+
+    def list_workspaces(self) -> list[dict[str, Any]]:
+        workspaces = self._request("GET", "/workspaces").get("workspaces") or []
+        return [workspace for workspace in workspaces if isinstance(workspace, dict)]
+
+    def list_all(self, path: str, key: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        """Every page of a list endpoint; ``key`` is where each page keeps its items."""
+        items: list[dict[str, Any]] = []
+        query = {**params, "page_size": 100}
+        while True:
+            page = self._request("GET", path, params=query)
+            items += [item for item in page.get(key) or [] if isinstance(item, dict)]
+            token = page.get("next_page_token")
+            if not token:
+                return items
+            query["page_token"] = token
+
+    def create(self, path: str, key: str, body: dict[str, Any]) -> dict[str, Any]:
+        return _unwrap(self._request("POST", path, body), key)
+
+    def update(self, path: str, key: str, item_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        return _unwrap(self._request("PATCH", f"{path}/{item_id}", body), key)
+
+    def delete(self, path: str, item_id: str) -> None:
+        self._request("DELETE", f"{path}/{item_id}")
+
     def create_agent(self, body: dict[str, Any]) -> dict[str, Any]:
-        payload = self._request("POST", "/agents", body)
-        agent = payload.get("agent")
-        return agent if isinstance(agent, dict) else payload
+        return self.create("/agents", "agent", body)
 
     def update_agent(self, agent_id: str, body: dict[str, Any]) -> dict[str, Any]:
-        payload = self._request("PATCH", f"/agents/{agent_id}", body)
-        agent = payload.get("agent")
-        return agent if isinstance(agent, dict) else payload
+        return self.update("/agents", "agent", agent_id, body)
 
     def launch_run(self, body: dict[str, Any]) -> dict[str, Any]:
-        payload = self._request("POST", "/runs", body)
-        run = payload.get("run")
-        return run if isinstance(run, dict) else payload
+        return self.create("/runs", "run", body)
 
     def get_run(self, run_id: str) -> dict[str, Any]:
-        payload = self._request("GET", f"/runs/{run_id}")
-        run = payload.get("run")
-        return run if isinstance(run, dict) else payload
+        return _unwrap(self._request("GET", f"/runs/{run_id}"), "run")
+
+
+def _unwrap(payload: dict[str, Any], key: str) -> dict[str, Any]:
+    """Coval wraps one item under its singular name; fall back to the payload if it doesn't."""
+    item = payload.get(key)
+    return item if isinstance(item, dict) else payload
 
 
 MODEL_TYPE = "MODEL_TYPE_WEBSOCKET"
@@ -97,10 +125,12 @@ class CovalTarget:
     url: str
     token: str | None
     test_set_id: str
+    workspace_id: str
 
     @property
     def customer_agent_id(self) -> str:
-        return self.slug
+        """Coval wants it unique across the organization, so it carries the workspace."""
+        return f"{self.slug}--{self.workspace_id}"
 
     @property
     def display_name(self) -> str:
@@ -137,7 +167,8 @@ class CovalTarget:
 def sync_target(client: CovalClient, definition: CovalTarget) -> str:
     """Find-or-create the agent and point it at this serving; returns its id."""
     wanted = definition.target_body()
-    live = client.find_agent(definition.customer_agent_id)
+    # Agents made before workspaces are under the bare slug.
+    live = client.find_agent(definition.customer_agent_id) or client.find_agent(definition.slug)
     if live is None:
         return str(client.create_agent(wanted)["id"])
     if live.get("model_type") != MODEL_TYPE:
