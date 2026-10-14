@@ -35,11 +35,11 @@ For scripts, pass the mode and flags instead of answering prompts:
 uv run corral benchmark --scenario ultrabank --stt soniox/stt-rt-v5 --llm google/gemini-2.5-flash --smoke
 ```
 
-Leave a model out and you get the first one in its list, or whatever
-`S2S_STT`, `S2S_LLM`, `S2S_TTS` and `S2S_SCENARIO` are set to.
+Leave a model out and you get the first one offered, or whatever `S2S_STT`,
+`S2S_LLM`, `S2S_TTS` and `S2S_SCENARIO` are set to.
 
-The menu marks every model whose key is missing from `.env` and defaults to
-the first one that has a key. Each pick sends one request to its provider
+The menu and the flags only offer models whose key is in `.env`, and the
+first of those is the default. Each pick sends one request to its provider
 before the next question, and a provider that answers anything but 200 is
 shown with the code so you can pick another. Picking benchmark asks Coval
 the same way. A scripted run makes the same checks before anything else, so

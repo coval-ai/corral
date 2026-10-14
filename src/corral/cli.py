@@ -28,7 +28,6 @@ from corral.models import (
     api_key,
     catalog,
     key_name,
-    model_ids,
     vendor_problem,
 )
 from corral.scenarios import (
@@ -125,38 +124,36 @@ def checker(settings: Settings) -> Checker:
     return check
 
 
+def offered_models(modality: Modality, settings: Settings) -> list[Model]:
+    """The models whose vendor has a key in .env; the first is the default."""
+    offered: list[Model] = getattr(catalog(), modality)
+    keyed = [model for model in offered if api_key(model.provider, settings) is not None]
+    if not keyed:
+        names = sorted({key_name(model.provider) for model in offered})
+        raise SystemExit(f"no {modality} model has a key; set one of {', '.join(names)} in .env")
+    return keyed
+
+
 def choose_model(
     modality: Modality,
     read: Reader = input,
     settings: Settings | None = None,
     check: Checker | None = None,
 ) -> str:
-    """Pick a model whose vendor has a key and answers; Enter takes the first that has a key.
+    """Pick a model whose vendor answers; Enter takes the first offered.
 
     A pick whose vendor fails its check says why and asks again.
     """
     settings = settings or get_settings()
     check = check or checker(settings)
-    offered: list[Model] = getattr(catalog(), modality)
-    keyed = [api_key(model.provider, settings) is not None for model in offered]
-    if not any(keyed):
-        names = sorted({key_name(model.provider) for model in offered})
-        raise SystemExit(f"no {modality} model has a key; set one of {', '.join(names)} in .env")
+    offered = offered_models(modality, settings)
     problems: dict[str, str] = {}
     while True:
-        options = []
-        for model, has_key in zip(offered, keyed, strict=True):
-            if not has_key:
-                options.append(f"{model.id}  (needs: {key_name(model.provider)})")
-            elif model.provider in problems:
-                options.append(f"{model.id}  ({problems[model.provider]})")
-            else:
-                options.append(model.id)
-        index = pick(options, modality.upper(), read, keyed.index(True))
-        model = offered[index]
-        if not keyed[index]:
-            print(f"{model.id} needs {key_name(model.provider)} in .env")
-            continue
+        options = [
+            f"{model.id}  ({problems[model.provider]})" if model.provider in problems else model.id
+            for model in offered
+        ]
+        model = offered[pick(options, modality.upper(), read)]
         problem = check(model.provider)
         if problem is None:
             return model.id
@@ -196,7 +193,8 @@ def fail(parser: argparse.ArgumentParser, interactive: bool, message: str) -> No
     parser.error(message)
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
+    settings = settings or get_settings()
     parser = argparse.ArgumentParser(prog="corral", description=__doc__)
     parser.add_argument(
         "mode",
@@ -205,10 +203,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="; ".join(f"{mode.name}: {mode.summary}" for mode in MODES),
     )
     for modality in MODALITIES:
+        ids = [model.id for model in offered_models(modality, settings)]
         parser.add_argument(
             f"--{modality}",
-            choices=model_ids(modality),
-            default=os.environ.get(f"S2S_{modality.upper()}", model_ids(modality)[0]),
+            choices=ids,
+            default=os.environ.get(f"S2S_{modality.upper()}", ids[0]),
             help="default: %(default)s",
         )
     parser.add_argument(
@@ -228,9 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
     settings = get_settings()
+    parser = build_parser(settings)
+    args = parser.parse_args()
     interactive = args.mode is None
     if interactive:
         mode = choose_mode(settings=settings)
