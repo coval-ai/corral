@@ -23,7 +23,7 @@ jobs:
       - name: mypy strict
         run: uv run mypy --strict src tests
       - name: pytest
-        run: uv run pytest -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1
+        run: uv run pytest
       - uses: docker/setup-buildx-action@v4
       - name: Docker build
         uses: docker/build-push-action@v7

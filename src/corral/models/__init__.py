@@ -7,7 +7,8 @@ stt.json, llm.json and tts.json list what you can pick, the default first. The v
 table says which Pipecat class runs each provider and which key pays for it. Every
 Pipecat service takes the same ``api_key``, ``sample_rate`` and ``Settings``, so
 building one works the same for every vendor. Providers and keys are checked before
-anything connects, so a bad pick fails at startup with the list of what's supported.
+anything connects, so a bad pick fails at startup with the list of what's supported, and
+each vendor answers one cheap authenticated request before a run is started on it.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+import httpx
 from pipecat.processors.frame_processor import FrameProcessor
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -99,27 +101,91 @@ def _get[M: Model](modality: Modality, offered: list[M], model_id: str) -> M:
     raise ValueError(f"no {modality} model {model_id!r}; have {', '.join(m.id for m in offered)}")
 
 
+CHECK_TIMEOUT_SECS = 10
+
+
 @dataclass(frozen=True)
 class Vendor:
+    """Which key pays for a provider, the GET that proves the key works, and its services."""
+
     key_attr: str
+    check_url: str
+    auth_header: str = "Authorization"
+    auth_prefix: str = "Bearer "
     stt: str | None = None
     llm: str | None = None
     tts: str | None = None
 
+    @property
+    def key_name(self) -> str:
+        return self.key_attr.upper()
+
 
 VENDORS: dict[str, Vendor] = {
-    "deepgram": Vendor("deepgram_api_key", stt="pipecat.services.deepgram.stt:DeepgramSTTService"),
-    "openai": Vendor("openai_api_key", llm="pipecat.services.openai.llm:OpenAILLMService"),
+    "deepgram": Vendor(
+        "deepgram_api_key",
+        "https://api.deepgram.com/v1/projects",
+        auth_prefix="Token ",
+        stt="pipecat.services.deepgram.stt:DeepgramSTTService",
+    ),
+    "openai": Vendor(
+        "openai_api_key",
+        "https://api.openai.com/v1/models",
+        llm="pipecat.services.openai.llm:OpenAILLMService",
+    ),
     "elevenlabs": Vendor(
-        "elevenlabs_api_key", tts="pipecat.services.elevenlabs.tts:ElevenLabsTTSService"
+        "elevenlabs_api_key",
+        "https://api.elevenlabs.io/v1/user",
+        auth_header="xi-api-key",
+        auth_prefix="",
+        tts="pipecat.services.elevenlabs.tts:ElevenLabsTTSService",
     ),
     "soniox": Vendor(
         "soniox_api_key",
+        "https://api.soniox.com/v1/models",
         stt="pipecat.services.soniox.stt:SonioxSTTService",
         tts="pipecat.services.soniox.tts:SonioxTTSService",
     ),
-    "google": Vendor("gemini_api_key", llm="pipecat.services.google.llm:GoogleLLMService"),
+    "google": Vendor(
+        "gemini_api_key",
+        "https://generativelanguage.googleapis.com/v1beta/models",
+        auth_header="x-goog-api-key",
+        auth_prefix="",
+        llm="pipecat.services.google.llm:GoogleLLMService",
+    ),
 }
+
+
+def key_name(provider: str) -> str:
+    return VENDORS[provider].key_name
+
+
+def api_key(provider: str, settings: Settings) -> str | None:
+    """The provider's key, or None when it is unset or blank."""
+    value = getattr(settings, VENDORS[provider].key_attr)
+    if value is None or not value.get_secret_value():
+        return None
+    key: str = value.get_secret_value()
+    return key
+
+
+def vendor_problem(
+    provider: str, settings: Settings, transport: httpx.BaseTransport | None = None
+) -> str | None:
+    """One cheap authenticated GET to the vendor: None when it answered 200, else why not."""
+    vendor = VENDORS[provider]
+    key = api_key(provider, settings)
+    if key is None:
+        return f"{vendor.key_name} is unset"
+    headers = {vendor.auth_header: vendor.auth_prefix + key}
+    try:
+        with httpx.Client(timeout=CHECK_TIMEOUT_SECS, transport=transport) as client:
+            response = client.get(vendor.check_url, headers=headers)
+    except httpx.HTTPError as error:
+        return f"{provider} is unreachable: {error}"
+    if response.status_code != 200:
+        return f"{provider} returned {response.status_code}"
+    return None
 
 
 @dataclass(frozen=True)
@@ -139,10 +205,9 @@ def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tu
     path: str | None = getattr(vendor, modality) if vendor else None
     if vendor is None or path is None:
         raise ValueError(f"no {modality} for {provider!r}; have {', '.join(supported(modality))}")
-    value = getattr(settings, vendor.key_attr)
-    if value is None or not value.get_secret_value():
-        raise RuntimeError(f"{vendor.key_attr.upper()} is unset")
-    key: str = value.get_secret_value()
+    key = api_key(provider, settings)
+    if key is None:
+        raise RuntimeError(f"{vendor.key_name} is unset")
     return path, key
 
 

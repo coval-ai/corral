@@ -18,9 +18,18 @@ from typing import NoReturn
 from corral import benchmark, serve, talk
 from corral.agent import load_agent
 from corral.config import Settings, get_settings
-from corral.coval_api import SyncError
+from corral.coval_api import SyncError, coval_problem
 from corral.logging import configure_logging
-from corral.models import MODALITIES, Modality, model_ids
+from corral.models import (
+    MODALITIES,
+    Modality,
+    Model,
+    api_key,
+    catalog,
+    key_name,
+    model_ids,
+    vendor_problem,
+)
 from corral.scenarios import (
     BENCHMARK_SCENARIO,
     TALK_SCENARIO,
@@ -31,6 +40,7 @@ from corral.scenarios import (
 )
 
 Reader = Callable[[str], str]
+Checker = Callable[[str], str | None]
 
 
 @dataclass(frozen=True)
@@ -46,38 +56,42 @@ MODES = (TALK, BENCHMARK, SERVE)
 MENU_MODES = (TALK, BENCHMARK)
 
 
-def missing_for(mode: Mode) -> str | None:
+def missing_for(mode: Mode, settings: Settings, tunnel: bool = True) -> str | None:
     """What this machine still needs before the mode can run, or None."""
     if mode is TALK and importlib.util.find_spec("miniaudio") is None:
         return "uv sync"
-    if mode is BENCHMARK and shutil.which("cloudflared") is None:
-        return "brew install cloudflared"
+    if mode is BENCHMARK:
+        if tunnel and shutil.which("cloudflared") is None:
+            return "brew install cloudflared"
+        if not has_coval_key(settings):
+            return "COVAL_API_KEY in .env"
     return None
 
 
-def pick(options: list[str], prompt: str, read: Reader) -> int:
-    """Print numbered options and return the index of the one chosen; Enter takes the first."""
+def pick(options: list[str], prompt: str, read: Reader, default: int = 0) -> int:
+    """Print numbered options and return the index of the one chosen; Enter takes the default."""
     for index, option in enumerate(options, start=1):
         print(f"{index}. {option}")
     while True:
         try:
-            answer = read(f"{prompt} [1-{len(options)}, default 1]: ").strip()
+            answer = read(f"{prompt} [1-{len(options)}, default {default + 1}]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print()
             raise SystemExit(130) from None
         if not answer:
-            return 0
+            return default
         if answer.isdigit() and 1 <= int(answer) <= len(options):
             return int(answer) - 1
-        print(f"pick a number from 1 to {len(options)}, or Enter for 1")
+        print(f"pick a number from 1 to {len(options)}, or Enter for {default + 1}")
 
 
-def choose_mode(read: Reader = input) -> Mode:
+def choose_mode(read: Reader = input, settings: Settings | None = None) -> Mode:
+    settings = settings or get_settings()
     width = max(len(mode.name) for mode in MENU_MODES)
     options = []
     for mode in MENU_MODES:
         line = f"{mode.name:<{width}}  {mode.summary}"
-        needs = missing_for(mode)
+        needs = missing_for(mode, settings)
         options.append(f"{line}  (needs: {needs})" if needs else line)
     return MENU_MODES[pick(options, "Mode", read)]
 
@@ -97,9 +111,55 @@ def choose_scenario(mode: Mode, read: Reader = input) -> str:
     return names[pick(options, "Scenario", read)]
 
 
-def choose_model(modality: Modality, read: Reader = input) -> str:
-    ids = model_ids(modality)
-    return ids[pick(ids, modality.upper(), read)]
+def checker(settings: Settings) -> Checker:
+    """Each provider's problem, or None, asked of the vendor once and remembered."""
+    answers: dict[str, str | None] = {}
+
+    def check(provider: str) -> str | None:
+        if provider not in answers:
+            answers[provider] = vendor_problem(provider, settings)
+        return answers[provider]
+
+    return check
+
+
+def choose_model(
+    modality: Modality,
+    read: Reader = input,
+    settings: Settings | None = None,
+    check: Checker | None = None,
+) -> str:
+    """Pick a model whose vendor has a key and answers; Enter takes the first that has a key.
+
+    A pick whose vendor fails its check says why and asks again.
+    """
+    settings = settings or get_settings()
+    check = check or checker(settings)
+    offered: list[Model] = getattr(catalog(), modality)
+    keyed = [api_key(model.provider, settings) is not None for model in offered]
+    if not any(keyed):
+        names = sorted({key_name(model.provider) for model in offered})
+        raise SystemExit(f"no {modality} model has a key; set one of {', '.join(names)} in .env")
+    problems: dict[str, str] = {}
+    while True:
+        options = []
+        for model, has_key in zip(offered, keyed, strict=True):
+            if not has_key:
+                options.append(f"{model.id}  (needs: {key_name(model.provider)})")
+            elif model.provider in problems:
+                options.append(f"{model.id}  ({problems[model.provider]})")
+            else:
+                options.append(model.id)
+        index = pick(options, modality.upper(), read, keyed.index(True))
+        model = offered[index]
+        if not keyed[index]:
+            print(f"{model.id} needs {key_name(model.provider)} in .env")
+            continue
+        problem = check(model.provider)
+        if problem is None:
+            return model.id
+        problems[model.provider] = problem
+        print(problem)
 
 
 def has_coval_key(settings: Settings) -> bool:
@@ -143,13 +203,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    settings = get_settings()
     interactive = args.mode is None
-    mode = choose_mode() if interactive else next(m for m in MODES if m.name == args.mode)
-    needs = missing_for(mode)
-    if needs and not (mode is BENCHMARK and args.no_tunnel):
+    if interactive:
+        mode = choose_mode(settings=settings)
+    else:
+        mode = next(m for m in MODES if m.name == args.mode)
+    needs = missing_for(mode, settings, tunnel=not args.no_tunnel)
+    if needs:
         fail(parser, interactive, f"{mode.name} needs: {needs}")
-    if mode is BENCHMARK and not has_coval_key(get_settings()):
-        fail(parser, interactive, "a Coval run needs COVAL_API_KEY in the environment or .env")
+    if mode is BENCHMARK:
+        # Coval answers for its key here, the way each vendor does for a model pick.
+        problem = coval_problem(settings)
+        if problem:
+            fail(parser, interactive, problem)
 
     if args.scenario:
         scenario = args.scenario
@@ -166,10 +233,17 @@ def main() -> None:
         workspace_id = suite.workspace or get_settings().corral_workspace_id
         request = benchmark.RunRequest(suite, workspace_id, sample=1 if args.smoke else 0)
 
+    check = checker(settings)
     if interactive:
-        agent = load_agent(scenario, *(choose_model(modality) for modality in MODALITIES))
+        picks = (choose_model(modality, settings=settings, check=check) for modality in MODALITIES)
+        agent = load_agent(scenario, *picks)
     else:
         agent = load_agent(scenario, args.stt, args.llm, args.tts)
+    # The menu checked each pick as it was made; a scripted run checks them all here.
+    for model in (agent.stt, agent.llm, agent.tts):
+        problem = check(model.provider)
+        if problem:
+            fail(parser, interactive, f"{model.id}: {problem}")
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         if mode is TALK:

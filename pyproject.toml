@@ -63,4 +63,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1,::1"
+filterwarnings = [
+    "error",
+    "ignore:'audioop' is deprecated:DeprecationWarning",
+    "ignore:`AudioContextTTSService` is deprecated:DeprecationWarning",
+]

@@ -6,9 +6,11 @@ from typing import Any
 
 import httpx
 
+from corral.config import Settings
 from corral.coval_api import (
     CovalClient,
     CovalTarget,
+    coval_problem,
     is_terminal,
     launch_body,
     results_lines,
@@ -92,3 +94,19 @@ def test_results_print_one_line_per_metric() -> None:
         "results": {"metrics": {"m1": {"metric_name": "Turn Count", "values": [{"value": 8.0}]}}},
     }
     assert results_lines(run) == ["run R1 COMPLETED", "  Turn Count: 8.0"]
+
+
+def test_coval_answers_for_its_key_before_anything_is_served() -> None:
+    settings = Settings(_env_file=None, coval_api_key="ck")
+    seen: list[httpx.Request] = []
+
+    def ok(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"workspaces": []})
+
+    assert coval_problem(settings, httpx.MockTransport(ok)) is None
+    assert seen[0].url == "https://api.coval.dev/v1/workspaces"
+    assert seen[0].headers["X-API-Key"] == "ck"
+    denied = httpx.MockTransport(lambda _request: httpx.Response(401))
+    assert coval_problem(settings, denied) == "coval returned 401"
+    assert coval_problem(Settings(_env_file=None), denied) == "COVAL_API_KEY is unset"
