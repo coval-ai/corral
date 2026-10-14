@@ -1,6 +1,6 @@
 # Corral
 
-Coval's own voice agent for the S2S leaderboard. Corral rounds up a
+Coval's own cascade voice agent for the S2S leaderboard. Corral rounds up a
 speech-to-text, LLM and text-to-speech model into one Pipecat agent, lets
 Coval's simulator call it, and times every turn from inside the pipeline so
 we know which model the pause came from.
@@ -18,7 +18,7 @@ cp .env.example .env    # then fill in your keys
 uv run corral
 ```
 
-The menu walks you through picking a mode, a scenario and the models.
+The TUI menu walks you through picking a mode, a scenario and the models.
 
 - **talk** puts the agent on your mic and speakers. Ctrl-C hangs up and
   prints a latency table. Needs `brew install portaudio && uv sync --extra local`.
