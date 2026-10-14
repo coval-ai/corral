@@ -20,7 +20,16 @@ from corral.agent import load_agent
 from corral.config import Settings, get_settings
 from corral.coval_api import SyncError
 from corral.logging import configure_logging
-from corral.models import MODALITIES, Modality, model_ids
+from corral.models import (
+    MODALITIES,
+    Modality,
+    Model,
+    api_key,
+    catalog,
+    key_name,
+    model_ids,
+    vendor_problem,
+)
 from corral.scenarios import (
     BENCHMARK_SCENARIO,
     TALK_SCENARIO,
@@ -31,6 +40,7 @@ from corral.scenarios import (
 )
 
 Reader = Callable[[str], str]
+Checker = Callable[[str], str | None]
 
 
 @dataclass(frozen=True)
@@ -55,21 +65,21 @@ def missing_for(mode: Mode) -> str | None:
     return None
 
 
-def pick(options: list[str], prompt: str, read: Reader) -> int:
-    """Print numbered options and return the index of the one chosen; Enter takes the first."""
+def pick(options: list[str], prompt: str, read: Reader, default: int = 0) -> int:
+    """Print numbered options and return the index of the one chosen; Enter takes the default."""
     for index, option in enumerate(options, start=1):
         print(f"{index}. {option}")
     while True:
         try:
-            answer = read(f"{prompt} [1-{len(options)}, default 1]: ").strip()
+            answer = read(f"{prompt} [1-{len(options)}, default {default + 1}]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print()
             raise SystemExit(130) from None
         if not answer:
-            return 0
+            return default
         if answer.isdigit() and 1 <= int(answer) <= len(options):
             return int(answer) - 1
-        print(f"pick a number from 1 to {len(options)}, or Enter for 1")
+        print(f"pick a number from 1 to {len(options)}, or Enter for {default + 1}")
 
 
 def choose_mode(read: Reader = input) -> Mode:
@@ -97,9 +107,55 @@ def choose_scenario(mode: Mode, read: Reader = input) -> str:
     return names[pick(options, "Scenario", read)]
 
 
-def choose_model(modality: Modality, read: Reader = input) -> str:
-    ids = model_ids(modality)
-    return ids[pick(ids, modality.upper(), read)]
+def checker(settings: Settings) -> Checker:
+    """Each provider's problem, or None, asked of the vendor once and remembered."""
+    answers: dict[str, str | None] = {}
+
+    def check(provider: str) -> str | None:
+        if provider not in answers:
+            answers[provider] = vendor_problem(provider, settings)
+        return answers[provider]
+
+    return check
+
+
+def choose_model(
+    modality: Modality,
+    read: Reader = input,
+    settings: Settings | None = None,
+    check: Checker | None = None,
+) -> str:
+    """Pick a model whose vendor has a key and answers; Enter takes the first that has a key.
+
+    A pick whose vendor fails its check says why and asks again.
+    """
+    settings = settings or get_settings()
+    check = check or checker(settings)
+    offered: list[Model] = getattr(catalog(), modality)
+    keyed = [api_key(model.provider, settings) is not None for model in offered]
+    if not any(keyed):
+        names = sorted({key_name(model.provider) for model in offered})
+        raise SystemExit(f"no {modality} model has a key; set one of {', '.join(names)} in .env")
+    problems: dict[str, str] = {}
+    while True:
+        options = []
+        for model, has_key in zip(offered, keyed, strict=True):
+            if not has_key:
+                options.append(f"{model.id}  (needs: {key_name(model.provider)})")
+            elif model.provider in problems:
+                options.append(f"{model.id}  ({problems[model.provider]})")
+            else:
+                options.append(model.id)
+        index = pick(options, modality.upper(), read, keyed.index(True))
+        model = offered[index]
+        if not keyed[index]:
+            print(f"{model.id} needs {key_name(model.provider)} in .env")
+            continue
+        problem = check(model.provider)
+        if problem is None:
+            return model.id
+        problems[model.provider] = problem
+        print(problem)
 
 
 def has_coval_key(settings: Settings) -> bool:
@@ -166,10 +222,18 @@ def main() -> None:
         workspace_id = suite.workspace or get_settings().corral_workspace_id
         request = benchmark.RunRequest(suite, workspace_id, sample=1 if args.smoke else 0)
 
+    settings = get_settings()
+    check = checker(settings)
     if interactive:
-        agent = load_agent(scenario, *(choose_model(modality) for modality in MODALITIES))
+        picks = (choose_model(modality, settings=settings, check=check) for modality in MODALITIES)
+        agent = load_agent(scenario, *picks)
     else:
         agent = load_agent(scenario, args.stt, args.llm, args.tts)
+    # The menu checked each pick as it was made; a scripted run checks them all here.
+    for model in (agent.stt, agent.llm, agent.tts):
+        problem = check(model.provider)
+        if problem:
+            fail(parser, interactive, f"{model.id}: {problem}")
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         if mode is TALK:

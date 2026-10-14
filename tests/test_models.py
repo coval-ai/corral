@@ -4,6 +4,7 @@
 import dataclasses
 from typing import Any
 
+import httpx
 import pytest
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
@@ -53,3 +54,35 @@ def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> Non
     unpaid = Settings(_env_file=None, **{**KEYS, "soniox_api_key": None})
     with pytest.raises(RuntimeError, match="SONIOX_API_KEY is unset"):
         models.resolve(load_agent("ultrabank", *SONIOX_GEMINI), unpaid)
+
+
+def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:
+    seen: dict[str, httpx.Request] = {}
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen[request.url.host] = request
+        return httpx.Response(200)
+
+    settings = Settings(_env_file=None, **KEYS)
+    for provider in models.VENDORS:
+        assert models.vendor_problem(provider, settings, httpx.MockTransport(record)) is None
+    assert seen["api.deepgram.com"].headers["Authorization"] == "Token dg"
+    assert seen["api.openai.com"].headers["Authorization"] == "Bearer oa"
+    assert seen["api.elevenlabs.io"].headers["xi-api-key"] == "el"
+    assert seen["api.soniox.com"].headers["Authorization"] == "Bearer sx"
+    assert seen["generativelanguage.googleapis.com"].headers["x-goog-api-key"] == "gm"
+    assert all(request.method == "GET" and not request.url.query for request in seen.values())
+
+
+def test_a_vendor_problem_is_the_status_the_unset_key_or_the_network() -> None:
+    settings = Settings(_env_file=None, **KEYS)
+    denied = httpx.MockTransport(lambda _request: httpx.Response(401))
+    assert models.vendor_problem("soniox", settings, denied) == "soniox returned 401"
+
+    def down(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route")
+
+    unreachable = models.vendor_problem("openai", settings, httpx.MockTransport(down))
+    assert unreachable == "openai is unreachable: no route"
+    unpaid = Settings(_env_file=None, **{**KEYS, "gemini_api_key": ""})
+    assert models.vendor_problem("google", unpaid, denied) == "GEMINI_API_KEY is unset"
