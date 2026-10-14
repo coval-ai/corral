@@ -11,6 +11,7 @@ from corral.cli import BENCHMARK, TALK, checker, choose_mode, choose_model, choo
 from corral.config import Settings
 
 KEYS: dict[str, Any] = {
+    "coval_api_key": "ck",
     "deepgram_api_key": "dg",
     "openai_api_key": "oa",
     "elevenlabs_api_key": "el",
@@ -96,11 +97,15 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
 ) -> None:
     monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/local/bin/cloudflared")
-    assert choose_mode(read=lambda _prompt: "2").name == "benchmark"
+    assert choose_mode(read=lambda _prompt: "2", settings=ALL_KEYS).name == "benchmark"
     talk, benchmark, *rest = capsys.readouterr().out.splitlines()
     assert talk.startswith("1. talk") and "(needs: brew install portaudio" in talk
     assert benchmark.startswith("2. benchmark") and "(needs" not in benchmark
     assert "3." not in "\n".join(rest)
+    no_coval = Settings(_env_file=None, **{**KEYS, "coval_api_key": None})
+    choose_mode(read=lambda _prompt: "1", settings=no_coval)
+    _, benchmark, *_ = capsys.readouterr().out.splitlines()
+    assert benchmark.endswith("(needs: COVAL_API_KEY in .env)")
 
 
 def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFixture[str]) -> None:

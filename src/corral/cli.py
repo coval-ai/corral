@@ -18,7 +18,7 @@ from typing import NoReturn
 from corral import benchmark, serve, talk
 from corral.agent import load_agent
 from corral.config import Settings, get_settings
-from corral.coval_api import SyncError
+from corral.coval_api import SyncError, coval_problem
 from corral.logging import configure_logging
 from corral.models import (
     MODALITIES,
@@ -56,12 +56,15 @@ MODES = (TALK, BENCHMARK, SERVE)
 MENU_MODES = (TALK, BENCHMARK)
 
 
-def missing_for(mode: Mode) -> str | None:
+def missing_for(mode: Mode, settings: Settings, tunnel: bool = True) -> str | None:
     """What this machine still needs before the mode can run, or None."""
     if mode is TALK and importlib.util.find_spec("pyaudio") is None:
         return "brew install portaudio && uv sync --extra local"
-    if mode is BENCHMARK and shutil.which("cloudflared") is None:
-        return "brew install cloudflared"
+    if mode is BENCHMARK:
+        if tunnel and shutil.which("cloudflared") is None:
+            return "brew install cloudflared"
+        if not has_coval_key(settings):
+            return "COVAL_API_KEY in .env"
     return None
 
 
@@ -82,12 +85,13 @@ def pick(options: list[str], prompt: str, read: Reader, default: int = 0) -> int
         print(f"pick a number from 1 to {len(options)}, or Enter for {default + 1}")
 
 
-def choose_mode(read: Reader = input) -> Mode:
+def choose_mode(read: Reader = input, settings: Settings | None = None) -> Mode:
+    settings = settings or get_settings()
     width = max(len(mode.name) for mode in MENU_MODES)
     options = []
     for mode in MENU_MODES:
         line = f"{mode.name:<{width}}  {mode.summary}"
-        needs = missing_for(mode)
+        needs = missing_for(mode, settings)
         options.append(f"{line}  (needs: {needs})" if needs else line)
     return MENU_MODES[pick(options, "Mode", read)]
 
@@ -199,13 +203,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    settings = get_settings()
     interactive = args.mode is None
-    mode = choose_mode() if interactive else next(m for m in MODES if m.name == args.mode)
-    needs = missing_for(mode)
-    if needs and not (mode is BENCHMARK and args.no_tunnel):
+    if interactive:
+        mode = choose_mode(settings=settings)
+    else:
+        mode = next(m for m in MODES if m.name == args.mode)
+    needs = missing_for(mode, settings, tunnel=not args.no_tunnel)
+    if needs:
         fail(parser, interactive, f"{mode.name} needs: {needs}")
-    if mode is BENCHMARK and not has_coval_key(get_settings()):
-        fail(parser, interactive, "a Coval run needs COVAL_API_KEY in the environment or .env")
+    if mode is BENCHMARK:
+        # Coval answers for its key here, the way each vendor does for a model pick.
+        problem = coval_problem(settings)
+        if problem:
+            fail(parser, interactive, problem)
 
     if args.scenario:
         scenario = args.scenario
@@ -222,7 +233,6 @@ def main() -> None:
         workspace_id = suite.workspace or get_settings().corral_workspace_id
         request = benchmark.RunRequest(suite, workspace_id, sample=1 if args.smoke else 0)
 
-    settings = get_settings()
     check = checker(settings)
     if interactive:
         picks = (choose_model(modality, settings=settings, check=check) for modality in MODALITIES)

@@ -40,8 +40,9 @@ Leave a model out and you get the first one in its list, or whatever
 The menu marks every model whose key is missing from `.env` and defaults to
 the first one that has a key. Each pick sends one request to its provider
 before the next question, and a provider that answers anything but 200 is
-shown with the code so you can pick another. A scripted run makes the same
-three checks before anything else, so a bad key fails before the tunnel.
+shown with the code so you can pick another. Picking benchmark asks Coval
+the same way. A scripted run makes the same checks before anything else, so
+a bad key fails before the tunnel.
 
 ## What gets measured
 
