@@ -60,8 +60,8 @@ SERVE_PORT = 7873
 
 def missing_for(mode: Mode, settings: Settings, tunnel: bool = True) -> str | None:
     """What this machine still needs before the mode can run, or None."""
-    if mode is TALK and importlib.util.find_spec("pyaudio") is None:
-        return "brew install portaudio && uv sync --extra local"
+    if mode is TALK and importlib.util.find_spec("miniaudio") is None:
+        return "uv sync"
     if mode is BENCHMARK:
         if tunnel and shutil.which("cloudflared") is None:
             return "brew install cloudflared"
