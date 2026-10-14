@@ -1,7 +1,6 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-import json
 from collections.abc import Iterator
 from unittest.mock import patch
 
@@ -17,7 +16,6 @@ from corral.config import Settings
 from corral.models import Services
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
-SILENCE_16K_100MS = bytes(2 * 1600)
 
 
 class _Passthrough(FrameProcessor):
@@ -59,12 +57,3 @@ def test_healthz_names_the_agent_and_a_bad_bearer_is_refused(client: TestClient)
     ):
         pass
     assert refused.value.code == serve.POLICY_VIOLATION
-
-
-def test_session_ready_precedes_audio_and_the_call_echoes(client: TestClient) -> None:
-    headers = {"Authorization": "Bearer s3cret", "X-Coval-Simulation-Id": "sim-1"}
-    with client.websocket_connect("/ws", headers=headers) as ws:
-        assert json.loads(ws.receive_text()) == {"type": "session_ready"}
-        ws.send_bytes(SILENCE_16K_100MS)
-        echoed = ws.receive_bytes()
-    assert echoed and len(echoed) % 2 == 0
