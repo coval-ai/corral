@@ -19,9 +19,11 @@ from corral.pipeline import build_call
 
 
 async def run(agent: Agent) -> None:
-    from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
+    from pipecat.transports.local.audio import LocalAudioTransportParams
 
-    transport = LocalAudioTransport(
+    from corral.echo import EchoCancelledAudioTransport
+
+    transport = EchoCancelledAudioTransport(
         LocalAudioTransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,

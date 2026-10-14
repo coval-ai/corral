@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-local = ["pipecat-ai[local]~=1.12"]  # mic and speakers; needs portaudio
+local = ["pipecat-ai[local]~=1.12", "livekit>=1.0"]  # mic and speakers; needs portaudio
 
 [project.scripts]
 corral = "corral.cli:main"
@@ -59,7 +59,7 @@ python_version = "3.12"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = "pipecat.*"
+module = ["pipecat.*", "livekit.*", "pyaudio"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
