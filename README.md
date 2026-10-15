@@ -86,8 +86,9 @@ don't have yet, give it an entry in `src/corral/models/__init__.py` with its
 key and Pipecat class and add its extra to `pyproject.toml`.
 
 To add a scenario, make a directory in `src/corral/scenarios/` with a system
-prompt and, if you want to benchmark it, a Coval suite. The README in there
-has the details.
+prompt and, if you want to benchmark it, a Coval suite. If the agent should be
+able to call tools, add a `tools.py` with the fake backend they act on. The
+README in there has the details.
 
 ## Checks
 

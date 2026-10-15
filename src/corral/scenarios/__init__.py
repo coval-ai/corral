@@ -3,6 +3,9 @@
 
 """Scenarios: one directory each with a prompt, a menu line, and a Coval suite if it's benchmarked.
 
+A scenario can also ship a ``tools.py`` whose ``environment()`` returns a fresh backend for one
+call; see ``corral.environment``. Without one the agent has no tools.
+
 In coval.json each test set, persona and metric is either the id of one that already exists
 in Coval, or its full definition, which Corral creates in your workspace and keeps in sync.
 ``workspace`` is the id of the workspace that you'd like to run it. If workspace isn't set,
@@ -11,6 +14,7 @@ defaults to CORRAL_WORKSPACE_ID, and if that isn't set, to a workspace named Cor
 
 from __future__ import annotations
 
+import importlib
 import importlib.resources
 import json
 from importlib.resources.abc import Traversable
@@ -18,11 +22,13 @@ from typing import Any
 
 from pydantic import Field
 
+from corral.environment import Environment
 from corral.models import JsonModel
 
 PROMPT_FILE = "system-prompt.txt"
 SUMMARY_FILE = "summary.txt"
 COVAL_FILE = "coval.json"
+TOOLS_FILE = "tools.py"
 TALK_SCENARIO = "default"
 BENCHMARK_SCENARIO = "ultrabank"
 
@@ -57,6 +63,28 @@ def scenario_summary(scenario: str) -> str:
 
 def load_prompt(scenario: str) -> bytes:
     return _folder(scenario).joinpath(PROMPT_FILE).read_bytes()
+
+
+def behavior_files(scenario: str) -> dict[str, bytes]:
+    """Every file that changes what the agent does: the prompt, the tools and their data.
+
+    The menu line and the Coval suite don't change the agent, so they're left out.
+    """
+    folder = _folder(scenario)
+    return {
+        entry.name: entry.read_bytes()
+        for entry in sorted(folder.iterdir(), key=lambda entry: entry.name)
+        if entry.is_file() and entry.name not in (SUMMARY_FILE, COVAL_FILE)
+    }
+
+
+def load_environment(scenario: str) -> Environment | None:
+    """A fresh backend for one call from the scenario's tools.py, or None when it has none."""
+    if not _folder(scenario).joinpath(TOOLS_FILE).is_file():
+        return None
+    module = importlib.import_module(f"{__name__}.{scenario}.tools")
+    environment: Environment = module.environment()
+    return environment
 
 
 def load_suite(scenario: str) -> Suite | None:

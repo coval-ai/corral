@@ -6,9 +6,25 @@ A scenario is a directory here with:
 - `summary.txt`: its one line in the menu
 - `coval.json`: the Coval suite it's benchmarked with. Leave this out for a
   talk-only scenario.
+- `tools.py`: the tools the agent can call, if it has any. Leave this out and
+  the agent just talks.
 
 `default` is a plain assistant for trying models by voice. `ultrabank` is
-Ultra Bank with the short daily test set.
+Ultra Bank with the short daily test set. `dental` is a receptionist with a
+fake booking system, for trying tools.
+
+## tools.py
+
+`tools.py` has one function, `environment()`, that returns a fake backend for
+one call: a list of tools, `start(test_case)` to seed it, `finish()` to clean
+up. Every call gets its own, so calls can't see each other's bookings.
+
+The easy version is canned answers from a `tools.json` next to it. `dental`
+is the example: each tool answers the same thing however it's called, and a
+test case swaps in different answers. When you need answers that depend on the
+arguments, or state that changes after a write, write your own in `tools.py`
+with those same three parts. Handlers take the arguments as a dict and return
+the result. They never see Pipecat.
 
 ## coval.json
 
