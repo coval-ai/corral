@@ -120,6 +120,17 @@ def choose_scenario(mode: Mode, read: Reader = input) -> str:
     return names[pick(options, "Scenario", read)]
 
 
+def choose_test_case(scenario: str, read: Reader = input) -> str | None:
+    """Which test case to talk to, when the scenario's suite names some; Enter takes the first."""
+    suite = load_suite(scenario)
+    cases = suite.keyed_test_cases() if suite else {}
+    if not cases:
+        return None
+    width = max(len(name) for name in cases)
+    options = [f"{name:<{width}}  {description}".rstrip() for name, description in cases.items()]
+    return list(cases)[pick(options, "Test case", read)]
+
+
 def checker(settings: Settings) -> Checker:
     """Each provider's problem, or None, asked of the vendor once and remembered."""
     answers: dict[str, str | None] = {}
@@ -307,6 +318,9 @@ def main() -> None:
         workspace_id = suite.workspace or get_settings().corral_workspace_id
         request = benchmark.RunRequest(suite, workspace_id, sample=1 if args.smoke else 0)
 
+    test_case = args.test_case
+    if interactive and mode is TALK:
+        test_case = choose_test_case(scenario)
     check = checker(settings)
     if interactive:
         picks = (choose_model(modality, settings=settings, check=check) for modality in MODALITIES)
@@ -326,7 +340,7 @@ def main() -> None:
     with contextlib.suppress(KeyboardInterrupt):
         if mode is TALK:
             try:
-                asyncio.run(talk.run(agent, args.test_case))
+                asyncio.run(talk.run(agent, test_case))
             except ValueError as error:
                 raise SystemExit(f"corral: {error}") from None
         elif mode is SERVE:
@@ -335,7 +349,7 @@ def main() -> None:
             assert request is not None  # noqa: S101
             try:
                 code = asyncio.run(benchmark.run(agent, port, not args.no_tunnel, request))
-            except SyncError as error:
+            except (SyncError, ValueError) as error:
                 raise SystemExit(f"corral: {error}") from None
             raise SystemExit(code)
 

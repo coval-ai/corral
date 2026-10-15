@@ -42,6 +42,20 @@ class Suite(JsonModel):
     personas: list[Entry] = Field(min_length=1)
     metrics: list[Entry] = Field(default_factory=list)
 
+    def test_case_keys(self) -> list[str]:
+        """Each written-out test case's ``test_case``, the seed its backend uses. None for an id."""
+        return list(self.keyed_test_cases())
+
+    def keyed_test_cases(self) -> dict[str, str]:
+        """Each ``test_case`` and its description, in file order. Empty for a test set id."""
+        if isinstance(self.test_set, str):
+            return {}
+        return {
+            case["test_case"]: str(case.get("description") or "")
+            for case in self.test_set.get("test_cases", [])
+            if isinstance(case.get("test_case"), str)
+        }
+
 
 def _folder(scenario: str) -> Traversable:
     return importlib.resources.files(__name__).joinpath(scenario)
@@ -85,6 +99,18 @@ def load_environment(scenario: str) -> Environment | None:
     module = importlib.import_module(f"{__name__}.{scenario}.tools")
     environment: Environment = module.environment()
     return environment
+
+
+async def confirm_test_cases(scenario: str, keys: list[str]) -> None:
+    """Every key seeds the scenario's backend, so a typo fails here and not call by call."""
+    if not keys:
+        return
+    environment = load_environment(scenario)
+    if environment is None:
+        raise ValueError(f"{scenario} has test case keys but no tools to seed")
+    for key in keys:
+        await environment.start(key)
+        await environment.finish()
 
 
 def load_suite(scenario: str) -> Suite | None:

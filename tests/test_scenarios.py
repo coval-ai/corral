@@ -3,7 +3,13 @@
 
 import pytest
 
-from corral.scenarios import behavior_files, load_environment, load_suite, require_suite
+from corral.scenarios import (
+    behavior_files,
+    confirm_test_cases,
+    load_environment,
+    load_suite,
+    require_suite,
+)
 
 
 def test_a_scenario_carries_its_coval_suite_or_is_for_talking_only() -> None:
@@ -14,8 +20,17 @@ def test_a_scenario_carries_its_coval_suite_or_is_for_talking_only() -> None:
     assert load_suite("default") is None
     demo = require_suite("demo")
     assert isinstance(demo.test_set, dict)
-    keys = [case["simulation_metadata_input"]["key"] for case in demo.test_set["test_cases"]]
-    assert keys == ["book-cleaning", "already-booked"]
+    assert demo.test_case_keys() == ["book-cleaning", "already-booked"]
+    assert ultrabank.test_case_keys() == []
+
+
+async def test_every_test_case_key_has_to_seed_the_backend_before_a_run() -> None:
+    await confirm_test_cases("demo", ["book-cleaning", "already-booked"])
+    await confirm_test_cases("ultrabank", [])
+    with pytest.raises(ValueError, match="no test case 'already-booke'"):
+        await confirm_test_cases("demo", ["already-booke"])
+    with pytest.raises(ValueError, match="default has test case keys but no tools"):
+        await confirm_test_cases("default", ["x"])
     with pytest.raises(ValueError, match="'default' has no coval.json"):
         require_suite("default")
 

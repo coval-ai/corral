@@ -55,7 +55,12 @@ def create_app(agent: Agent) -> FastAPI:
         sim = simulation_id(websocket.headers)
         test_case = case_key(websocket.headers)
         logger.info(f"Call {sim or 'local'} started on {agent.slug}, test case {test_case}")
-        await run_call(websocket, agent, sim, test_case)
+        try:
+            await run_call(websocket, agent, sim, test_case)
+        except ValueError as error:
+            logger.error(f"Call {sim or 'local'} refused: {error}")
+            await websocket.close(code=POLICY_VIOLATION)
+            return
         logger.info(f"Call {sim or 'local'} ended")
 
     return app

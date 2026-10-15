@@ -44,9 +44,9 @@ uv run corral
 The CLI menu walks you through picking a mode, a scenario and the models.
 
 - **talk** Spins up the agent locally letting you talk with it through your mic
-  and speakers. Use Ctl+c to quit. If the scenario has tools, `--test-case`
-  picks which seed they answer from, and the tools called print after the
-  latency table.
+  and speakers. Use Ctl+c to quit. If the scenario has tools, the menu asks
+  which test case to seed them for (`--test-case` when scripting), and the
+  tools called print after the latency table.
 - **benchmark** Serves the agent to Coval which runs your eval suite against it
   and then prints the results (you can also see them in the Coval app). Use 
   `--smoke` to a single test case. The benchmark command needs `brew install 
