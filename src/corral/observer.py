@@ -208,14 +208,16 @@ class TurnLatencyObserver(BaseObserver):
                 moment.tts_first_audio = None
             case UserStoppedSpeakingFrame():
                 moment.vad_done = now
-            case MetricsFrame(data=reports) if moment.vad_stop is not None:
+            case MetricsFrame(data=reports) if moment.caller_stopped is not None:
                 self._record_request(data.source, now, _ttfb_ns(reports))
-            # The model only runs after Silero fires for the caller's turn, so text or
-            # audio before vad_stop is the previous answer still streaming. Ignore it.
-            case LLMTextFrame() if moment.vad_stop is not None and moment.llm_first_token is None:
+            # The model only runs once the caller has stopped, so text or audio before
+            # that is the previous answer still streaming. Ignore it.
+            case LLMTextFrame() if (
+                moment.caller_stopped is not None and moment.llm_first_token is None
+            ):
                 moment.llm_first_token = now
             case TTSAudioRawFrame() if (
-                moment.vad_stop is not None and moment.tts_first_audio is None
+                moment.caller_stopped is not None and moment.tts_first_audio is None
             ):
                 moment.tts_first_audio = now
             case InterruptionFrame():
