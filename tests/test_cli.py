@@ -12,11 +12,13 @@ from corral.cli import (
     BENCHMARK,
     SERVE,
     TALK,
+    build_parser,
     checker,
     choose_mode,
     choose_model,
     choose_port,
     choose_scenario,
+    offered_models,
     port_in_use,
 )
 from corral.config import Settings
@@ -51,28 +53,37 @@ def test_each_role_lists_its_models_and_enter_takes_the_first(
     assert stt == "deepgram/nova-3"
 
 
-def test_models_without_a_key_are_marked_and_enter_skips_them(
-    capsys: pytest.CaptureFixture[str],
+def test_only_models_with_a_key_are_offered(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     no_deepgram = Settings(_env_file=None, **{**KEYS, "deepgram_api_key": None})
-    answers = iter(["1", ""])
     prompts: list[str] = []
 
     def read(prompt: str) -> str:
         prompts.append(prompt)
-        return next(answers)
+        return ""
 
     assert choose_model("stt", read, no_deepgram, answers_fine) == "soniox/stt-rt-v5"
     out = capsys.readouterr().out
-    assert "1. deepgram/nova-3  (needs: DEEPGRAM_API_KEY)\n2. soniox/stt-rt-v5\n" in out
-    assert prompts == ["STT [1-2, default 2]: "] * 2
-    assert "deepgram/nova-3 needs DEEPGRAM_API_KEY in .env" in out
+    assert "1. soniox/stt-rt-v5\n" in out and "deepgram" not in out
+    assert prompts == ["STT [1-1, default 1]: "]
+    assert [m.id for m in offered_models("stt", no_deepgram)] == ["soniox/stt-rt-v5"]
+    monkeypatch.delenv("S2S_STT", raising=False)
+    parser = build_parser(no_deepgram)
+    assert parser.parse_args(["benchmark"]).stt == "soniox/stt-rt-v5"
+    assert "  stt  soniox/stt-rt-v5\n" in parser.format_help()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["benchmark", "--stt", "deepgram/nova-3"])
+    monkeypatch.setenv("S2S_STT", "deepgram/nova-3")
+    assert build_parser(no_deepgram).parse_args(["benchmark"]).stt == "deepgram/nova-3"
 
 
 def test_no_key_for_a_modality_says_which_to_set() -> None:
     none = Settings(_env_file=None, **{**KEYS, "openai_api_key": None, "gemini_api_key": None})
     with pytest.raises(SystemExit, match="set one of GEMINI_API_KEY, OPENAI_API_KEY in .env"):
         choose_model("llm", read=lambda _prompt: "", settings=none, check=answers_fine)
+    with pytest.raises(SystemExit, match="no llm model has a key"):
+        build_parser(none)
 
 
 def test_a_vendor_that_does_not_answer_is_asked_again(capsys: pytest.CaptureFixture[str]) -> None:
