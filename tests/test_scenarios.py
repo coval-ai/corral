@@ -12,6 +12,10 @@ def test_a_scenario_carries_its_coval_suite_or_is_for_talking_only() -> None:
     assert ultrabank.workspace == "01KVGSYSYM8VWWE8M8Y5S14D5N"
     assert len(ultrabank.personas) == 1 and len(ultrabank.metrics) == 3
     assert load_suite("default") is None
+    demo = require_suite("demo")
+    assert isinstance(demo.test_set, dict)
+    keys = [case["simulation_metadata_input"]["key"] for case in demo.test_set["test_cases"]]
+    assert keys == ["book-cleaning", "already-booked"]
     with pytest.raises(ValueError, match="'default' has no coval.json"):
         require_suite("default")
 

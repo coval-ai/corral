@@ -148,8 +148,9 @@ def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFi
     assert "1. default    helpful assistant\n" in out
     assert "2. demo       fake dental booking backend, just for trying tools\n" in out
     assert "3. ultrabank  Instruction adherence test set (internal)\n" in out
-    assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "ultrabank"
-    assert "default" not in capsys.readouterr().out
+    assert choose_scenario(BENCHMARK, read=lambda _prompt: "2") == "ultrabank"
+    out = capsys.readouterr().out
+    assert "default" not in out and out.startswith("1. demo")
 
 
 @pytest.mark.parametrize("key", [KeyboardInterrupt, EOFError])

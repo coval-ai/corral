@@ -80,6 +80,13 @@ Every answered turn is a `turn_latency` span in Coval with `stt`, `llm` and
 The stages don't add up to the headline. The rest is turn-taking, which is our
 code and the same for every stack.
 
+When the model calls a tool, the turn makes two LLM requests with the tool in
+between, so `tool_calls` counts the calls and the LLM time is split: `llm_ms`
+ends at the tool call, `tool_ms` is the handler running, and `llm_second_ms`
+is the request after the result up to its first token. Each call is also an
+`llm_tool_call` span under the turn with the function's name, arguments and
+result, which is what Coval's tool call metric reads.
+
 ## Adding things
 
 To add a model, put it in `src/corral/models/stt.json`, `llm.json` or
