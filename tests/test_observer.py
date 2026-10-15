@@ -10,6 +10,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     Frame,
+    FunctionCallInProgressFrame,
+    FunctionCallResultFrame,
     InterruptionFrame,
     LLMTextFrame,
     MetricsFrame,
@@ -24,6 +26,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from corral.observer import SPAN_NAME, TurnLatencyObserver
 
 MS = 1_000_000
+OPENAI = {"provider": "openai", "model": "gpt-4.1"}
 STT, LLM, TTS = FrameProcessor(), FrameProcessor(), FrameProcessor()
 AUDIO = TTSAudioRawFrame(audio=b"\x00\x00", sample_rate=24000, num_channels=1)
 USAGE = MetricsFrame(data=[STTUsageMetricsData(processor="x", value=STTUsage(audio_seconds=1))])
@@ -41,7 +44,7 @@ class Call:
         self.now_ns = 0
         self.observer = TurnLatencyObserver(
             attributes={"agent": "x"},
-            models={"llm": {"provider": "openai", "model": "gpt-4.1"}},
+            models={"llm": OPENAI, "llm_second": OPENAI},
             stt=STT,
             llm=LLM,
             tts=TTS,
@@ -49,11 +52,15 @@ class Call:
             clock=lambda: self.now_ns,
         )
 
-    async def at(self, ms: int, frame: Frame, source: FrameProcessor | None = None) -> None:
+    async def at(
+        self, ms: int, frame: Frame, source: FrameProcessor | None = None, upstream: bool = False
+    ) -> None:
         self.now_ns = ms * MS
         source = source or FrameProcessor()
-        pushed = FramePushed(source, source, frame, FrameDirection.DOWNSTREAM, timestamp=0)
-        await self.observer.on_push_frame(pushed)
+        direction = FrameDirection.UPSTREAM if upstream else FrameDirection.DOWNSTREAM
+        await self.observer.on_push_frame(
+            FramePushed(source, source, frame, direction, timestamp=0)
+        )
 
     @property
     def turns(self) -> list[dict[str, Any]]:
@@ -179,3 +186,77 @@ async def test_a_turn_silero_never_heard_starts_at_smart_turns_stop(call: Call) 
     assert turn["s2s.turn_latency.llm_ms"] == 300.0
     assert turn["s2s.turn_latency.smart_turn_timed_out"] is False
     assert "s2s.vad_stop.unix_ms" not in turn
+
+
+def _in_progress(call_id: str, name: str, arguments: dict[str, Any]) -> FunctionCallInProgressFrame:
+    return FunctionCallInProgressFrame(
+        function_name=name, tool_call_id=call_id, arguments=arguments
+    )
+
+
+def _result(
+    call_id: str, name: str, result: Any, error: str | None = None
+) -> FunctionCallResultFrame:
+    return FunctionCallResultFrame(
+        function_name=name, tool_call_id=call_id, arguments={}, result=result, error=error
+    )
+
+
+async def test_a_tool_turn_splits_the_llm_around_the_call_and_exports_it(call: Call) -> None:
+    await call.at(1_000, VADUserStoppedSpeakingFrame())
+    await call.at(1_500, _ttfb(0.4), source=LLM)
+    await call.at(1_600, _in_progress("c1", "find_patient", {"name": "Ana"}))
+    await call.at(1_600, _in_progress("c1", "find_patient", {"name": "Ana"}), upstream=True)
+    await call.at(1_900, _result("c1", "find_patient", {"patient_id": 123}))
+    await call.at(1_900, _result("c1", "find_patient", {"patient_id": 123}), upstream=True)
+    await call.at(2_400, _ttfb(0.45), source=LLM)
+    await call.at(2_400, LLMTextFrame("Found"))
+    await call.at(2_600, _ttfb(0.15), source=TTS)
+    await call.at(2_600, AUDIO)
+    await call.at(2_620, BotStartedSpeakingFrame())
+    (turn,) = call.turns
+    assert turn["s2s.turn.tool_calls"] == 1
+    assert turn["s2s.turn_latency_ms"] == 1_600.0
+    assert turn["s2s.turn_latency.llm_ms"] == 500.0
+    assert turn["s2s.turn_latency.tool_ms"] == 300.0
+    assert turn["s2s.turn_latency.llm_second_ms"] == 450.0
+    assert turn["s2s.turn_latency.tts_ms"] == 150.0
+    spans = {s.name: s for s in call.exporter.get_finished_spans()}
+    assert set(spans) == {SPAN_NAME, "llm", "tool", "llm_second", "tts", "llm_tool_call"}
+    tool = spans["llm_tool_call"]
+    assert (tool.start_time, tool.end_time) == (1_600 * MS, 1_900 * MS)
+    assert dict(tool.attributes or {}) == {
+        "function.name": "find_patient",
+        "function.arguments": '{"name": "Ana"}',
+        "function.result": '{"patient_id": 123}',
+    }
+    assert dict(spans["llm_second"].attributes or {}) == {"provider": "openai", "model": "gpt-4.1"}
+
+
+async def test_a_tool_that_failed_says_so_on_its_span(call: Call) -> None:
+    await call.at(1_000, VADUserStoppedSpeakingFrame())
+    await call.at(1_400, _ttfb(0.3), source=LLM)
+    await call.at(1_400, LLMTextFrame("One moment."))
+    await call.at(1_600, _in_progress("c1", "book", {"date": "x"}))
+    await call.at(1_700, _result("c1", "book", "Error", error="LookupError: no slot"))
+    await call.at(2_000, _ttfb(0.25), source=LLM)
+    await call.at(2_000, LLMTextFrame("Sorry"))
+    await call.at(2_200, AUDIO)
+    await call.at(2_220, BotStartedSpeakingFrame())
+    (turn,) = call.turns
+    assert turn["s2s.turn_latency.llm_ms"] == 300.0
+    assert turn["s2s.turn_latency.tool_ms"] == 100.0
+    assert turn["s2s.turn_latency.llm_second_ms"] == 250.0
+    (tool,) = [s for s in call.exporter.get_finished_spans() if s.name == "llm_tool_call"]
+    assert dict(tool.attributes or {})["function.error"] == "LookupError: no slot"
+
+
+async def test_a_turn_without_tools_has_no_tool_stages(call: Call) -> None:
+    await call.at(1_000, VADUserStoppedSpeakingFrame())
+    await call.at(1_400, _ttfb(0.3), source=LLM)
+    await call.at(1_400, LLMTextFrame("Hi"))
+    await call.at(1_600, AUDIO)
+    await call.at(1_620, BotStartedSpeakingFrame())
+    (turn,) = call.turns
+    assert turn["s2s.turn.tool_calls"] == 0
+    assert "s2s.turn_latency.tool_ms" not in turn and "s2s.turn_latency.llm_second_ms" not in turn

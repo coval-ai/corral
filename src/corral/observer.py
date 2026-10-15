@@ -23,11 +23,17 @@ nothing else: ``stt`` is ``vad_stop`` to ``stt_done``, ``llm`` is ``llm_start`` 
 LLM and TTS requests itself and reports them in a metrics frame; the start moments are
 worked back from those. The stages don't add up to the latency. What's left over is
 turn-taking and plumbing, which is ours.
+
+A turn where the model calls a tool makes two LLM requests with the tool in between, so
+its LLM time is split: ``llm`` ends at the tool call, ``tool`` is the handler running,
+and ``llm_second`` is the request after the result up to its first token. Each tool call
+is also an ``llm_tool_call`` span under the turn, with the name, arguments and result.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import json
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -42,6 +48,8 @@ from opentelemetry.trace import Tracer
 from pipecat.audio.turn.smart_turn.base_smart_turn import STOP_SECS as SMART_TURN_STOP_SECS
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
+    FunctionCallInProgressFrame,
+    FunctionCallResultFrame,
     InterruptionFrame,
     LLMTextFrame,
     MetricsFrame,
@@ -51,11 +59,12 @@ from pipecat.frames.frames import (
 )
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
-from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from corral.agent import Agent
 
 SPAN_NAME = "turn_latency"
+TOOL_SPAN_NAME = "llm_tool_call"
 SERVICE_NAME = "coval-bench-s2s-agent"
 EXPORT_TIMEOUT_SECS = 30
 
@@ -76,6 +85,28 @@ def _ttfb_ns(reports: list[Any]) -> int | None:
 
 
 @dataclasses.dataclass
+class ToolCallSpan:
+    """One tool call the model made this turn: what it asked, what it got, and when."""
+
+    name: str
+    arguments: Any
+    start: int
+    end: int | None = None
+    result: Any = None
+    error: str | None = None
+
+    def attributes(self) -> dict[str, Any]:
+        attributes = {
+            "function.name": self.name,
+            "function.arguments": json.dumps(self.arguments, default=str),
+            "function.result": json.dumps(self.result, default=str),
+        }
+        if self.error is not None:
+            attributes["function.error"] = self.error
+        return attributes
+
+
+@dataclasses.dataclass
 class Moments:
     """When each moment happened this turn, in unix ns."""
 
@@ -84,10 +115,18 @@ class Moments:
     vad_done: int | None = None
     llm_start: int | None = None
     llm_first_token: int | None = None
+    llm_second_start: int | None = None
+    llm_second_first_token: int | None = None
     tts_start: int | None = None
     tts_first_audio: int | None = None
     audio_start: int | None = None
     vad_stop_secs: float = 0.0
+    tools: dict[str, ToolCallSpan] = dataclasses.field(default_factory=dict)
+
+    @property
+    def tools_done(self) -> bool:
+        """The model called at least one tool and every one has answered."""
+        return bool(self.tools) and all(tool.end is not None for tool in self.tools.values())
 
     @property
     def caller_stopped(self) -> int | None:
@@ -106,9 +145,12 @@ class Moments:
 
     def stages(self) -> dict[str, tuple[int, int]]:
         """Start and end of each stage we have both ends of, in unix ns."""
+        tools = list(self.tools.values())
         pairs = {
             "stt": (self.vad_stop, self.stt_done),
-            "llm": (self.llm_start, self.llm_first_token),
+            "llm": (self.llm_start, self.llm_first_token or (tools[0].start if tools else None)),
+            "tool": (tools[0].start, tools[-1].end) if self.tools_done else (None, None),
+            "llm_second": (self.llm_second_start, self.llm_second_first_token),
             "tts": (self.tts_start, self.tts_first_audio),
         }
         return {
@@ -151,9 +193,11 @@ def _describe(number: int, moment: Moments, attributes: dict[str, Any]) -> str:
 
 def models_by_modality(agent: Agent) -> dict[str, dict[str, str]]:
     """Provider and model per stage, for the child spans."""
+    llm = {"provider": agent.llm.provider, "model": agent.llm.name}
     return {
         "stt": {"provider": agent.stt.provider, "model": agent.stt.name},
-        "llm": {"provider": agent.llm.provider, "model": agent.llm.name},
+        "llm": llm,
+        "llm_second": llm,
         "tts": {"provider": agent.tts.provider, "model": agent.tts.name},
     }
 
@@ -212,10 +256,22 @@ class TurnLatencyObserver(BaseObserver):
                 self._record_request(data.source, now, _ttfb_ns(reports))
             # The model only runs once the caller has stopped, so text or audio before
             # that is the previous answer still streaming. Ignore it.
-            case LLMTextFrame() if (
-                moment.caller_stopped is not None and moment.llm_first_token is None
+            case LLMTextFrame() if moment.caller_stopped is not None:
+                if moment.tools_done and moment.llm_second_start is not None:
+                    if moment.llm_second_first_token is None:
+                        moment.llm_second_first_token = now
+                elif moment.llm_first_token is None and not moment.tools:
+                    moment.llm_first_token = now
+            case FunctionCallInProgressFrame(tool_call_id=call_id) if (
+                moment.caller_stopped is not None and data.direction == FrameDirection.DOWNSTREAM
             ):
-                moment.llm_first_token = now
+                frame = data.frame
+                moment.tools[call_id] = ToolCallSpan(frame.function_name, frame.arguments, now)
+            case FunctionCallResultFrame(tool_call_id=call_id) if (
+                call_id in moment.tools and data.direction == FrameDirection.DOWNSTREAM
+            ):
+                tool = moment.tools[call_id]
+                tool.end, tool.result, tool.error = now, data.frame.result, data.frame.error
             case TTSAudioRawFrame() if (
                 moment.caller_stopped is not None and moment.tts_first_audio is None
             ):
@@ -237,6 +293,8 @@ class TurnLatencyObserver(BaseObserver):
             moment.stt_done = now
         elif source is self._llm and moment.llm_start is None:
             moment.llm_start = now - ttfb_ns
+        elif source is self._llm and moment.tools_done:
+            moment.llm_second_start = now - ttfb_ns
         elif source is self._tts and moment.tts_start is None:
             moment.tts_start = now - ttfb_ns
 
@@ -246,6 +304,7 @@ class TurnLatencyObserver(BaseObserver):
         attributes: dict[str, Any] = {
             **self._attributes,
             "s2s.turn.number": self._turn,
+            "s2s.turn.tool_calls": len(moment.tools),
             "s2s.turn_latency.stt_timed_out": moment.stt_done is None,
             "s2s.turn_latency.smart_turn_timed_out": moment.smart_turn_timed_out,
             **moment.unix_ms_attributes(),
@@ -260,7 +319,7 @@ class TurnLatencyObserver(BaseObserver):
     def _export(
         self, tracer: Tracer, moment: Moments, attributes: dict[str, Any], *, start: int, end: int
     ) -> None:
-        """The turn span with a child per stage we have both ends of."""
+        """The turn span with a child per stage we have both ends of, and one per tool call."""
         turn = tracer.start_span(SPAN_NAME, start_time=start, attributes=attributes)
         inside = trace.set_span_in_context(turn)
         for stage, (stage_start, stage_end) in moment.stages().items():
@@ -268,4 +327,11 @@ class TurnLatencyObserver(BaseObserver):
                 stage, context=inside, start_time=stage_start, attributes=self._models.get(stage)
             )
             child.end(end_time=stage_end)
+        for tool in moment.tools.values():
+            if tool.end is None:
+                continue
+            child = tracer.start_span(
+                TOOL_SPAN_NAME, context=inside, start_time=tool.start, attributes=tool.attributes()
+            )
+            child.end(end_time=tool.end)
         turn.end(end_time=end)

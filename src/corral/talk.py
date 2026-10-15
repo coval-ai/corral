@@ -43,7 +43,7 @@ async def run(agent: Agent, test_case: str | None = None) -> None:
             print(tool_log(call.tool_calls), flush=True)
 
 
-STEPS = ("stt", "llm", "tts")
+STEPS = ("stt", "llm", "tool", "llm_second", "tts")
 COLUMNS = {"latency": "s2s.turn_latency_ms"} | {s: f"s2s.turn_latency.{s}_ms" for s in STEPS}
 
 
@@ -65,6 +65,9 @@ def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str
     smart_turn_timed_out = sum(bool(t.get("s2s.turn_latency.smart_turn_timed_out")) for t in turns)
     if smart_turn_timed_out:
         lines.append(f"{smart_turn_timed_out} turns where smart-turn timed out")
+    tool_turns = sum(bool(t.get("s2s.turn.tool_calls")) for t in turns)
+    if tool_turns:
+        lines.append(f"{tool_turns} turns that called a tool")
     return "\n".join(lines)
 
 

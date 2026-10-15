@@ -1,0 +1,45 @@
+{
+  "test_set": {
+    "display_name": "Corral demo: dental booking",
+    "test_cases": [
+      {
+        "input_str": "You are Ana Reyes, date of birth March 4th 1990, calling Bright Smile Dental to book a cleaning next Tuesday morning. Give your full name and date of birth when asked. Once the receptionist gives you a confirmation code, repeat it back and end the call.",
+        "description": "The slot is free, so the agent books it and gives the code.",
+        "expected_behaviors": [
+          "The Agent asks for the caller's full name and date of birth before looking anything up",
+          "The Agent reads the date of birth back to confirm it",
+          "The Agent books the cleaning and gives the confirmation code A1B2, said as letters and digits"
+        ],
+        "simulation_metadata_input": { "key": "book-cleaning" }
+      },
+      {
+        "input_str": "You are Ana Reyes, date of birth March 4th 1990, calling Bright Smile Dental to book a cleaning next Tuesday morning. Give your full name and date of birth when asked. If the receptionist says you already have an appointment, ask when it is, then end the call.",
+        "description": "The patient already has an appointment, so the booking fails and the agent has to say so.",
+        "expected_behaviors": [
+          "The Agent asks for the caller's full name and date of birth before looking anything up",
+          "The Agent does not claim to have booked a new cleaning",
+          "The Agent tells the caller they already have an appointment on October 21st at 9am and offers a next step"
+        ],
+        "simulation_metadata_input": { "key": "already-booked" }
+      }
+    ]
+  },
+  "personas": [
+    {
+      "name": "Dental caller",
+      "persona_prompt": "You are a patient calling your dentist's office. Speak naturally and answer the receptionist's questions.",
+      "voice_name": "angela",
+      "language_code": "en"
+    }
+  ],
+  "metrics": [
+    "AemJTdBJk7JUcPfvngvrD9",
+    "KJwCanHwqMxvpn4f6gDvpr",
+    {
+      "metric_name": "Booking outcome handled",
+      "description": "Did the agent book the cleaning, or explain clearly why it couldn't?",
+      "metric_type": "METRIC_LLM_BINARY",
+      "prompt": "Did the agent either book the cleaning and give the caller a confirmation code, or tell the caller plainly that the booking did not go through and why? Answer no if it claimed a booking that failed, or never attempted one."
+    }
+  ]
+}
