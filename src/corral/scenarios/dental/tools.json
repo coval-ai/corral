@@ -1,0 +1,25 @@
+{
+  "tools": [
+    {
+      "name": "find_patient",
+      "description": "Look up a patient by full name and date of birth.",
+      "parameters": { "name": "string", "dob": "string" }
+    },
+    {
+      "name": "book_appointment",
+      "description": "Book the patient's next cleaning on a date.",
+      "parameters": { "patient_id": "integer", "date": "string" }
+    }
+  ],
+  "responses": {
+    "find_patient": { "patient_id": 123, "name": "Ana Reyes", "next_appointment": null },
+    "book_appointment": { "ok": true, "confirmation": "A1B2" }
+  },
+  "test_cases": {
+    "book-cleaning": {},
+    "already-booked": {
+      "find_patient": { "patient_id": 123, "name": "Ana Reyes", "next_appointment": "2026-10-21 09:00" },
+      "book_appointment": { "ok": false, "error": "patient already has an appointment" }
+    }
+  }
+}
