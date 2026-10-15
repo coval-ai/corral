@@ -131,7 +131,7 @@ class Moments:
         return steps
 
     @property
-    def turn_detection_timed_out(self) -> bool:
+    def smart_turn_timed_out(self) -> bool:
         """Smart-turn never said the caller was done; its silence fallback ended the turn."""
         if self.vad_stop is None or self.vad_done is None:
             return False
@@ -142,9 +142,9 @@ def _describe(number: int, moment: Moments, attributes: dict[str, Any]) -> str:
     """One line per turn in Pipecat's log, e.g. ``Turn 3: 1047 ms (stt 80, llm 539, tts 164)``."""
     parts = [f"{stage} {_ms(end, start):.0f}" for stage, (start, end) in moment.stages().items()]
     if moment.stt_done is None:
-        parts.insert(0, "stt unconfirmed")
-    if moment.turn_detection_timed_out:
-        parts.append("turn detection timed out")
+        parts.insert(0, "stt timed out")
+    if moment.smart_turn_timed_out:
+        parts.append("smart-turn timed out")
     latency = attributes["s2s.turn_latency_ms"]
     return f"Turn {number}: {latency:.0f} ms ({', '.join(parts)})"
 
@@ -244,8 +244,8 @@ class TurnLatencyObserver(BaseObserver):
         attributes: dict[str, Any] = {
             **self._attributes,
             "s2s.turn.number": self._turn,
-            "s2s.turn_latency.stt_confirmed": moment.stt_done is not None,
-            "s2s.turn_latency.turn_detection_timed_out": moment.turn_detection_timed_out,
+            "s2s.turn_latency.stt_timed_out": moment.stt_done is None,
+            "s2s.turn_latency.smart_turn_timed_out": moment.smart_turn_timed_out,
             **moment.unix_ms_attributes(),
             **moment.step_attributes(),
         }
