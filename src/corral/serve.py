@@ -23,6 +23,7 @@ from corral.coval_wire import (
     SESSION_READY,
     CovalFrameSerializer,
     authorized,
+    case_key,
     simulation_id,
 )
 from corral.observer import coval_trace_provider
@@ -52,14 +53,17 @@ def create_app(agent: Agent) -> FastAPI:
             return
         await websocket.accept()
         sim = simulation_id(websocket.headers)
-        logger.info(f"Call {sim or 'local'} started on {agent.slug}")
-        await run_call(websocket, agent, sim)
+        test_case = case_key(websocket.headers)
+        logger.info(f"Call {sim or 'local'} started on {agent.slug}, test case {test_case}")
+        await run_call(websocket, agent, sim, test_case)
         logger.info(f"Call {sim or 'local'} ended")
 
     return app
 
 
-async def run_call(websocket: WebSocket, agent: Agent, sim: str | None) -> None:
+async def run_call(
+    websocket: WebSocket, agent: Agent, sim: str | None, test_case: str | None = None
+) -> None:
     settings = get_settings()
     provider = _trace_provider(settings, sim)
     transport = FastAPIWebsocketTransport(
@@ -71,10 +75,11 @@ async def run_call(websocket: WebSocket, agent: Agent, sim: str | None) -> None:
             allowed_origins=[],
         ),
     )
-    call = build_call(
+    call = await build_call(
         agent,
         transport,
         settings,
+        test_case=test_case,
         attributes={"simulation.id": sim or ""},
         tracer=provider.get_tracer(__name__) if provider else None,
         conversation_id=sim,

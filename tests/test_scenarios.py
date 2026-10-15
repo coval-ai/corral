@@ -18,7 +18,7 @@ def test_a_scenario_carries_its_coval_suite_or_is_for_talking_only() -> None:
 
 async def test_a_scenario_with_a_tools_py_gives_the_agent_a_fresh_backend_per_call() -> None:
     assert load_environment("default") is None
-    first, second = load_environment("dental"), load_environment("dental")
+    first, second = load_environment("demo"), load_environment("demo")
     assert first is not None and second is not None and first is not second
     assert [tool.schema.name for tool in first.tools] == ["find_patient", "book_appointment"]
     await first.start("already-booked")
@@ -32,4 +32,4 @@ async def test_a_scenario_with_a_tools_py_gives_the_agent_a_fresh_backend_per_ca
 
 def test_the_files_that_change_the_agent_are_the_prompt_and_the_tools() -> None:
     assert list(behavior_files("default")) == ["system-prompt.txt"]
-    assert list(behavior_files("dental")) == ["system-prompt.txt", "tools.json", "tools.py"]
+    assert list(behavior_files("demo")) == ["system-prompt.txt", "tools.json", "tools.py"]

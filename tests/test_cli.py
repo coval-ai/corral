@@ -18,6 +18,8 @@ from corral.cli import (
     choose_model,
     choose_port,
     choose_scenario,
+    known_scenario,
+    misplaced_flag,
     offered_models,
     port_in_use,
 )
@@ -71,6 +73,10 @@ def test_only_models_with_a_key_are_offered(
     monkeypatch.delenv("S2S_STT", raising=False)
     parser = build_parser(no_deepgram)
     assert parser.parse_args(["benchmark"]).stt == "soniox/stt-rt-v5"
+    assert (
+        parser.parse_args(["talk", "--test-case", "already-booked"]).test_case == "already-booked"
+    )
+    assert parser.parse_args(["talk"]).test_case is None
     assert "  stt  soniox/stt-rt-v5\n" in parser.format_help()
     with pytest.raises(SystemExit):
         parser.parse_args(["benchmark", "--stt", "deepgram/nova-3"])
@@ -130,11 +136,17 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
     assert benchmark.endswith("(needs: COVAL_API_KEY in .env)")
 
 
+def test_a_scenario_that_does_not_exist_says_which_do() -> None:
+    assert known_scenario("demo") == "demo"
+    with pytest.raises(ValueError, match="no scenario 'dental'; have default, demo, ultrabank"):
+        known_scenario("dental")
+
+
 def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFixture[str]) -> None:
     assert choose_scenario(TALK, read=lambda _prompt: "3") == "ultrabank"
     out = capsys.readouterr().out
     assert "1. default    helpful assistant\n" in out
-    assert "2. dental     dental office receptionist with a fake booking system\n" in out
+    assert "2. demo       fake dental booking backend, just for trying tools\n" in out
     assert "3. ultrabank  Instruction adherence test set (internal)\n" in out
     assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "ultrabank"
     assert "default" not in capsys.readouterr().out
@@ -165,3 +177,22 @@ def test_a_pinned_port_that_is_taken_is_noticed_before_anything_runs() -> None:
         assert port_in_use(port)
     assert not port_in_use(port)
     assert not port_in_use(0)
+
+
+def test_a_port_that_is_not_a_number_or_out_of_range_is_refused() -> None:
+    with pytest.raises(ValueError, match="PORT is 'abc', not a port number"):
+        choose_port(SERVE, None, "abc")
+    with pytest.raises(ValueError, match="port 99999 is out of range"):
+        choose_port(SERVE, 99999, None)
+    with pytest.raises(ValueError, match="port 0 is out of range"):
+        choose_port(SERVE, None, "0")
+    assert choose_port(SERVE, None, "8080") == 8080
+
+
+def test_a_flag_for_another_mode_is_named_rather_than_ignored() -> None:
+    args = build_parser(ALL_KEYS).parse_args(["serve", "--test-case", "x"])
+    assert misplaced_flag(SERVE, args) == "--test-case is for talk"
+    args = build_parser(ALL_KEYS).parse_args(["talk", "--smoke"])
+    assert misplaced_flag(TALK, args) == "--smoke is for benchmark"
+    args = build_parser(ALL_KEYS).parse_args(["benchmark", "--smoke", "--no-tunnel"])
+    assert misplaced_flag(BENCHMARK, args) is None

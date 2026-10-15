@@ -105,6 +105,14 @@ def scenarios_for(mode: Mode) -> list[str]:
     return names
 
 
+def known_scenario(name: str) -> str:
+    """The name back, or why it isn't a scenario."""
+    names = scenario_names()
+    if name not in names:
+        raise ValueError(f"no scenario {name!r}; have {', '.join(names)}")
+    return name
+
+
 def choose_scenario(mode: Mode, read: Reader = input) -> str:
     names = scenarios_for(mode)
     width = max(len(name) for name in names)
@@ -164,10 +172,27 @@ def choose_model(
 def choose_port(mode: Mode, flag: int | None, env: str | None) -> int:
     """The flag, else PORT, else the image's port to serve and whatever is free otherwise."""
     if flag is not None:
-        return flag
-    if env:
-        return int(env)
-    return SERVE_PORT if mode is SERVE else 0
+        port = flag
+    elif env:
+        if not env.isdigit():
+            raise ValueError(f"PORT is {env!r}, not a port number")
+        port = int(env)
+    else:
+        return SERVE_PORT if mode is SERVE else 0
+    if not 0 < port < 65536:
+        raise ValueError(f"port {port} is out of range")
+    return port
+
+
+MODE_FLAGS = {"test_case": TALK, "smoke": BENCHMARK, "no_tunnel": BENCHMARK}
+
+
+def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
+    """A flag that belongs to another mode, so it would be silently ignored."""
+    for dest, owner in MODE_FLAGS.items():
+        if getattr(args, dest) and mode is not owner:
+            return f"--{dest.replace('_', '-')} is for {owner.name}"
+    return None
 
 
 def port_in_use(port: int) -> bool:
@@ -228,6 +253,9 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         type=int,
         help=f"default: PORT, else {SERVE_PORT} to serve, any free port otherwise",
     )
+    parser.add_argument_group("talk").add_argument(
+        "--test-case", help="seed the scenario's tools for this test case"
+    )
     run = parser.add_argument_group("benchmark")
     run.add_argument("--smoke", action="store_true", help="one test case, to check the wiring")
     run.add_argument("--no-tunnel", action="store_true", help="probe localhost only")
@@ -246,7 +274,13 @@ def main() -> None:
     needs = missing_for(mode, settings, tunnel=not args.no_tunnel)
     if needs:
         fail(parser, interactive, f"{mode.name} needs: {needs}")
-    port = choose_port(mode, args.port, os.environ.get("PORT"))
+    misplaced = misplaced_flag(mode, args)
+    if misplaced:
+        fail(parser, interactive, misplaced)
+    try:
+        port = choose_port(mode, args.port, os.environ.get("PORT"))
+    except ValueError as error:
+        fail(parser, interactive, str(error))
     if mode is not TALK and port_in_use(port):
         fail(parser, interactive, f"port {port} is in use; pass --port")
     if mode is BENCHMARK:
@@ -256,7 +290,10 @@ def main() -> None:
             fail(parser, interactive, problem)
 
     if args.scenario:
-        scenario = args.scenario
+        try:
+            scenario = known_scenario(args.scenario)
+        except ValueError as error:
+            fail(parser, interactive, str(error))
     elif interactive and mode is not SERVE:
         scenario = choose_scenario(mode)
     else:
@@ -275,7 +312,11 @@ def main() -> None:
         picks = (choose_model(modality, settings=settings, check=check) for modality in MODALITIES)
         agent = load_agent(scenario, *picks)
     else:
-        agent = load_agent(scenario, args.stt, args.llm, args.tts)
+        # argparse checks a flag against its choices, but not a default from the environment.
+        try:
+            agent = load_agent(scenario, args.stt, args.llm, args.tts)
+        except ValueError as error:
+            fail(parser, interactive, str(error))
     # The menu checked each pick as it was made; a scripted run checks them all here.
     for model in (agent.stt, agent.llm, agent.tts):
         problem = check(model.provider)
@@ -284,7 +325,10 @@ def main() -> None:
     configure_logging()
     with contextlib.suppress(KeyboardInterrupt):
         if mode is TALK:
-            asyncio.run(talk.run(agent))
+            try:
+                asyncio.run(talk.run(agent, args.test_case))
+            except ValueError as error:
+                raise SystemExit(f"corral: {error}") from None
         elif mode is SERVE:
             serve.serve(agent, port)
         else:

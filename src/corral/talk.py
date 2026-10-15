@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """Talk to an agent on this machine's microphone and speakers. Ctrl-C hangs up and prints
-how long each stage took."""
+how long each stage took and, when the scenario has tools, which ones got called."""
 
 from __future__ import annotations
 
+import json
 import statistics
 from collections.abc import Sequence
 from typing import Any
@@ -15,10 +16,10 @@ from pipecat.workers.runner import WorkerRunner
 from corral.agent import Agent
 from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, get_settings
 from corral.observer import ModelsByModality, models_by_modality
-from corral.pipeline import build_call
+from corral.pipeline import ToolCall, build_call
 
 
-async def run(agent: Agent) -> None:
+async def run(agent: Agent, test_case: str | None = None) -> None:
     from pipecat.transports.base_transport import TransportParams
 
     from corral.local import LocalAudioTransport
@@ -31,13 +32,15 @@ async def run(agent: Agent) -> None:
             audio_out_sample_rate=OUT_SAMPLE_RATE_HZ,
         )
     )
-    call = build_call(agent, transport, get_settings())
+    call = await build_call(agent, transport, get_settings(), test_case=test_case)
     runner = WorkerRunner()
     await runner.add_workers(call.worker)
     try:
         await runner.run()
     finally:
         print(summary(call.observer.turns, models_by_modality(agent), agent.slug), flush=True)
+        if call.tool_calls is not None:
+            print(tool_log(call.tool_calls), flush=True)
 
 
 STEPS = ("stt", "llm", "tts")
@@ -63,3 +66,13 @@ def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str
     if smart_turn_timed_out:
         lines.append(f"{smart_turn_timed_out} turns where smart-turn timed out")
     return "\n".join(lines)
+
+
+def tool_log(calls: Sequence[ToolCall]) -> str:
+    """Each tool call in order, as the LLM made it and what it got back."""
+    if not calls:
+        return "no tools called"
+    return "\n".join(
+        f"{call.name}({json.dumps(call.arguments)}) -> {json.dumps(call.result, default=str)}"
+        for call in calls
+    )
