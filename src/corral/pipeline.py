@@ -5,11 +5,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from loguru import logger
 from opentelemetry.trace import Tracer
+from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
@@ -22,6 +24,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.services.llm_service import FunctionCallParams, LLMService
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.turns.user_start.min_words_user_turn_start_strategy import (
     MinWordsUserTurnStartStrategy,
@@ -39,22 +42,24 @@ from corral.config import (
     VAD_STOP_SECS,
     Settings,
 )
+from corral.environment import Tool
 from corral.models import resolve
 from corral.observer import TurnLatencyObserver, models_by_modality
+from corral.scenarios import load_environment
 
 
-def context_aggregators(agent: Agent) -> LLMContextAggregatorPair:
+def context_aggregators(tools: Sequence[FunctionSchema] = ()) -> LLMContextAggregatorPair:
     """The conversation context and the turn-taking the agent pins around it.
 
     The system prompt is not here; it rides on the LLM service's Settings so
-    Pipecat composes it with its own instructions. Silero decides when the
-    caller is speaking; smart-turn decides when a pause is the end of the turn
-    rather than a breath. Both are local models shipped with Pipecat, so the
-    cascade's endpointing is the same on every machine. While the agent is
-    speaking, the caller has to say ``interrupt_min_words`` before it yields,
-    so a backchannel does not cut it off.
+    Pipecat composes it with its own instructions. The tools are, so every
+    request offers them. Silero decides when the caller is speaking; smart-turn
+    decides when a pause is the end of the turn rather than a breath. Both are
+    local models shipped with Pipecat, so the cascade's endpointing is the same
+    on every machine. While the agent is speaking, the caller has to say
+    ``interrupt_min_words`` before it yields, so a backchannel does not cut it off.
     """
-    context = LLMContext()
+    context = LLMContext(tools=list(tools)) if tools else LLMContext()
     return LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
@@ -82,27 +87,79 @@ def cascade_processors(
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    name: str
+    arguments: dict[str, Any]
+    result: Any
+
+
+@dataclass(frozen=True)
 class Call:
     worker: PipelineWorker
     observer: TurnLatencyObserver
+    tool_calls: list[ToolCall] | None
 
 
-def build_call(
+def tool_handler(
+    tool: Tool, log: list[ToolCall]
+) -> Callable[[FunctionCallParams], Awaitable[None]]:
+    """What Pipecat calls. Runs the scenario's handler and hands the LLM the result.
+
+    A handler that raises doesn't end the call: the LLM gets the error as the
+    result, the way a real backend would answer, and carries on.
+    """
+
+    async def handle(params: FunctionCallParams) -> None:
+        arguments = dict(params.arguments)
+        try:
+            result = await tool.handler(arguments)
+        except Exception as error:  # noqa: BLE001
+            logger.warning(f"{tool.schema.name} failed: {error!r}")
+            result = {"error": f"{type(error).__name__}: {error}"}
+        log.append(ToolCall(tool.schema.name, arguments, result))
+        await params.result_callback(result)
+
+    return handle
+
+
+def _llm_service(processor: FrameProcessor) -> LLMService[Any]:
+    if not isinstance(processor, LLMService):
+        raise TypeError(f"{processor} is not an LLM service, so it can't take tools")
+    return processor
+
+
+async def build_call(
     agent: Agent,
     transport: BaseTransport,
     settings: Settings,
     *,
+    test_case: str | None = None,
     attributes: Mapping[str, Any] | None = None,
     tracer: Tracer | None = None,
     conversation_id: str | None = None,
     before_greeting: Sequence[Frame] = (),
 ) -> Call:
-    """One call on any transport: the services, the pipeline, the observer and the greeting.
+    """One call on any transport: services, backend, pipeline, observer and the greeting.
 
     Talk and serve both build their call here, so a change to how a call works
-    reaches both and their latency numbers stay comparable.
+    reaches both and their latency numbers stay comparable. A scenario with
+    tools gets a fresh backend seeded for the test case, and its tools go on the
+    LLM. The backend is cleaned up when the pipeline finishes.
     """
     services = resolve(agent, settings)
+    environment = load_environment(agent.scenario)
+    tool_calls: list[ToolCall] | None = None
+    tools: list[FunctionSchema] = []
+    if environment is None:
+        if test_case is not None:
+            raise ValueError(f"{agent.scenario} has no tools, so there is no test case to seed")
+    else:
+        await environment.start(test_case)
+        tool_calls = []
+        llm = _llm_service(services.llm)
+        for tool in environment.tools:
+            llm.register_function(tool.schema.name, tool_handler(tool, tool_calls))
+            tools.append(tool.schema)
     observer = TurnLatencyObserver(
         attributes={**(attributes or {}), "agent": agent.slug, "digest": agent.digest},
         models=models_by_modality(agent),
@@ -111,7 +168,7 @@ def build_call(
         tts=services.tts,
         tracer=tracer,
     )
-    aggregators = context_aggregators(agent)
+    aggregators = context_aggregators(tools)
     middle = cascade_processors(services.stt, services.llm, services.tts, aggregators)
     worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
@@ -131,4 +188,9 @@ def build_call(
             await started.queue_frame(frame)
         await started.queue_frame(LLMRunFrame())
 
-    return Call(worker, observer)
+    @worker.event_handler("on_pipeline_finished")  # type: ignore[untyped-decorator]
+    async def _finish(_worker: PipelineWorker, _frame: Frame) -> None:
+        if environment is not None:
+            await environment.finish()
+
+    return Call(worker, observer, tool_calls)

@@ -1,7 +1,8 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-from corral.talk import summary
+from corral.pipeline import ToolCall
+from corral.talk import summary, tool_log
 
 
 def _turn(**ms: float) -> dict[str, float]:
@@ -28,3 +29,15 @@ def test_hanging_up_prints_median_and_max_per_stage() -> None:
     assert out[-2] == "1 turns where the STT timed out"
     assert out[-1] == "1 turns where smart-turn timed out"
     assert summary([], models, "cascade-x") == "no answered turns"
+
+
+def test_hanging_up_lists_the_tools_called_in_order() -> None:
+    calls = [
+        ToolCall("find_patient", {"name": "Ana"}, {"patient_id": 123}),
+        ToolCall("book_appointment", {"patient_id": 123}, {"ok": False, "error": "taken"}),
+    ]
+    assert tool_log(calls).splitlines() == [
+        'find_patient({"name": "Ana"}) -> {"patient_id": 123}',
+        'book_appointment({"patient_id": 123}) -> {"ok": false, "error": "taken"}',
+    ]
+    assert tool_log([]) == "no tools called"
