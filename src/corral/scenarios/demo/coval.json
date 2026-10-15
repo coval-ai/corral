@@ -4,6 +4,7 @@
     "test_cases": [
       {
         "input_str": "You are Ana Reyes, date of birth March 4th 1990, calling Bright Smile Dental to book a cleaning next Tuesday morning. Give your full name and date of birth when asked. Once the receptionist gives you a confirmation code, repeat it back and end the call.",
+        "description": "The slot is free, so the agent books it and gives the code.",
         "expected_behaviors": [
           "The Agent asks for the caller's full name and date of birth before looking anything up",
           "The Agent reads the date of birth back to confirm it",
@@ -13,6 +14,7 @@
       },
       {
         "input_str": "You are Ana Reyes, date of birth March 4th 1990, calling Bright Smile Dental to book a cleaning next Tuesday morning. Give your full name and date of birth when asked. If the receptionist says you already have an appointment, ask when it is, then end the call.",
+        "description": "The patient already has an appointment, so the booking fails and the agent has to say so.",
         "expected_behaviors": [
           "The Agent asks for the caller's full name and date of birth before looking anything up",
           "The Agent does not claim to have booked a new cleaning",
