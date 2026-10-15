@@ -56,10 +56,10 @@ def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str
         model = models.get(step)
         label = f"{step} ({model['provider']}/{model['model']})" if model else step
         lines.append(f"{label:34}{statistics.median(values):>7.0f} {max(values):>7.0f}")
-    unconfirmed = sum(not t.get("s2s.turn_latency.stt_confirmed", True) for t in turns)
-    if unconfirmed:
-        lines.append(f"{unconfirmed} turns the STT never confirmed")
-    timed_out = sum(bool(t.get("s2s.turn_latency.turn_detection_timed_out")) for t in turns)
-    if timed_out:
-        lines.append(f"{timed_out} turns where turn detection timed out")
+    stt_timed_out = sum(bool(t.get("s2s.turn_latency.stt_timed_out")) for t in turns)
+    if stt_timed_out:
+        lines.append(f"{stt_timed_out} turns where the STT timed out")
+    smart_turn_timed_out = sum(bool(t.get("s2s.turn_latency.smart_turn_timed_out")) for t in turns)
+    if smart_turn_timed_out:
+        lines.append(f"{smart_turn_timed_out} turns where smart-turn timed out")
     return "\n".join(lines)
