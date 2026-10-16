@@ -172,6 +172,7 @@ async def test_an_stt_that_never_answers_is_flagged_not_timed(call: Call) -> Non
     await call.at(1_820, BotStartedSpeakingFrame())
     (turn,) = call.turns
     assert turn["s2s.turn_latency.stt_timed_out"] is True
+    assert turn["s2s.turn_latency.silero_missed"] is False
     assert "s2s.turn_latency.stt_ms" not in turn
 
 
@@ -185,6 +186,8 @@ async def test_a_turn_silero_never_heard_starts_at_smart_turns_stop(call: Call) 
     assert turn["s2s.turn_latency_ms"] == 600.0
     assert turn["s2s.turn_latency.llm_ms"] == 300.0
     assert turn["s2s.turn_latency.smart_turn_timed_out"] is False
+    assert turn["s2s.turn_latency.silero_missed"] is True
+    assert turn["s2s.turn_latency.stt_timed_out"] is False
     assert "s2s.vad_stop.unix_ms" not in turn
 
 

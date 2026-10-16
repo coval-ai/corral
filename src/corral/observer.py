@@ -16,6 +16,8 @@ We grab the time at these moments:
 
 Latency is from when the caller stopped to ``tts_first_audio``. The caller stopped at
 ``vad_stop`` minus Silero's silence window, on our clock, the same locally and on Coval.
+When Silero never hears the caller at all, smart-turn's stop stands in and the turn is
+flagged ``silero_missed``. Nothing asked the STT to finalize, so there is no ``stt`` stage.
 
 Each stage is measured at its own request boundary, so it's the provider's time and
 nothing else: ``stt`` is ``vad_stop`` to ``stt_done``, ``llm`` is ``llm_start`` to
@@ -173,6 +175,16 @@ class Moments:
         return steps
 
     @property
+    def silero_missed(self) -> bool:
+        """Silero never heard the caller: smart-turn ended the turn and no finalize went out."""
+        return self.vad_stop is None
+
+    @property
+    def stt_timed_out(self) -> bool:
+        """We asked the STT to finalize and it never confirmed."""
+        return self.vad_stop is not None and self.stt_done is None
+
+    @property
     def smart_turn_timed_out(self) -> bool:
         """Smart-turn never said the caller was done; its silence fallback ended the turn."""
         if self.vad_stop is None or self.vad_done is None:
@@ -183,7 +195,9 @@ class Moments:
 def _describe(number: int, moment: Moments, attributes: dict[str, Any]) -> str:
     """One line per turn in Pipecat's log, e.g. ``Turn 3: 1047 ms (stt 80, llm 539, tts 164)``."""
     parts = [f"{stage} {_ms(end, start):.0f}" for stage, (start, end) in moment.stages().items()]
-    if moment.stt_done is None:
+    if moment.silero_missed:
+        parts.insert(0, "silero missed")
+    elif moment.stt_timed_out:
         parts.insert(0, "stt timed out")
     if moment.smart_turn_timed_out:
         parts.append("smart-turn timed out")
@@ -305,13 +319,14 @@ class TurnLatencyObserver(BaseObserver):
             **self._attributes,
             "s2s.turn.number": self._turn,
             "s2s.turn.tool_calls": len(moment.tools),
-            "s2s.turn_latency.stt_timed_out": moment.stt_done is None,
+            "s2s.turn_latency.silero_missed": moment.silero_missed,
+            "s2s.turn_latency.stt_timed_out": moment.stt_timed_out,
             "s2s.turn_latency.smart_turn_timed_out": moment.smart_turn_timed_out,
             **moment.unix_ms_attributes(),
             **moment.step_attributes(),
         }
         self.turns.append(attributes)
-        level = "INFO" if moment.stt_done is not None else "WARNING"
+        level = "WARNING" if moment.silero_missed or moment.stt_timed_out else "INFO"
         logger.log(level, _describe(self._turn, moment, attributes))
         if self._tracer is not None:
             self._export(self._tracer, moment, attributes, start=start, end=end)

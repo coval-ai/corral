@@ -23,15 +23,17 @@ def test_hanging_up_prints_median_and_max_per_stage() -> None:
             **_turn(latency=1800.0, llm=500.0, tool=120.0, llm_second=400.0),
             "s2s.turn.tool_calls": 1,
         },
+        {**_turn(latency=700.0, llm=400.0, tts=200.0), "s2s.turn_latency.silero_missed": True},
     ]
     models = {"llm": {"provider": "openai", "model": "gpt-4.1"}}
     out = summary(turns, models, "cascade-x").splitlines()
-    assert out[0] == "4 turns on cascade-x"
-    assert out[2].split() == ["latency", "950", "1800"]
+    assert out[0] == "5 turns on cascade-x"
+    assert out[2].split() == ["latency", "900", "1800"]
     assert out[3].split() == ["stt", "75", "100"]
-    assert out[4].split() == ["llm", "(openai/gpt-4.1)", "550", "700"]
+    assert out[4].split() == ["llm", "(openai/gpt-4.1)", "500", "700"]
     assert out[5].split() == ["tool", "120", "120"]
     assert out[6].split() == ["llm_second", "400", "400"]
+    assert out[-4] == "1 turns where Silero never heard you; check the mic level"
     assert out[-3] == "1 turns where the STT timed out"
     assert out[-2] == "1 turns where smart-turn timed out"
     assert out[-1] == "1 turns that called a tool"
