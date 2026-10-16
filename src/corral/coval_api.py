@@ -14,11 +14,16 @@ from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, Settings
 
 COVAL_API_BASE = "https://api.coval.dev/v1"
 WORKSPACE_HEADER = "X-Coval-Workspace-Id"
+TEST_CASE_HEADER = "X-Corral-Test-Case"
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
 class SyncError(RuntimeError):
     pass
+
+
+class NameTaken(SyncError):
+    """Coval refused to create something because the name is already used in the organization."""
 
 
 def coval_problem(settings: Settings, transport: httpx.BaseTransport | None = None) -> str | None:
@@ -63,6 +68,8 @@ class CovalClient:
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         response = self._client.request(method, path, json=payload, params=params)
+        if response.status_code == 409:
+            raise NameTaken(f"{method} {path} -> 409: {response.text[:400]}")
         if response.status_code >= 400:
             raise SyncError(f"{method} {path} -> {response.status_code}: {response.text[:400]}")
         if not response.content:
@@ -143,6 +150,7 @@ class CovalTarget:
     token: str | None
     test_set_id: str
     workspace_id: str
+    keyed: bool = False
 
     @property
     def customer_agent_id(self) -> str:
@@ -154,10 +162,13 @@ class CovalTarget:
         return self.slug
 
     def target_body(self) -> dict[str, Any]:
+        headers = {"X-Coval-Simulation-Id": "{{simulation_id}}"}
+        if self.keyed:
+            headers[TEST_CASE_HEADER] = "{{test_case.test_case}}"
         metadata: dict[str, Any] = {
             "connection_mode": "direct",
             "endpoint": "wss" + self.url.removeprefix("https").removeprefix("http") + "/ws",
-            "custom_headers": {"X-Coval-Simulation-Id": "{{simulation_id}}"},
+            "custom_headers": headers,
             "handshake_ready_message_type": "session_ready",
             "handshake_requires_session_id": False,
             "handshake_timeout_seconds": 30,

@@ -16,7 +16,7 @@ from typing import Any
 
 from loguru import logger
 
-from corral.coval_api import CovalClient, SyncError
+from corral.coval_api import CovalClient, NameTaken, SyncError
 from corral.scenarios import Entry, Suite
 
 
@@ -101,7 +101,15 @@ def _sync_kind(client: CovalClient, kind: Kind, entries: list[Entry]) -> list[st
             raise SyncError(f"every {kind.noun} defined in coval.json needs a {kind.name_field}")
         current = live.get(name)
         if current is None:
-            ids.append(str(client.create(kind.path, kind.one, entry)["id"]))
+            try:
+                created = client.create(kind.path, kind.one, entry)
+            except NameTaken:
+                raise SyncError(
+                    f"{kind.noun} {name!r} already exists in another workspace of this "
+                    "organization. Coval names are unique across the organization, so rename "
+                    "it in coval.json or rename the other one."
+                ) from None
+            ids.append(str(created["id"]))
             logger.info(f"Created {kind.noun} {name!r}")
             continue
         drift = _drift(current, entry)
@@ -113,6 +121,7 @@ def _sync_kind(client: CovalClient, kind: Kind, entries: list[Entry]) -> list[st
 
 
 def _sync_test_cases(client: CovalClient, test_set_id: str, cases: list[dict[str, Any]]) -> None:
+    """A case's ``test_case`` goes in Coval's attributes field, which the header template reads."""
     inputs = [case.get("input_str") for case in cases]
     if len(set(inputs)) != len(inputs) or not all(isinstance(i, str) and i for i in inputs):
         raise SyncError("every test case needs an input_str, and no two can share one")
@@ -124,6 +133,8 @@ def _sync_test_cases(client: CovalClient, test_set_id: str, cases: list[dict[str
     }
     for case in cases:
         wanted = {**case, "test_set_id": test_set_id}
+        if "test_case" in wanted:
+            wanted["expected_output_json"] = {"test_case": wanted.pop("test_case")}
         current = live.pop(case["input_str"], None)
         if current is None:
             client.create(TEST_CASES, "test_case", wanted)

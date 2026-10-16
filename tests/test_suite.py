@@ -31,6 +31,7 @@ class Workspace:
             "workspaces": {"W0": {"id": "W0", "display_name": "Default", "status": "ACTIVE"}},
         }
         self.writes: list[tuple[str, str, dict[str, Any]]] = []
+        self.taken_elsewhere: set[str] = set()
 
     def client(self) -> CovalClient:
         return CovalClient("coval-key", transport=httpx.MockTransport(self.handle))
@@ -49,6 +50,8 @@ class Workspace:
         if collection == "workspaces":
             body = {**body, "status": "ACTIVE"}
         if request.method == "POST":
+            if self.taken_elsewhere & set(map(str, body.values())):
+                return httpx.Response(409, json={"error": {"code": "ALREADY_EXISTS"}})
             item_id = f"{collection}-{len(store)}"
             store[item_id] = {**body, "id": item_id}
         elif request.method == "PATCH":
@@ -64,7 +67,11 @@ DEFINED: dict[str, Any] = {
         "display_name": "Front desk",
         "test_cases": [
             {"input_str": "Ask for opening hours.", "expected_behaviors": ["Gives the hours"]},
-            {"input_str": "Book a table for two.", "expected_behaviors": ["Confirms a time"]},
+            {
+                "input_str": "Book a table for two.",
+                "expected_behaviors": ["Confirms a time"],
+                "test_case": "table-free",
+            },
         ],
     },
     "personas": [
@@ -96,6 +103,11 @@ def test_definitions_are_created_once_then_left_alone() -> None:
     first = sync_suite(workspace.client(), _defined())
     assert len(first.persona_ids) == 2 and len(first.metric_ids) == 2
     assert len(workspace.items["test-cases"]) == 2
+    booking = next(c for c in workspace.items["test-cases"].values() if "Book" in c["input_str"])
+    assert (
+        booking["expected_output_json"] == {"test_case": "table-free"}
+        and "test_case" not in booking
+    )
     created = len(workspace.writes)
     assert sync_suite(workspace.client(), _defined()) == first
     assert len(workspace.writes) == created
@@ -121,6 +133,16 @@ def test_ids_and_definitions_mix_and_keep_their_order() -> None:
     raw["metrics"] = ["EXISTING", raw["metrics"][0]]
     ids = sync_suite(workspace.client(), Suite.model_validate(raw))
     assert ids.metric_ids[0] == "EXISTING" and ids.metric_ids[1].startswith("metrics-")
+
+
+def test_a_name_taken_in_another_workspace_is_explained() -> None:
+    workspace = Workspace()
+    workspace.taken_elsewhere.add("Front desk")
+    with (
+        workspace.client() as client,
+        pytest.raises(SyncError, match="test set 'Front desk' already exists in another workspace"),
+    ):
+        sync_suite(client, Suite.model_validate(DEFINED))
 
 
 def test_a_definition_without_a_name_is_refused() -> None:

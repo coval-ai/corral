@@ -27,6 +27,10 @@ arguments, or state that changes after a write, write your own in `tools.py`
 with those same three parts. Handlers take the arguments as a dict and return
 the result. They never see Pipecat.
 
+To seed the backend differently per test case, give each case in `coval.json`
+a `test_case` naming the seed. Coval sends it to the agent in a header, and
+one the backend doesn't know fails before the run starts.
+
 ## coval.json
 
 **With IDs**

@@ -10,7 +10,7 @@
           "The Agent reads the date of birth back to confirm it",
           "The Agent books the cleaning and gives the confirmation code A1B2, said as letters and digits"
         ],
-        "simulation_metadata_input": { "key": "book-cleaning" }
+        "test_case": "book-cleaning"
       },
       {
         "input_str": "You are Ana Reyes, date of birth March 4th 1990, calling Bright Smile Dental to book a cleaning next Tuesday morning. Give your full name and date of birth when asked. If the receptionist says you already have an appointment, ask when it is, then end the call.",
@@ -20,7 +20,7 @@
           "The Agent does not claim to have booked a new cleaning",
           "The Agent tells the caller they already have an appointment on October 21st at 9am and offers a next step"
         ],
-        "simulation_metadata_input": { "key": "already-booked" }
+        "test_case": "already-booked"
       }
     ]
   },
@@ -36,7 +36,7 @@
     "AemJTdBJk7JUcPfvngvrD9",
     "KJwCanHwqMxvpn4f6gDvpr",
     {
-      "metric_name": "Booking outcome handled",
+      "metric_name": "Corral demo booking outcome",
       "description": "Did the agent book the cleaning, or explain clearly why it couldn't?",
       "metric_type": "METRIC_LLM_BINARY",
       "prompt": "Did the agent either book the cleaning and give the caller a confirmation code, or tell the caller plainly that the booking did not go through and why? Answer no if it claimed a booking that failed, or never attempted one."

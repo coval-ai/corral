@@ -57,3 +57,13 @@ def test_healthz_names_the_agent_and_a_bad_bearer_is_refused(client: TestClient)
     ):
         pass
     assert refused.value.code == serve.POLICY_VIOLATION
+
+
+def test_a_test_case_the_scenario_cannot_seed_is_refused_not_crashed(client: TestClient) -> None:
+    headers = {"Authorization": "Bearer s3cret", "X-Corral-Test-Case": "book-cleaning"}
+    with (
+        client.websocket_connect("/ws", headers=headers) as socket,
+        pytest.raises(WebSocketDisconnect) as refused,
+    ):
+        socket.receive_text()
+    assert refused.value.code == serve.POLICY_VIOLATION

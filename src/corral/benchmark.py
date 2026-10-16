@@ -29,7 +29,7 @@ from corral.coval_api import (
     sync_target,
 )
 from corral.coval_wire import SESSION_READY
-from corral.scenarios import Suite
+from corral.scenarios import Suite, confirm_test_cases
 from corral.serve import create_app
 from corral.suite import choose_workspace, sync_suite
 
@@ -140,8 +140,12 @@ async def run_on_coval(
             logger.info("Saved CORRAL_WORKSPACE_ID to .env; later runs use it")
         else:
             logger.info(f"Set CORRAL_WORKSPACE_ID={choice.workspace_id} to pin this workspace")
+    keys = request.suite.test_case_keys()
+    await confirm_test_cases(agent.scenario, keys)
     ids = await asyncio.to_thread(sync_suite, coval, request.suite)
-    definition = CovalTarget(agent.slug, url, token, ids.test_set_id, choice.workspace_id)
+    definition = CovalTarget(
+        agent.slug, url, token, ids.test_set_id, choice.workspace_id, keyed=bool(keys)
+    )
     agent_id = await asyncio.to_thread(sync_target, coval, definition)
     # One persona at a time, like one test case at a time, so no two calls share the machine.
     runs = []

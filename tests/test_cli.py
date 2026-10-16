@@ -18,6 +18,7 @@ from corral.cli import (
     choose_model,
     choose_port,
     choose_scenario,
+    choose_test_case,
     known_scenario,
     misplaced_flag,
     offered_models,
@@ -134,6 +135,19 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
     choose_mode(read=lambda _prompt: "1", settings=no_coval)
     _, benchmark, *_ = capsys.readouterr().out.splitlines()
     assert benchmark.endswith("(needs: COVAL_API_KEY in .env)")
+
+
+def test_talk_asks_which_seed_when_the_suite_names_test_cases(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert choose_test_case("demo", read=lambda _prompt: "2") == "already-booked"
+    out = capsys.readouterr().out.splitlines()
+    assert out[0].startswith("1. book-cleaning   The slot is free")
+    assert out[1].startswith("2. already-booked  The patient already has an appointment")
+    assert choose_test_case("demo", read=lambda _prompt: "") == "book-cleaning"
+    capsys.readouterr()
+    assert choose_test_case("ultrabank", read=lambda _prompt: "9") is None
+    assert capsys.readouterr().out == ""
 
 
 def test_a_scenario_that_does_not_exist_says_which_do() -> None:

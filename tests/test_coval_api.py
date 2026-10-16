@@ -51,6 +51,9 @@ def test_the_target_speaks_raw_pcm_and_waits_for_session_ready() -> None:
     assert metadata["authorization_header"] == "Bearer s3cret"
     assert metadata["handshake_ready_message_type"] == "session_ready"
     assert metadata["speech_activity_enabled"] is False
+    assert metadata["custom_headers"] == {"X-Coval-Simulation-Id": "{{simulation_id}}"}
+    keyed = CovalTarget("cascade-x", URL, None, "TSDEMO", "W1", keyed=True).target_body()
+    assert keyed["metadata"]["custom_headers"]["X-Corral-Test-Case"] == "{{test_case.test_case}}"
     assert (metadata["send_sample_rate_hertz"], metadata["receive_sample_rate_hertz"]) == (
         16000,
         24000,
