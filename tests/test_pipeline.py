@@ -7,16 +7,25 @@ from unittest.mock import patch
 
 import pytest
 from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.audio.vad.vad_analyzer import VADAnalyzer, VADParams
+from pipecat.frames.frames import (
+    InputAudioRawFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
+)
+from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams, LLMService
+from pipecat.tests.utils import run_test
 from pipecat.transports.base_transport import BaseTransport
 
 from corral import pipeline
-from corral.agent import load_agent
+from corral.agent import load_cascade_agent, load_native_agent
 from corral.config import Settings
 from corral.environment import Tool
-from corral.models import Services
+from corral.models import CascadeServices, NativeService
 from corral.pipeline import (
+    LastWordWatch,
     ToolCall,
     build_call,
     cascade_processors,
@@ -54,10 +63,43 @@ def test_cascade_runs_transcribe_accumulate_generate_synthesize() -> None:
     ]
 
 
+def test_a_native_aggregator_has_no_turn_taking_of_ours() -> None:
+    assert context_aggregators(native=True).user()._vad_controller is None
+    assert context_aggregators().user()._vad_controller is not None
+
+
 def test_the_context_offers_the_tools_on_every_request() -> None:
     schema = FunctionSchema("find_patient", "Look up.", {}, [])
     assert context_aggregators([schema]).user().context.tools.standard_tools == [schema]
+    assert context_aggregators([schema], native=True).user().context.tools.standard_tools == [
+        schema
+    ]
     assert not context_aggregators().user().context.tools
+
+
+class _Loud(VADAnalyzer):
+    """Hears speech in any chunk that isn't silence, ten milliseconds at a time."""
+
+    def num_frames_required(self) -> int:
+        return 160
+
+    def voice_confidence(self, buffer: bytes) -> float:
+        return 1.0 if any(buffer) else 0.0
+
+
+async def test_the_watch_times_the_last_word_upstream_and_passes_the_audio_on() -> None:
+    watch = LastWordWatch(_Loud(params=VADParams(start_secs=0.05, stop_secs=0.2, min_volume=0)))
+    loud = InputAudioRawFrame(audio=b"\x00\x40" * 160, sample_rate=16000, num_channels=1)
+    quiet = InputAudioRawFrame(audio=b"\x00\x00" * 160, sample_rate=16000, num_channels=1)
+    chunks = [loud] * 20 + [quiet] * 40
+    down, up = await run_test(
+        watch,
+        frames_to_send=chunks,
+        expected_down_frames=[InputAudioRawFrame] * len(chunks),
+        expected_up_frames=[VADUserStartedSpeakingFrame, VADUserStoppedSpeakingFrame],
+    )
+    assert len(down) == len(chunks) and len(up) == 2
+    assert isinstance(up[1], VADUserStoppedSpeakingFrame) and up[1].stop_secs == 0.2
 
 
 async def test_a_handler_that_raises_answers_the_llm_with_the_error() -> None:
@@ -80,11 +122,10 @@ async def test_a_handler_that_raises_answers_the_llm_with_the_error() -> None:
 
 async def test_a_call_seeds_the_backend_and_puts_its_tools_on_the_llm() -> None:
     llm = LLMService()
-    fakes = Services(stt=FrameProcessor(), llm=llm, tts=FrameProcessor())
+    fakes = CascadeServices(stt=FrameProcessor(), llm=llm, tts=FrameProcessor())
     with patch.object(pipeline, "resolve", return_value=fakes):
-        call = await build_call(
-            load_agent("demo", *REFERENCE), _Transport(), SETTINGS, test_case="already-booked"
-        )
+        demo = load_cascade_agent("demo", *REFERENCE)
+        call = await build_call(demo, _Transport(), SETTINGS, test_case="already-booked")
         assert call.tool_calls == []
         assert llm.has_function("find_patient") and llm.has_function("book_appointment")
         results: list[Any] = []
@@ -94,14 +135,28 @@ async def test_a_call_seeds_the_backend_and_puts_its_tools_on_the_llm() -> None:
         assert call.tool_calls == [ToolCall("book_appointment", {"patient_id": 123}, results[0])]
         with pytest.raises(ValueError, match="no test case 'nope'"):
             await build_call(
-                load_agent("demo", *REFERENCE), _Transport(), SETTINGS, test_case="nope"
+                load_cascade_agent("demo", *REFERENCE), _Transport(), SETTINGS, test_case="nope"
             )
         with pytest.raises(ValueError, match="default has no tools"):
             await build_call(
-                load_agent("default", *REFERENCE), _Transport(), SETTINGS, test_case="x"
+                load_cascade_agent("default", *REFERENCE), _Transport(), SETTINGS, test_case="x"
             )
-        plain = await build_call(load_agent("default", *REFERENCE), _Transport(), SETTINGS)
+        plain = await build_call(load_cascade_agent("default", *REFERENCE), _Transport(), SETTINGS)
         assert plain.tool_calls is None
+
+
+async def test_a_native_call_puts_the_tools_on_the_one_model_and_watches_the_last_word() -> None:
+    model = LLMService()
+    agent = load_native_agent("demo", "openai/gpt-realtime-2.1")
+    with patch.object(pipeline, "resolve", return_value=NativeService(model)):
+        call = await build_call(agent, _Transport(), SETTINGS, test_case="book-cleaning")
+    assert model.has_function("find_patient") and model.has_function("book_appointment")
+    assert call.observer._native is True and call.observer._llm is model
+    assert call.observer._stt is None and call.observer._tts is None
+    inner = next(p for p in call.worker._pipeline._processors if isinstance(p, Pipeline))
+    kinds = [type(p).__name__ for p in inner._processors]
+    order = [kinds.index(k) for k in ("LastWordWatch", "LLMUserAggregator", "LLMService")]
+    assert order == sorted(order)
 
 
 async def test_the_backend_is_cleaned_up_when_the_pipeline_finishes() -> None:
@@ -117,13 +172,13 @@ async def test_the_backend_is_cleaned_up_when_the_pipeline_finishes() -> None:
             self.events.append("finish")
 
     environment = _Environment()
-    fakes = Services(stt=FrameProcessor(), llm=LLMService(), tts=FrameProcessor())
+    fakes = CascadeServices(stt=FrameProcessor(), llm=LLMService(), tts=FrameProcessor())
     with (
         patch.object(pipeline, "resolve", return_value=fakes),
         patch.object(pipeline, "load_environment", return_value=environment),
     ):
         call = await build_call(
-            load_agent("demo", *REFERENCE), _Transport(), SETTINGS, test_case="x"
+            load_cascade_agent("demo", *REFERENCE), _Transport(), SETTINGS, test_case="x"
         )
     assert environment.events == ["start x"]
     await call.worker._call_event_handler("on_pipeline_finished", None)

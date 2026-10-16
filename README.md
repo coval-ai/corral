@@ -41,7 +41,10 @@ cp .env.example .env    # then fill in your keys
 uv run corral
 ```
 
-The CLI menu walks you through picking a mode, a scenario and the models.
+The CLI menu walks you through picking a mode, a scenario and the models. The
+agent is a cascade, an STT, an LLM and a TTS in a line, or one native
+speech-to-speech model that takes audio in and gives audio out. The menu asks
+which when you have a key for a native model.
 
 - **talk** Spins up the agent locally letting you talk with it through your mic
   and speakers. Use Ctl+c to quit. If the scenario has tools, the menu asks
@@ -59,6 +62,12 @@ For scripts, pass the mode and flags instead of answering prompts:
 
 ```bash
 uv run corral benchmark --scenario ultrabank --stt soniox/stt-rt-v5 --llm google/gemini-2.5-flash --smoke
+```
+
+A native model is `--s2s` on its own, with no `--stt`, `--llm` or `--tts`:
+
+```bash
+uv run corral talk --s2s openai/gpt-realtime-2.1
 ```
 
 ## What gets measured
@@ -90,12 +99,33 @@ is the request after the result up to its first token. Each call is also an
 `llm_tool_call` span under the turn with the function's name, arguments and
 result, which is what Coval's tool call metric reads.
 
+A native model does its own turn-taking, so its turn is measured differently
+under the same headline. Silero still runs on the caller's audio, but only as a
+stopwatch for the last word; it has no say in the turn. The span has
+`endpointing` and `model` under it.
+
+- `turn_latency_ms` means the same thing: last word to first audio. For a
+  cascade that gap includes our turn-taking; for a native model the vendor's.
+- `endpointing_ms` is the last word to the moment the vendor said the caller
+  was done. Negative means the model answered before Silero thought the caller
+  had finished. A vendor that never says, as Gemini Live doesn't, has none.
+- `model_ms` is from there to the first audio. A tool call splits it into
+  `model_ms`, `tool_ms` and `model_second_ms`.
+- `silero_missed` still applies; `stt_timed_out` and `smart_turn_timed_out`
+  don't.
+
+The last word is a guess. Silero fires on a mid-sentence pause too, and nothing
+cleans that up for a native model the way smart-turn does for a cascade.
+
 ## Adding things
 
-To add a model, put it in `src/corral/models/stt.json`, `llm.json` or
-`tts.json`. The first one in the file is the default. If it's a provider we
-don't have yet, give it an entry in `src/corral/models/__init__.py` with its
-key and Pipecat class and add its extra to `pyproject.toml`.
+To add a model, put it in `src/corral/models/stt.json`, `llm.json`, `tts.json`
+or, for a native speech-to-speech model, `s2s.json`. The first one in the file
+is the default. A native row's voice and turn detection are vendor knobs, so
+they go in its `options` the way that vendor's Pipecat settings want them. If
+it's a provider we don't have yet, give it
+an entry in `src/corral/models/__init__.py` with its key and Pipecat class and
+add its extra to `pyproject.toml`.
 
 To add a scenario, make a directory in `src/corral/scenarios/` with a system
 prompt and, if you want to benchmark it, a Coval suite. If the agent should be

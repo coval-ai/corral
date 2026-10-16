@@ -1,0 +1,4 @@
+[
+  { "provider": "openai", "name": "gpt-realtime-2.1", "options": { "audio": { "output": { "voice": "marin" } } } },
+  { "provider": "openai", "name": "gpt-realtime-2.1-mini", "options": { "audio": { "output": { "voice": "marin" } } } }
+]

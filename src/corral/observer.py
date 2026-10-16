@@ -30,6 +30,11 @@ A turn where the model calls a tool makes two LLM requests with the tool in betw
 its LLM time is split: ``llm`` ends at the tool call, ``tool`` is the handler running,
 and ``llm_second`` is the request after the result up to its first token. Each tool call
 is also an ``llm_tool_call`` span under the turn, with the name, arguments and result.
+
+A native model does its own turn-taking, so its turn has ``endpointing``, the caller's
+last word to the moment the vendor said the caller was done, and ``model``, that moment
+to the first audio. Endpointing is negative when the model answered before Silero
+thought the caller was done, and missing when the vendor never says.
 """
 
 from __future__ import annotations
@@ -64,6 +69,7 @@ from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from corral.agent import Agent
+from corral.models import Model, Native
 
 SPAN_NAME = "turn_latency"
 TOOL_SPAN_NAME = "llm_tool_call"
@@ -124,6 +130,7 @@ class Moments:
     audio_start: int | None = None
     vad_stop_secs: float = 0.0
     tools: dict[str, ToolCallSpan] = dataclasses.field(default_factory=dict)
+    native: bool = False
 
     @property
     def tools_done(self) -> bool:
@@ -148,13 +155,29 @@ class Moments:
     def stages(self) -> dict[str, tuple[int, int]]:
         """Start and end of each stage we have both ends of, in unix ns."""
         tools = list(self.tools.values())
-        pairs = {
-            "stt": (self.vad_stop, self.stt_done),
-            "llm": (self.llm_start, self.llm_first_token or (tools[0].start if tools else None)),
-            "tool": (tools[0].start, tools[-1].end) if self.tools_done else (None, None),
-            "llm_second": (self.llm_second_start, self.llm_second_first_token),
-            "tts": (self.tts_start, self.tts_first_audio),
-        }
+        tool = (tools[0].start, tools[-1].end) if self.tools_done else (None, None)
+        pairs: dict[str, tuple[int | None, int | None]]
+        if self.native:
+            # The model stage ends at the first audio, or at the tool call if that came first.
+            first_answer = self.tts_first_audio
+            if tools and (first_answer is None or first_answer > tools[0].start):
+                first_answer = tools[0].start
+            silero_heard = self.caller_stopped if self.vad_stop is not None else None
+            vendor_heard = self.vad_done
+            pairs = {
+                "endpointing": (silero_heard, vendor_heard),
+                "model": (vendor_heard or silero_heard, first_answer),
+                "tool": tool,
+                "model_second": (self.llm_second_start, self.llm_second_first_token),
+            }
+        else:
+            pairs = {
+                "stt": (self.vad_stop, self.stt_done),
+                "llm": (self.llm_start, self.llm_first_token or (tool[0] if tools else None)),
+                "tool": tool,
+                "llm_second": (self.llm_second_start, self.llm_second_first_token),
+                "tts": (self.tts_start, self.tts_first_audio),
+            }
         return {
             name: (start, end)
             for name, (start, end) in pairs.items()
@@ -176,18 +199,19 @@ class Moments:
 
     @property
     def silero_missed(self) -> bool:
-        """Silero never heard the caller: smart-turn ended the turn and no finalize went out."""
+        """Silero never heard the caller, so the turn starts where the endpointer stopped it:
+        smart-turn's stop for a cascade, the vendor's for a native model."""
         return self.vad_stop is None
 
     @property
     def stt_timed_out(self) -> bool:
-        """We asked the STT to finalize and it never confirmed."""
-        return self.vad_stop is not None and self.stt_done is None
+        """We asked the STT to finalize and it never confirmed. A native model has no STT."""
+        return not self.native and self.vad_stop is not None and self.stt_done is None
 
     @property
     def smart_turn_timed_out(self) -> bool:
         """Smart-turn never said the caller was done; its silence fallback ended the turn."""
-        if self.vad_stop is None or self.vad_done is None:
+        if self.native or self.vad_stop is None or self.vad_done is None:
             return False
         return self.vad_done - self.vad_stop >= (SMART_TURN_STOP_SECS - self.vad_stop_secs) * 1e9
 
@@ -205,14 +229,20 @@ def _describe(number: int, moment: Moments, attributes: dict[str, Any]) -> str:
     return f"Turn {number}: {latency:.0f} ms ({', '.join(parts)})"
 
 
+def _tag(model: Model) -> dict[str, str]:
+    return {"provider": model.provider, "model": model.name}
+
+
 def models_by_modality(agent: Agent) -> dict[str, dict[str, str]]:
     """Provider and model per stage, for the child spans."""
-    llm = {"provider": agent.llm.provider, "model": agent.llm.name}
+    stack = agent.stack
+    if isinstance(stack, Native):
+        return {stage: _tag(stack.s2s) for stage in ("endpointing", "model", "model_second")}
     return {
-        "stt": {"provider": agent.stt.provider, "model": agent.stt.name},
-        "llm": llm,
-        "llm_second": llm,
-        "tts": {"provider": agent.tts.provider, "model": agent.tts.name},
+        "stt": _tag(stack.stt),
+        "llm": _tag(stack.llm),
+        "llm_second": _tag(stack.llm),
+        "tts": _tag(stack.tts),
     }
 
 
@@ -239,15 +269,18 @@ class TurnLatencyObserver(BaseObserver):
         tts: FrameProcessor | None = None,
         tracer: Tracer | None = None,
         clock: Callable[[], int] = time.time_ns,
+        native: bool = False,
     ) -> None:
+        """``native`` means one speech-to-speech service, handed in as ``llm``."""
         super().__init__()
         self._attributes = attributes
         self._models = models or {}
         self._stt, self._llm, self._tts = stt, llm, tts
         self._tracer = tracer
         self._clock = clock
+        self._native = native
         self._turn = 0
-        self._moment = Moments()
+        self._moment = Moments(native=native)
         self.turns: list[dict[str, Any]] = []
 
     async def on_push_frame(self, data: FramePushed) -> None:
@@ -257,7 +290,9 @@ class TurnLatencyObserver(BaseObserver):
         now = self._clock()
         moment = self._moment
         match data.frame:
-            case VADUserStoppedSpeakingFrame(stop_secs=secs) if moment.llm_first_token is None:
+            case VADUserStoppedSpeakingFrame(stop_secs=secs) if (
+                moment.llm_first_token is None and moment.tts_first_audio is None
+            ):
                 moment.vad_stop = now
                 moment.vad_stop_secs = secs
                 moment.stt_done = None
@@ -291,12 +326,12 @@ class TurnLatencyObserver(BaseObserver):
             ):
                 moment.tts_first_audio = now
             case InterruptionFrame():
-                self._moment = Moments()
+                self._moment = Moments(native=self._native)
             case BotStartedSpeakingFrame():
                 moment.audio_start = now
                 if moment.caller_stopped is not None and moment.tts_first_audio is not None:
                     self._emit(moment, start=moment.caller_stopped, end=now)
-                self._moment = Moments()
+                self._moment = Moments(native=self._native)
 
     def _record_request(self, source: FrameProcessor, now: int, ttfb_ns: int | None) -> None:
         """A service just got its first byte back; Pipecat says how long the request took."""
@@ -305,10 +340,11 @@ class TurnLatencyObserver(BaseObserver):
             return
         if source is self._stt and moment.stt_done is None:
             moment.stt_done = now
+        elif source is self._llm and moment.tools_done:
+            # Checked first: a native model may call a tool before reporting any request.
+            moment.llm_second_start = now - ttfb_ns
         elif source is self._llm and moment.llm_start is None:
             moment.llm_start = now - ttfb_ns
-        elif source is self._llm and moment.tools_done:
-            moment.llm_second_start = now - ttfb_ns
         elif source is self._tts and moment.tts_start is None:
             moment.tts_start = now - ttfb_ns
 
@@ -320,11 +356,12 @@ class TurnLatencyObserver(BaseObserver):
             "s2s.turn.number": self._turn,
             "s2s.turn.tool_calls": len(moment.tools),
             "s2s.turn_latency.silero_missed": moment.silero_missed,
-            "s2s.turn_latency.stt_timed_out": moment.stt_timed_out,
-            "s2s.turn_latency.smart_turn_timed_out": moment.smart_turn_timed_out,
             **moment.unix_ms_attributes(),
             **moment.step_attributes(),
         }
+        if not moment.native:
+            attributes["s2s.turn_latency.stt_timed_out"] = moment.stt_timed_out
+            attributes["s2s.turn_latency.smart_turn_timed_out"] = moment.smart_turn_timed_out
         self.turns.append(attributes)
         level = "WARNING" if moment.silero_missed or moment.stt_timed_out else "INFO"
         logger.log(level, _describe(self._turn, moment, attributes))

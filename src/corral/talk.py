@@ -43,7 +43,7 @@ async def run(agent: Agent, test_case: str | None = None) -> None:
             print(tool_log(call.tool_calls), flush=True)
 
 
-STEPS = ("stt", "llm", "tool", "llm_second", "tts")
+STEPS = ("stt", "llm", "endpointing", "model", "tool", "llm_second", "model_second", "tts")
 COLUMNS = {"latency": "s2s.turn_latency_ms"} | {s: f"s2s.turn_latency.{s}_ms" for s in STEPS}
 
 
@@ -51,14 +51,17 @@ def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str
     """Median and worst of each step across the call, one row per step."""
     if not turns:
         return "no answered turns"
-    lines = [f"{len(turns)} turns on {slug}", f"{'':34}{'median':>8}{'max':>8}"]
+    rows: list[tuple[str, list[float]]] = []
     for step, key in COLUMNS.items():
         values = [t[key] for t in turns if key in t]
-        if not values:
-            continue
         model = models.get(step)
         label = f"{step} ({model['provider']}/{model['model']})" if model else step
-        lines.append(f"{label:34}{statistics.median(values):>7.0f} {max(values):>7.0f}")
+        if values:
+            rows.append((label, values))
+    width = max(len(label) for label, _ in rows) + 2
+    lines = [f"{len(turns)} turns on {slug}", f"{'':{width}}{'median':>8}{'max':>8}"]
+    for label, values in rows:
+        lines.append(f"{label:{width}}{statistics.median(values):>7.0f} {max(values):>7.0f}")
     silero_missed = sum(bool(t.get("s2s.turn_latency.silero_missed")) for t in turns)
     if silero_missed:
         lines.append(f"{silero_missed} turns where Silero never heard you; check the mic level")

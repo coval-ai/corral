@@ -36,20 +36,28 @@ def _ttfb(seconds: float) -> MetricsFrame:
     return MetricsFrame(data=[TTFBMetricsData(processor="x", value=seconds)])
 
 
+REALTIME = {"provider": "openai", "model": "gpt-realtime-2.1"}
+
+
 class Call:
-    def __init__(self) -> None:
+    def __init__(self, native: bool = False) -> None:
         self.exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(self.exporter))
         self.now_ns = 0
+        if native:
+            models = {"endpointing": REALTIME, "model": REALTIME, "model_second": REALTIME}
+        else:
+            models = {"llm": OPENAI, "llm_second": OPENAI}
         self.observer = TurnLatencyObserver(
             attributes={"agent": "x"},
-            models={"llm": OPENAI, "llm_second": OPENAI},
-            stt=STT,
+            models=models,
+            stt=None if native else STT,
             llm=LLM,
-            tts=TTS,
+            tts=None if native else TTS,
             tracer=provider.get_tracer("test"),
             clock=lambda: self.now_ns,
+            native=native,
         )
 
     async def at(
@@ -73,6 +81,11 @@ class Call:
 @pytest.fixture
 def call() -> Call:
     return Call()
+
+
+@pytest.fixture
+def native() -> Call:
+    return Call(native=True)
 
 
 async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None:
@@ -263,3 +276,69 @@ async def test_a_turn_without_tools_has_no_tool_stages(call: Call) -> None:
     (turn,) = call.turns
     assert turn["s2s.turn.tool_calls"] == 0
     assert "s2s.turn_latency.tool_ms" not in turn and "s2s.turn_latency.llm_second_ms" not in turn
+
+
+async def test_a_native_turn_splits_at_the_moment_the_vendor_heard_the_caller_stop(
+    native: Call,
+) -> None:
+    await native.at(1_200, VADUserStoppedSpeakingFrame(stop_secs=0.2))
+    await native.at(1_350, UserStoppedSpeakingFrame())
+    await native.at(1_900, _ttfb(0.55), source=LLM)
+    await native.at(1_900, AUDIO)
+    await native.at(1_905, LLMTextFrame("Hi"))
+    await native.at(1_920, BotStartedSpeakingFrame())
+    (turn,) = native.turns
+    assert turn["s2s.turn_latency_ms"] == 900.0
+    assert turn["s2s.turn_latency.endpointing_ms"] == 350.0
+    assert turn["s2s.turn_latency.model_ms"] == 550.0
+    assert turn["s2s.turn_latency.transport_ms"] == 20.0
+    assert turn["s2s.turn_latency.silero_missed"] is False
+    assert "s2s.turn_latency.stt_timed_out" not in turn
+    assert "s2s.turn_latency.smart_turn_timed_out" not in turn
+    assert not {k for k in turn if k.endswith(("stt_ms", "llm_ms", "tts_ms"))}
+    stages = native.stages()
+    assert set(stages) == {"endpointing", "model"}
+    assert (stages["model"].start_time, stages["model"].end_time) == (1_350 * MS, 1_900 * MS)
+    assert dict(stages["endpointing"].attributes or {}) == REALTIME
+
+
+async def test_a_model_that_jumps_in_before_silero_has_negative_endpointing(native: Call) -> None:
+    await native.at(900, UserStoppedSpeakingFrame())
+    await native.at(1_200, VADUserStoppedSpeakingFrame(stop_secs=0.2))
+    await native.at(1_400, AUDIO)
+    await native.at(1_420, BotStartedSpeakingFrame())
+    (turn,) = native.turns
+    assert turn["s2s.turn_latency_ms"] == 400.0
+    assert turn["s2s.turn_latency.endpointing_ms"] == -100.0
+    assert turn["s2s.turn_latency.model_ms"] == 500.0
+
+
+async def test_a_vendor_that_never_says_gets_model_from_the_last_word(native: Call) -> None:
+    await native.at(1_200, VADUserStoppedSpeakingFrame(stop_secs=0.2))
+    await native.at(1_800, AUDIO)
+    await native.at(1_810, BotStartedSpeakingFrame())
+    (turn,) = native.turns
+    assert turn["s2s.turn_latency_ms"] == 800.0
+    assert turn["s2s.turn_latency.model_ms"] == 800.0
+    assert "s2s.turn_latency.endpointing_ms" not in turn
+    assert set(native.stages()) == {"model"}
+
+
+async def test_a_native_tool_turn_splits_the_model_around_the_call(native: Call) -> None:
+    await native.at(1_000, VADUserStoppedSpeakingFrame(stop_secs=0.2))
+    await native.at(1_100, UserStoppedSpeakingFrame())
+    await native.at(1_500, _in_progress("c1", "find_patient", {"name": "Ana"}))
+    await native.at(1_800, _result("c1", "find_patient", {"patient_id": 123}))
+    await native.at(2_300, _ttfb(0.45), source=LLM)
+    await native.at(2_300, AUDIO)
+    await native.at(2_310, LLMTextFrame("Found"))
+    await native.at(2_320, BotStartedSpeakingFrame())
+    (turn,) = native.turns
+    assert turn["s2s.turn.tool_calls"] == 1
+    assert turn["s2s.turn_latency_ms"] == 1_500.0
+    assert turn["s2s.turn_latency.endpointing_ms"] == 300.0
+    assert turn["s2s.turn_latency.model_ms"] == 400.0
+    assert turn["s2s.turn_latency.tool_ms"] == 300.0
+    assert turn["s2s.turn_latency.model_second_ms"] == 460.0
+    spans = {s.name for s in native.exporter.get_finished_spans()}
+    assert spans == {SPAN_NAME, "endpointing", "model", "tool", "model_second", "llm_tool_call"}

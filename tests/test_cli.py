@@ -14,11 +14,13 @@ from corral.cli import (
     TALK,
     build_parser,
     checker,
+    choose_agent,
     choose_mode,
     choose_model,
     choose_port,
     choose_scenario,
     choose_test_case,
+    flagged_agent,
     known_scenario,
     misplaced_flag,
     offered_models,
@@ -211,3 +213,28 @@ def test_a_flag_for_another_mode_is_named_rather_than_ignored() -> None:
     assert misplaced_flag(TALK, args) == "--smoke is for benchmark"
     args = build_parser(ALL_KEYS).parse_args(["benchmark", "--smoke", "--no-tunnel"])
     assert misplaced_flag(BENCHMARK, args) is None
+
+
+def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    answers = iter(["2", "2"])
+    native = choose_agent("ultrabank", lambda _prompt: next(answers), ALL_KEYS, answers_fine)
+    assert native.slug == "openai-gpt-realtime-2.1-mini"
+    out = capsys.readouterr().out
+    assert "1. cascade  an STT, an LLM and a TTS\n2. native   one speech-to-speech model\n" in out
+    answers = iter(["", "", "2", ""])
+    cascade = choose_agent("ultrabank", lambda _prompt: next(answers), ALL_KEYS, answers_fine)
+    assert cascade.slug == "deepgram-nova-3--google-gemini-2.5-flash--elevenlabs-eleven-flash-v2"
+    no_openai = Settings(_env_file=None, **{**KEYS, "openai_api_key": None})
+    capsys.readouterr()
+    answers = iter(["", "", ""])
+    choose_agent("ultrabank", lambda _prompt: next(answers), no_openai, answers_fine)
+    assert "Stack" not in capsys.readouterr().out
+
+    parser = build_parser(ALL_KEYS)
+    assert "  s2s  openai/gpt-realtime-2.1, openai/gpt-realtime-2.1-mini\n" in parser.format_help()
+    args = parser.parse_args(["talk", "--s2s", "openai/gpt-realtime-2.1"])
+    assert flagged_agent("default", args).slug == "openai-gpt-realtime-2.1"
+    assert flagged_agent("default", parser.parse_args(["talk"])).slug.startswith("deepgram-")
+    assert "--s2s" not in build_parser(no_openai).format_help()
