@@ -59,6 +59,9 @@ def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str
         model = models.get(step)
         label = f"{step} ({model['provider']}/{model['model']})" if model else step
         lines.append(f"{label:34}{statistics.median(values):>7.0f} {max(values):>7.0f}")
+    silero_missed = sum(bool(t.get("s2s.turn_latency.silero_missed")) for t in turns)
+    if silero_missed:
+        lines.append(f"{silero_missed} turns where Silero never heard you; check the mic level")
     stt_timed_out = sum(bool(t.get("s2s.turn_latency.stt_timed_out")) for t in turns)
     if stt_timed_out:
         lines.append(f"{stt_timed_out} turns where the STT timed out")

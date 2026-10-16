@@ -74,6 +74,9 @@ Every answered turn is a `turn_latency` span in Coval with `stt`, `llm` and
 - `tts_ms` is the first sentence to the first audio.
 - `stt_timed_out` is true when the STT never answered the finalize. That turn
   has no `stt_ms`.
+- `silero_missed` is true when Silero never heard the caller and smart-turn
+  ended the turn on its own. Nothing asked the STT to finalize, so that turn
+  has no `stt_ms` either, and the mic level is the first thing to check.
 - `smart_turn_timed_out` is true when smart-turn couldn't decide and the
   silence fallback ended the turn.
 
