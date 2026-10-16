@@ -34,11 +34,11 @@ class Playout:
     everything else still to play is in Pipecat's queue, which it clears.
     """
 
-    def __init__(self, limit: int) -> None:
+    def __init__(self, limit: int, condition: threading.Condition | None = None) -> None:
         self._audio = bytearray()
         self._limit = limit
         self._closed = False
-        self._changed = threading.Condition()
+        self._changed = condition or threading.Condition()
 
     def write(self, audio: bytes) -> None:
         with self._changed:
