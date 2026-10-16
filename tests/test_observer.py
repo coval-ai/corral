@@ -241,6 +241,7 @@ async def test_a_tool_turn_splits_the_llm_around_the_call_and_exports_it(call: C
     assert set(spans) == {SPAN_NAME, "llm", "tool", "llm_second", "tts", "llm_tool_call"}
     tool = spans["llm_tool_call"]
     assert (tool.start_time, tool.end_time) == (1_600 * MS, 1_900 * MS)
+    assert tool.parent is None
     assert dict(tool.attributes or {}) == {
         "function.name": "find_patient",
         "function.arguments": '{"name": "Ana"}',
@@ -342,3 +343,21 @@ async def test_a_native_tool_turn_splits_the_model_around_the_call(native: Call)
     assert turn["s2s.turn_latency.model_second_ms"] == 460.0
     spans = {s.name for s in native.exporter.get_finished_spans()}
     assert spans == {SPAN_NAME, "endpointing", "model", "tool", "model_second", "llm_tool_call"}
+
+
+async def test_a_tool_called_after_the_agent_starts_answering_is_still_a_span(
+    native: Call,
+) -> None:
+    await native.at(1_000, VADUserStoppedSpeakingFrame(stop_secs=0.2))
+    await native.at(1_300, UserStoppedSpeakingFrame())
+    await native.at(1_900, AUDIO)
+    await native.at(1_920, BotStartedSpeakingFrame())
+    await native.at(4_000, _in_progress("c1", "book_appointment", {"date": "x"}))
+    await native.at(4_300, _result("c1", "book_appointment", {"ok": True}))
+    await native.at(4_900, AUDIO)
+    await native.at(4_920, BotStartedSpeakingFrame())
+    (turn,) = native.turns
+    assert turn["s2s.turn.tool_calls"] == 0
+    (tool,) = [s for s in native.exporter.get_finished_spans() if s.name == "llm_tool_call"]
+    assert (tool.start_time, tool.end_time) == (4_000 * MS, 4_300 * MS)
+    assert dict(tool.attributes or {})["function.name"] == "book_appointment"

@@ -29,7 +29,9 @@ turn-taking and plumbing, which is ours.
 A turn where the model calls a tool makes two LLM requests with the tool in between, so
 its LLM time is split: ``llm`` ends at the tool call, ``tool`` is the handler running,
 and ``llm_second`` is the request after the result up to its first token. Each tool call
-is also an ``llm_tool_call`` span under the turn, with the name, arguments and result.
+is also an ``llm_tool_call`` span with the name, arguments and result, exported when the
+result lands. A call the model makes after it has started answering is still a span,
+but it falls outside the turn and is not in its stages or its ``tool_calls`` count.
 
 A native model does its own turn-taking, so its turn has ``endpointing``, the caller's
 last word to the moment the vendor said the caller was done, and ``model``, that moment
@@ -281,6 +283,7 @@ class TurnLatencyObserver(BaseObserver):
         self._native = native
         self._turn = 0
         self._moment = Moments(native=native)
+        self._calls: dict[str, ToolCallSpan] = {}
         self.turns: list[dict[str, Any]] = []
 
     async def on_push_frame(self, data: FramePushed) -> None:
@@ -311,16 +314,26 @@ class TurnLatencyObserver(BaseObserver):
                         moment.llm_second_first_token = now
                 elif moment.llm_first_token is None and not moment.tools:
                     moment.llm_first_token = now
+            # A tool call is its own span whenever it lands. It only shapes the turn's stages
+            # when it came before the agent started answering; after that the turn is closed.
             case FunctionCallInProgressFrame(tool_call_id=call_id) if (
-                moment.caller_stopped is not None and data.direction == FrameDirection.DOWNSTREAM
+                data.direction == FrameDirection.DOWNSTREAM
             ):
                 frame = data.frame
-                moment.tools[call_id] = ToolCallSpan(frame.function_name, frame.arguments, now)
+                tool = ToolCallSpan(frame.function_name, frame.arguments, now)
+                self._calls[call_id] = tool
+                if moment.caller_stopped is not None:
+                    moment.tools[call_id] = tool
             case FunctionCallResultFrame(tool_call_id=call_id) if (
-                call_id in moment.tools and data.direction == FrameDirection.DOWNSTREAM
+                call_id in self._calls and data.direction == FrameDirection.DOWNSTREAM
             ):
-                tool = moment.tools[call_id]
+                tool = self._calls.pop(call_id)
                 tool.end, tool.result, tool.error = now, data.frame.result, data.frame.error
+                if self._tracer is not None:
+                    span = self._tracer.start_span(
+                        TOOL_SPAN_NAME, start_time=tool.start, attributes=tool.attributes()
+                    )
+                    span.end(end_time=now)
             case TTSAudioRawFrame() if (
                 moment.caller_stopped is not None and moment.tts_first_audio is None
             ):
@@ -371,7 +384,7 @@ class TurnLatencyObserver(BaseObserver):
     def _export(
         self, tracer: Tracer, moment: Moments, attributes: dict[str, Any], *, start: int, end: int
     ) -> None:
-        """The turn span with a child per stage we have both ends of, and one per tool call."""
+        """The turn span with a child per stage we have both ends of."""
         turn = tracer.start_span(SPAN_NAME, start_time=start, attributes=attributes)
         inside = trace.set_span_in_context(turn)
         for stage, (stage_start, stage_end) in moment.stages().items():
@@ -379,11 +392,4 @@ class TurnLatencyObserver(BaseObserver):
                 stage, context=inside, start_time=stage_start, attributes=self._models.get(stage)
             )
             child.end(end_time=stage_end)
-        for tool in moment.tools.values():
-            if tool.end is None:
-                continue
-            child = tracer.start_span(
-                TOOL_SPAN_NAME, context=inside, start_time=tool.start, attributes=tool.attributes()
-            )
-            child.end(end_time=tool.end)
         turn.end(end_time=end)

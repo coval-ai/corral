@@ -96,8 +96,10 @@ When the model calls a tool, the turn makes two LLM requests with the tool in
 between, so `tool_calls` counts the calls and the LLM time is split: `llm_ms`
 ends at the tool call, `tool_ms` is the handler running, and `llm_second_ms`
 is the request after the result up to its first token. Each call is also an
-`llm_tool_call` span under the turn with the function's name, arguments and
-result, which is what Coval's tool call metric reads.
+`llm_tool_call` span with the function's name, arguments and result, which is
+what Coval's tool call metric reads. A model that says "one moment" and then
+calls the tool has already ended the turn, so that call is a span on its own
+and not in the turn's count.
 
 A native model does its own turn-taking, so its turn is measured differently
 under the same headline. Silero still runs on the caller's audio, but only as a
