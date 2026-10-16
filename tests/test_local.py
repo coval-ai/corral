@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import threading
+from collections.abc import Callable
 from typing import Any
 
 import miniaudio
@@ -18,36 +19,42 @@ def test_the_speakers_get_what_was_written_then_silence() -> None:
     assert playout.take(2) == b"\x00\x00"
 
 
+class _Answering(threading.Condition):
+    """Answers a wait at once and keeps what was asked, so a test can ask it again later."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.asked: list[Callable[[], Any]] = []
+
+    def wait_for(self, predicate: Callable[[], Any], timeout: float | None = None) -> Any:
+        self.asked.append(predicate)
+        return predicate()
+
+
 def test_a_writer_waits_until_the_speakers_have_nearly_caught_up() -> None:
-    playout = Playout(limit=4)
+    condition = _Answering()
+    playout = Playout(limit=4, condition=condition)
     playout.write(b"1234")
-    arrived = threading.Event()
-
-    def write_more() -> None:
-        playout.write(b"5678")
-        arrived.set()
-
-    threading.Thread(target=write_more).start()
-    assert not arrived.wait(0.1)
+    playout.write(b"5678")
+    ready = condition.asked[-1]
+    assert not ready()
     assert playout.take(2) == b"12"
-    assert arrived.wait(1)
-    assert playout.take(6) == b"345678"
+    assert not ready()
+    assert playout.take(4) == b"3456"
+    assert ready()
 
 
 def test_closing_lets_a_waiting_writer_go_without_its_audio() -> None:
-    playout = Playout(limit=2)
+    condition = _Answering()
+    playout = Playout(limit=2, condition=condition)
     playout.write(b"12")
-    released = threading.Event()
-
-    def write_more() -> None:
-        playout.write(b"34")
-        released.set()
-
-    threading.Thread(target=write_more).start()
-    assert not released.wait(0.1)
+    playout.write(b"34")
+    ready = condition.asked[-1]
+    assert not ready()
     playout.close()
-    assert released.wait(1)
-    assert playout.take(4) == b"12\x00\x00"
+    assert ready()
+    playout.write(b"56")
+    assert playout.take(8) == b"1234" + bytes(4)
 
 
 def test_the_transport_builds_a_mic_and_speakers_without_opening_a_device() -> None:
