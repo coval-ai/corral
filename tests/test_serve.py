@@ -11,9 +11,9 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from starlette.websockets import WebSocketDisconnect
 
 from corral import pipeline, serve
-from corral.agent import load_agent
+from corral.agent import load_cascade_agent
 from corral.config import Settings
-from corral.models import Services
+from corral.models import CascadeServices
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 
@@ -38,8 +38,8 @@ class _Echo(FrameProcessor):
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
-    agent = load_agent("ultrabank", *REFERENCE)
-    fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
+    agent = load_cascade_agent("ultrabank", *REFERENCE)
+    fakes = CascadeServices(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (
         patch.object(pipeline, "resolve", return_value=fakes),

@@ -3,9 +3,10 @@
 
 """The models on offer, and the Pipecat services that run them.
 
-stt.json, llm.json and tts.json list what you can pick, the default first. The vendor
-table says which Pipecat class runs each provider and which key pays for it. Every
-Pipecat service takes the same ``api_key``, ``sample_rate`` and ``Settings``, so
+stt.json, llm.json, tts.json and s2s.json list what you can pick, the default first. A
+stack is a cascade of one STT, LLM and TTS, or a native speech-to-speech model on its own.
+The vendor table says which Pipecat class runs each provider and which key pays for it.
+Every Pipecat service takes the same ``api_key``, ``sample_rate`` and ``Settings``, so
 building one works the same for every vendor. Providers and keys are checked before
 anything connects, so a bad pick fails at startup with the list of what's supported, and
 each vendor answers one cheap authenticated request before a run is started on it.
@@ -18,7 +19,7 @@ import importlib
 import importlib.resources
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import httpx
 from pipecat.processors.frame_processor import FrameProcessor
@@ -31,11 +32,9 @@ from corral.config import (
     Settings,
 )
 
-if TYPE_CHECKING:
-    from corral.agent import Agent
-
-Modality = Literal["stt", "llm", "tts"]
-MODALITIES: tuple[Modality, ...] = ("stt", "llm", "tts")
+Modality = Literal["stt", "llm", "tts", "s2s"]
+CASCADE: tuple[Modality, ...] = ("stt", "llm", "tts")
+MODALITIES: tuple[Modality, ...] = (*CASCADE, "s2s")
 
 
 class JsonModel(BaseModel):
@@ -66,10 +65,38 @@ class TtsModel(Model):
     voice: str
 
 
+class S2sModel(Model):
+    """A native speech-to-speech model. Voice and turn detection are vendor knobs, in options."""
+
+
+@dataclass(frozen=True)
+class Cascade:
+    stt: SttModel
+    llm: LlmModel
+    tts: TtsModel
+
+    @property
+    def rows(self) -> tuple[Model, ...]:
+        return (self.stt, self.llm, self.tts)
+
+
+@dataclass(frozen=True)
+class Native:
+    s2s: S2sModel
+
+    @property
+    def rows(self) -> tuple[Model, ...]:
+        return (self.s2s,)
+
+
+Stack = Cascade | Native
+
+
 class Catalog(JsonModel):
     stt: list[SttModel]
     llm: list[LlmModel]
     tts: list[TtsModel]
+    s2s: list[S2sModel]
 
     def get_stt(self, model_id: str) -> SttModel:
         return _get("stt", self.stt, model_id)
@@ -79,6 +106,9 @@ class Catalog(JsonModel):
 
     def get_tts(self, model_id: str) -> TtsModel:
         return _get("tts", self.tts, model_id)
+
+    def get_s2s(self, model_id: str) -> S2sModel:
+        return _get("s2s", self.s2s, model_id)
 
 
 @functools.cache
@@ -115,6 +145,7 @@ class Vendor:
     stt: str | None = None
     llm: str | None = None
     tts: str | None = None
+    s2s: str | None = None
 
     @property
     def key_name(self) -> str:
@@ -132,6 +163,7 @@ VENDORS: dict[str, Vendor] = {
         "openai_api_key",
         "https://api.openai.com/v1/models",
         llm="pipecat.services.openai.llm:OpenAILLMService",
+        s2s="pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService",
     ),
     "elevenlabs": Vendor(
         "elevenlabs_api_key",
@@ -189,10 +221,18 @@ def vendor_problem(
 
 
 @dataclass(frozen=True)
-class Services:
+class CascadeServices:
     stt: FrameProcessor
     llm: FrameProcessor
     tts: FrameProcessor
+
+
+@dataclass(frozen=True)
+class NativeService:
+    model: FrameProcessor
+
+
+Services = CascadeServices | NativeService
 
 
 def supported(modality: Modality) -> list[str]:
@@ -228,16 +268,24 @@ def _build(
     return service
 
 
-def resolve(agent: Agent, settings: Settings) -> Services:
-    """Every modality's vendor and key checked first, then the three services built."""
-    stt_path, stt_key = _resolve_vendor("stt", agent.stt.provider, settings)
-    llm_path, llm_key = _resolve_vendor("llm", agent.llm.provider, settings)
-    tts_path, tts_key = _resolve_vendor("tts", agent.tts.provider, settings)
-    return Services(
+def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
+    """Every vendor and key in the stack checked first, then its services built."""
+    if isinstance(stack, Native):
+        path, key = _resolve_vendor("s2s", stack.s2s.provider, settings)
+        fields = {
+            "model": stack.s2s.name,
+            "system_instruction": system_prompt,
+            **stack.s2s.options,
+        }
+        return NativeService(_build(path, key, fields, None))
+    stt_path, stt_key = _resolve_vendor("stt", stack.stt.provider, settings)
+    llm_path, llm_key = _resolve_vendor("llm", stack.llm.provider, settings)
+    tts_path, tts_key = _resolve_vendor("tts", stack.tts.provider, settings)
+    return CascadeServices(
         stt=_build(
             stt_path,
             stt_key,
-            {"model": agent.stt.name, **agent.stt.options},
+            {"model": stack.stt.name, **stack.stt.options},
             IN_SAMPLE_RATE_HZ,
             stt_ttfb_timeout=STT_FINALIZE_FALLBACK_SECS,
         ),
@@ -245,17 +293,17 @@ def resolve(agent: Agent, settings: Settings) -> Services:
             llm_path,
             llm_key,
             {
-                "model": agent.llm.name,
-                "temperature": agent.llm.temperature,
-                "system_instruction": agent.system_prompt,
-                **agent.llm.options,
+                "model": stack.llm.name,
+                "temperature": stack.llm.temperature,
+                "system_instruction": system_prompt,
+                **stack.llm.options,
             },
             None,
         ),
         tts=_build(
             tts_path,
             tts_key,
-            {"model": agent.tts.name, "voice": agent.tts.voice, **agent.tts.options},
+            {"model": stack.tts.name, "voice": stack.tts.voice, **stack.tts.options},
             OUT_SAMPLE_RATE_HZ,
         ),
     )

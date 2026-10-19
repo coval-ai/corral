@@ -14,8 +14,15 @@ from opentelemetry.trace import Tracer
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.frames.frames import Frame, LLMRunFrame
+from pipecat.audio.vad.vad_analyzer import VADAnalyzer, VADParams
+from pipecat.audio.vad.vad_controller import VADController
+from pipecat.frames.frames import (
+    Frame,
+    InputAudioRawFrame,
+    LLMRunFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -23,7 +30,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.processors.frame_processor import (
+    FrameDirection,
+    FrameProcessor,
+    FrameProcessorSetup,
+)
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.turns.user_start.min_words_user_turn_start_strategy import (
@@ -43,13 +54,19 @@ from corral.config import (
     Settings,
 )
 from corral.environment import Tool
-from corral.models import resolve
+from corral.models import CascadeServices, NativeService, resolve
 from corral.observer import TurnLatencyObserver, models_by_modality
 from corral.scenarios import load_environment
 
 
-def context_aggregators(tools: Sequence[FunctionSchema] = ()) -> LLMContextAggregatorPair:
-    """The conversation context and the turn-taking the agent pins around it.
+def silero() -> SileroVADAnalyzer:
+    return SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS))
+
+
+def context_aggregators(
+    tools: Sequence[FunctionSchema] = (), *, native: bool = False
+) -> LLMContextAggregatorPair:
+    """The conversation context and, for a cascade, the turn-taking the agent pins around it.
 
     The system prompt is not here; it rides on the LLM service's Settings so
     Pipecat composes it with its own instructions. The tools are, so every
@@ -58,12 +75,16 @@ def context_aggregators(tools: Sequence[FunctionSchema] = ()) -> LLMContextAggre
     local models shipped with Pipecat, so the cascade's endpointing is the same
     on every machine. While the agent is speaking, the caller has to say
     ``interrupt_min_words`` before it yields, so a backchannel does not cut it off.
+
+    A native model does its own turn-taking, so its aggregator has none of ours.
     """
     context = LLMContext(tools=list(tools)) if tools else LLMContext()
+    if native:
+        return LLMContextAggregatorPair(context)
     return LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS)),
+            vad_analyzer=silero(),
             user_turn_strategies=UserTurnStrategies(
                 start=[MinWordsUserTurnStartStrategy(min_words=INTERRUPT_MIN_WORDS)],
                 stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())],
@@ -84,6 +105,44 @@ def cascade_processors(
     output so it records what was actually said, and the caller places it.
     """
     return [stt, aggregators.user(), llm, tts]
+
+
+class LastWordWatch(FrameProcessor):
+    """Silero on the caller's audio as a stopwatch, not a switch.
+
+    A native model does its own turn-taking, but the observer still wants the
+    caller's last word on our clock, the same guess the cascade makes. The VAD
+    frames go upstream, where no turn strategy can act on them.
+    """
+
+    def __init__(self, analyzer: VADAnalyzer) -> None:
+        super().__init__()
+        self._analyzer = analyzer
+        self._vad = VADController(analyzer, audio_idle_timeout=0)
+        self._vad.add_event_handler("on_speech_started", self._started)
+        self._vad.add_event_handler("on_speech_stopped", self._stopped)
+
+    async def setup(self, setup: FrameProcessorSetup) -> None:  # type: ignore[override]
+        await super().setup(setup)
+        await self._vad.setup(setup)
+
+    async def cleanup(self) -> None:
+        await self._vad.cleanup()  # type: ignore[no-untyped-call]
+        await super().cleanup()  # type: ignore[no-untyped-call]
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, InputAudioRawFrame):
+            await self._vad.process_frame(frame)
+
+    async def _started(self, _controller: VADController) -> None:
+        frame = VADUserStartedSpeakingFrame(start_secs=self._analyzer.params.start_secs)
+        await self.push_frame(frame, FrameDirection.UPSTREAM)
+
+    async def _stopped(self, _controller: VADController) -> None:
+        frame = VADUserStoppedSpeakingFrame(stop_secs=self._analyzer.params.stop_secs)
+        await self.push_frame(frame, FrameDirection.UPSTREAM)
 
 
 @dataclass(frozen=True)
@@ -122,10 +181,14 @@ def tool_handler(
     return handle
 
 
-def _llm_service(processor: FrameProcessor) -> LLMService[Any]:
+def _register(processor: FrameProcessor, tools: Sequence[Tool], log: list[ToolCall]) -> None:
+    """Put the scenario's tools on the service that answers, which has to be an LLM service."""
+    if not tools:
+        return
     if not isinstance(processor, LLMService):
         raise TypeError(f"{processor} is not an LLM service, so it can't take tools")
-    return processor
+    for tool in tools:
+        processor.register_function(tool.schema.name, tool_handler(tool, log))
 
 
 async def build_call(
@@ -144,32 +207,37 @@ async def build_call(
     Talk and serve both build their call here, so a change to how a call works
     reaches both and their latency numbers stay comparable. A scenario with
     tools gets a fresh backend seeded for the test case, and its tools go on the
-    LLM. The backend is cleaned up when the pipeline finishes.
+    LLM, or on the native model, which is one. The backend is cleaned up when the
+    pipeline finishes.
     """
-    services = resolve(agent, settings)
+    services = resolve(agent.stack, agent.system_prompt, settings)
     environment = load_environment(agent.scenario)
-    tool_calls: list[ToolCall] | None = None
-    tools: list[FunctionSchema] = []
+    log: list[ToolCall] = []
     if environment is None:
         if test_case is not None:
             raise ValueError(f"{agent.scenario} has no tools, so there is no test case to seed")
+        handlers: list[Tool] = []
     else:
         await environment.start(test_case)
-        tool_calls = []
-        llm = _llm_service(services.llm)
-        for tool in environment.tools:
-            llm.register_function(tool.schema.name, tool_handler(tool, tool_calls))
-            tools.append(tool.schema)
-    observer = TurnLatencyObserver(
-        attributes={**(attributes or {}), "agent": agent.slug, "digest": agent.digest},
-        models=models_by_modality(agent),
-        stt=services.stt,
-        llm=services.llm,
-        tts=services.tts,
-        tracer=tracer,
+        handlers = list(environment.tools)
+    aggregators = context_aggregators(
+        [tool.schema for tool in handlers], native=isinstance(services, NativeService)
     )
-    aggregators = context_aggregators(tools)
-    middle = cascade_processors(services.stt, services.llm, services.tts, aggregators)
+    tags = {**(attributes or {}), "agent": agent.slug, "digest": agent.digest}
+    stages = models_by_modality(agent)
+    match services:
+        case CascadeServices(stt, llm, tts):
+            _register(llm, handlers, log)
+            middle = cascade_processors(stt, llm, tts, aggregators)
+            observer = TurnLatencyObserver(
+                attributes=tags, models=stages, stt=stt, llm=llm, tts=tts, tracer=tracer
+            )
+        case NativeService(model):
+            _register(model, handlers, log)
+            middle = [LastWordWatch(silero()), aggregators.user(), model]
+            observer = TurnLatencyObserver(
+                attributes=tags, models=stages, llm=model, tracer=tracer, native=True
+            )
     worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
         params=PipelineParams(
@@ -193,4 +261,4 @@ async def build_call(
         if environment is not None:
             await environment.finish()
 
-    return Call(worker, observer, tool_calls)
+    return Call(worker, observer, log if environment else None)

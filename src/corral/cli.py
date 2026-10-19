@@ -17,11 +17,12 @@ from dataclasses import dataclass
 from typing import NoReturn
 
 from corral import benchmark, serve, talk
-from corral.agent import load_agent
+from corral.agent import Agent, load_cascade_agent, load_native_agent
 from corral.config import Settings, get_settings
 from corral.coval_api import SyncError, coval_problem
 from corral.logging import configure_logging
 from corral.models import (
+    CASCADE,
     MODALITIES,
     Modality,
     Model,
@@ -144,13 +145,43 @@ def checker(settings: Settings) -> Checker:
 
 
 def offered_models(modality: Modality, settings: Settings) -> list[Model]:
-    """The models whose vendor has a key in .env; the first is the default."""
+    """The models whose vendor has a key in .env; the first is the default.
+
+    A cascade needs one of each, so a modality with no key is fatal. A native
+    model is optional, so no key just means the menu doesn't offer one.
+    """
     offered: list[Model] = getattr(catalog(), modality)
     keyed = [model for model in offered if api_key(model.provider, settings) is not None]
-    if not keyed:
+    if not keyed and modality != "s2s":
         names = sorted({key_name(model.provider) for model in offered})
         raise SystemExit(f"no {modality} model has a key; set one of {', '.join(names)} in .env")
     return keyed
+
+
+def choose_agent(
+    scenario: str,
+    read: Reader = input,
+    settings: Settings | None = None,
+    check: Checker | None = None,
+) -> Agent:
+    """Cascade or native when there's a native model to offer, then a model per modality."""
+    settings = settings or get_settings()
+    check = check or checker(settings)
+    native = False
+    if offered_models("s2s", settings):
+        options = ["cascade  an STT, an LLM and a TTS", "native   one speech-to-speech model"]
+        native = pick(options, "Stack", read) == 1
+    if native:
+        return load_native_agent(scenario, choose_model("s2s", read, settings, check))
+    picks = (choose_model(modality, read, settings, check) for modality in CASCADE)
+    return load_cascade_agent(scenario, *picks)
+
+
+def flagged_agent(scenario: str, args: argparse.Namespace) -> Agent:
+    """The stack the flags name: one native model, else the cascade."""
+    if args.s2s:
+        return load_native_agent(scenario, args.s2s)
+    return load_cascade_agent(scenario, args.stt, args.llm, args.tts)
 
 
 def choose_model(
@@ -232,7 +263,7 @@ def fail(parser: argparse.ArgumentParser, interactive: bool, message: str) -> No
 def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     settings = settings or get_settings()
     offered = {m: [model.id for model in offered_models(m, settings)] for m in MODALITIES}
-    models = "\n".join(f"  {m}  {', '.join(ids)}" for m, ids in offered.items())
+    models = "\n".join(f"  {m}  {', '.join(ids)}" for m, ids in offered.items() if ids)
     parser = argparse.ArgumentParser(
         prog="corral",
         description=__doc__,
@@ -247,12 +278,15 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         help="; ".join(f"{mode.name}: {mode.summary}" for mode in MODES),
     )
     for modality, ids in offered.items():
+        if not ids:
+            continue
+        native = modality == "s2s"
         parser.add_argument(
             f"--{modality}",
             choices=ids,
             metavar="MODEL",
-            default=os.environ.get(f"S2S_{modality.upper()}", ids[0]),
-            help="default: %(default)s",
+            default=os.environ.get(f"S2S_{modality.upper()}", None if native else ids[0]),
+            help="one native model in place of the three" if native else "default: %(default)s",
         )
     parser.add_argument(
         "--scenario",
@@ -323,16 +357,15 @@ def main() -> None:
         test_case = choose_test_case(scenario)
     check = checker(settings)
     if interactive:
-        picks = (choose_model(modality, settings=settings, check=check) for modality in MODALITIES)
-        agent = load_agent(scenario, *picks)
+        agent = choose_agent(scenario, settings=settings, check=check)
     else:
         # argparse checks a flag against its choices, but not a default from the environment.
         try:
-            agent = load_agent(scenario, args.stt, args.llm, args.tts)
+            agent = flagged_agent(scenario, args)
         except ValueError as error:
             fail(parser, interactive, str(error))
     # The menu checked each pick as it was made; a scripted run checks them all here.
-    for model in (agent.stt, agent.llm, agent.tts):
+    for model in agent.stack.rows:
         problem = check(model.provider)
         if problem:
             fail(parser, interactive, f"{model.id}: {problem}")

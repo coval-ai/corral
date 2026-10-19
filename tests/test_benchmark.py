@@ -8,10 +8,10 @@ from unittest.mock import patch
 import pytest
 
 from corral import benchmark, pipeline, serve
-from corral.agent import load_agent
+from corral.agent import load_cascade_agent
 from corral.config import Settings
 from corral.coval_api import CovalClient
-from corral.models import Services
+from corral.models import CascadeServices
 from corral.scenarios import require_suite
 from corral.suite import SuiteIds, WorkspaceChoice
 from tests.test_serve import _Echo, _Passthrough
@@ -21,8 +21,8 @@ REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 
 @pytest.fixture
 async def url() -> AsyncIterator[str]:
-    agent = load_agent("ultrabank", *REFERENCE)
-    fakes = Services(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
+    agent = load_cascade_agent("ultrabank", *REFERENCE)
+    fakes = CascadeServices(stt=_Echo(), llm=_Passthrough(), tts=_Passthrough())
     settings = Settings(_env_file=None, s2s_agent_token="s3cret")  # noqa: S106
     with (
         patch.object(pipeline, "resolve", return_value=fakes),
@@ -80,7 +80,7 @@ async def test_each_persona_gets_its_own_run_after_the_last_one_finishes() -> No
         patch.object(benchmark, "sync_target", return_value="A"),
         patch.object(benchmark, "POLL_SECS", 0),
     ):
-        agent = load_agent("ultrabank", *REFERENCE)
+        agent = load_cascade_agent("ultrabank", *REFERENCE)
         finals = await benchmark.run_on_coval(
             cast(CovalClient, runs), agent, "https://x.trycloudflare.com", None, request
         )
