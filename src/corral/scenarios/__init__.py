@@ -42,12 +42,9 @@ class Suite(JsonModel):
     personas: list[Entry] = Field(min_length=1)
     metrics: list[Entry] = Field(default_factory=list)
 
-    def test_case_keys(self) -> list[str]:
-        """Each written-out test case's ``test_case``, the seed its backend uses. None for an id."""
-        return list(self.keyed_test_cases())
-
     def keyed_test_cases(self) -> dict[str, str]:
-        """Each ``test_case`` and its description, in file order. Empty for a test set id."""
+        """Each written-out case's ``test_case``, the seed its backend uses, with its description.
+        In file order; empty for a test set id."""
         if isinstance(self.test_set, str):
             return {}
         return {

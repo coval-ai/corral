@@ -16,7 +16,6 @@ from corral.coval_wire import (
     SESSION_READY,
     CovalFrameSerializer,
     authorized,
-    case_key,
     simulation_id,
 )
 
@@ -70,8 +69,6 @@ async def test_outbound_audio_and_control_go_out_as_coval_expects() -> None:
 def test_the_upgrade_headers_carry_the_simulation_id_and_the_bearer() -> None:
     assert simulation_id({"x-coval-simulation-id": "sim-1"}) == "sim-1"
     assert simulation_id({}) is None
-    assert case_key({"X-Corral-Test-Case": "already-booked"}) == "already-booked"
-    assert case_key({"x-corral-test-case": ""}) is None
     assert authorized({}, None)
     assert authorized({"Authorization": "Bearer s3cret"}, "s3cret")
     assert not authorized({"Authorization": "Bearer other"}, "s3cret")

@@ -20,8 +20,8 @@ def test_a_scenario_carries_its_coval_suite_or_is_for_talking_only() -> None:
     assert load_suite("default") is None
     demo = require_suite("demo")
     assert isinstance(demo.test_set, dict)
-    assert demo.test_case_keys() == ["book-cleaning", "already-booked"]
-    assert ultrabank.test_case_keys() == []
+    assert list(demo.keyed_test_cases()) == ["book-cleaning", "already-booked"]
+    assert ultrabank.keyed_test_cases() == {}
 
 
 async def test_every_test_case_key_has_to_seed_the_backend_before_a_run() -> None:

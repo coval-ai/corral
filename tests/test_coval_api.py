@@ -5,11 +5,13 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 
 from corral.config import Settings
 from corral.coval_api import (
     CovalClient,
     CovalTarget,
+    SyncError,
     coval_problem,
     is_terminal,
     launch_body,
@@ -51,13 +53,28 @@ def test_the_target_speaks_raw_pcm_and_waits_for_session_ready() -> None:
     assert metadata["authorization_header"] == "Bearer s3cret"
     assert metadata["handshake_ready_message_type"] == "session_ready"
     assert metadata["speech_activity_enabled"] is False
-    assert metadata["custom_headers"] == {"X-Coval-Simulation-Id": "{{simulation_id}}"}
-    keyed = CovalTarget("cascade-x", URL, None, "TSDEMO", "W1", keyed=True).target_body()
-    assert keyed["metadata"]["custom_headers"]["X-Corral-Test-Case"] == "{{test_case.test_case}}"
+    assert metadata["custom_headers"] == {"X-Coval-Simulation-Id": "{{simulation_output_id}}"}
     assert (metadata["send_sample_rate_hertz"], metadata["receive_sample_rate_hertz"]) == (
         16000,
         24000,
     )
+
+
+def test_the_calling_test_case_is_asked_for_by_simulation_id() -> None:
+    attributes = {"sim-booked": "already-booked", "sim-odd": {"seed": 1}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sim, _, name = request.url.path.removeprefix("/v1/simulations/").split("/")
+        assert (request.method, name) == ("GET", "test_case")
+        if sim not in attributes:
+            return httpx.Response(404, json={"error": {"message": "no such attribute"}})
+        return httpx.Response(200, json=attributes[sim])
+
+    client = CovalClient("coval-key", "https://api.coval.dev/v1", httpx.MockTransport(handler))
+    assert client.test_case_key("sim-booked") == "already-booked"
+    assert client.test_case_key("sim-plain") is None
+    with pytest.raises(SyncError, match="not a name"):
+        client.test_case_key("sim-odd")
 
 
 def test_sync_creates_once_then_patches_only_what_changed() -> None:
