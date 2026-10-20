@@ -22,5 +22,4 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 COPY --from=build --chown=65532:65532 /app /app
 USER 65532:65532
-EXPOSE 7873
-CMD ["corral", "serve"]
+CMD ["corral", "benchmark"]

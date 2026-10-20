@@ -10,13 +10,11 @@ import asyncio
 import contextlib
 import importlib.util
 import os
-import shutil
-import socket
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NoReturn
 
-from corral import benchmark, serve, talk
+from corral import benchmark, talk
 from corral.agent import Agent, load_cascade_agent, load_native_agent
 from corral.config import Settings, get_settings
 from corral.coval_api import SyncError, coval_problem
@@ -52,21 +50,15 @@ class Mode:
 
 TALK = Mode("talk", "to the agent")
 BENCHMARK = Mode("benchmark", "with Coval")
-SERVE = Mode("serve", "the image's command: serve on PORT with no tunnel and no run")
-MODES = (TALK, BENCHMARK, SERVE)
-MENU_MODES = (TALK, BENCHMARK)
-SERVE_PORT = 7873
+MODES = (TALK, BENCHMARK)
 
 
-def missing_for(mode: Mode, settings: Settings, tunnel: bool = True) -> str | None:
+def missing_for(mode: Mode, settings: Settings) -> str | None:
     """What this machine still needs before the mode can run, or None."""
     if mode is TALK and importlib.util.find_spec("miniaudio") is None:
         return "uv sync"
-    if mode is BENCHMARK:
-        if tunnel and shutil.which("cloudflared") is None:
-            return "brew install cloudflared"
-        if not has_coval_key(settings):
-            return "COVAL_API_KEY in .env"
+    if mode is BENCHMARK and not has_coval_key(settings):
+        return "COVAL_API_KEY in .env"
     return None
 
 
@@ -89,13 +81,13 @@ def pick(options: list[str], prompt: str, read: Reader, default: int = 0) -> int
 
 def choose_mode(read: Reader = input, settings: Settings | None = None) -> Mode:
     settings = settings or get_settings()
-    width = max(len(mode.name) for mode in MENU_MODES)
+    width = max(len(mode.name) for mode in MODES)
     options = []
-    for mode in MENU_MODES:
+    for mode in MODES:
         line = f"{mode.name:<{width}}  {mode.summary}"
         needs = missing_for(mode, settings)
         options.append(f"{line}  (needs: {needs})" if needs else line)
-    return MENU_MODES[pick(options, "Mode", read)]
+    return MODES[pick(options, "Mode", read)]
 
 
 def scenarios_for(mode: Mode) -> list[str]:
@@ -211,22 +203,7 @@ def choose_model(
         print(problem)
 
 
-def choose_port(mode: Mode, flag: int | None, env: str | None) -> int:
-    """The flag, else PORT, else the image's port to serve and whatever is free otherwise."""
-    if flag is not None:
-        port = flag
-    elif env:
-        if not env.isdigit():
-            raise ValueError(f"PORT is {env!r}, not a port number")
-        port = int(env)
-    else:
-        return SERVE_PORT if mode is SERVE else 0
-    if not 0 < port < 65536:
-        raise ValueError(f"port {port} is out of range")
-    return port
-
-
-MODE_FLAGS = {"test_case": TALK, "smoke": BENCHMARK, "no_tunnel": BENCHMARK}
+MODE_FLAGS = {"test_case": TALK, "smoke": BENCHMARK}
 
 
 def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
@@ -235,18 +212,6 @@ def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
         if getattr(args, dest) and mode is not owner:
             return f"--{dest.replace('_', '-')} is for {owner.name}"
     return None
-
-
-def port_in_use(port: int) -> bool:
-    """A benchmark binds loopback, and a port held there blocks serve's every-interface bind too."""
-    if port == 0:
-        return False
-    with socket.socket() as probe:
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError:
-            return True
-    return False
 
 
 def has_coval_key(settings: Settings) -> bool:
@@ -293,17 +258,12 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         default=os.environ.get("S2S_SCENARIO"),
         help=f"default: {TALK_SCENARIO} to talk, {BENCHMARK_SCENARIO} otherwise",
     )
-    parser.add_argument(
-        "--port",
-        type=int,
-        help=f"default: PORT, else {SERVE_PORT} to serve, any free port otherwise",
-    )
     parser.add_argument_group("talk").add_argument(
         "--test-case", help="seed the scenario's tools for this test case"
     )
-    run = parser.add_argument_group("benchmark")
-    run.add_argument("--smoke", action="store_true", help="one test case, to check the wiring")
-    run.add_argument("--no-tunnel", action="store_true", help="probe localhost only")
+    parser.add_argument_group("benchmark").add_argument(
+        "--smoke", action="store_true", help="one test case, to check the wiring"
+    )
     return parser
 
 
@@ -316,18 +276,12 @@ def main() -> None:
         mode = choose_mode(settings=settings)
     else:
         mode = next(m for m in MODES if m.name == args.mode)
-    needs = missing_for(mode, settings, tunnel=not args.no_tunnel)
+    needs = missing_for(mode, settings)
     if needs:
         fail(parser, interactive, f"{mode.name} needs: {needs}")
     misplaced = misplaced_flag(mode, args)
     if misplaced:
         fail(parser, interactive, misplaced)
-    try:
-        port = choose_port(mode, args.port, os.environ.get("PORT"))
-    except ValueError as error:
-        fail(parser, interactive, str(error))
-    if mode is not TALK and port_in_use(port):
-        fail(parser, interactive, f"port {port} is in use; pass --port")
     if mode is BENCHMARK:
         # Coval answers for its key here, the way each vendor does for a model pick.
         problem = coval_problem(settings)
@@ -339,7 +293,7 @@ def main() -> None:
             scenario = known_scenario(args.scenario)
         except ValueError as error:
             fail(parser, interactive, str(error))
-    elif interactive and mode is not SERVE:
+    elif interactive:
         scenario = choose_scenario(mode)
     else:
         scenario = TALK_SCENARIO if mode is TALK else BENCHMARK_SCENARIO
@@ -376,12 +330,10 @@ def main() -> None:
                 asyncio.run(talk.run(agent, test_case))
             except ValueError as error:
                 raise SystemExit(f"corral: {error}") from None
-        elif mode is SERVE:
-            serve.serve(agent, port)
         else:
             assert request is not None  # noqa: S101
             try:
-                code = asyncio.run(benchmark.run(agent, port, not args.no_tunnel, request))
+                code = asyncio.run(benchmark.run(agent, request))
             except (SyncError, ValueError) as error:
                 raise SystemExit(f"corral: {error}") from None
             raise SystemExit(code)

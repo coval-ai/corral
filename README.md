@@ -50,12 +50,13 @@ which when you have a key for a native model.
   and speakers. Use Ctl+c to quit. If the scenario has tools, the menu asks
   which test case to seed them for (`--test-case` when scripting), and the
   tools called print after the latency table.
-- **benchmark** Serves the agent to Coval which runs your eval suite against it
-  and then prints the results (you can also see them in the Coval app). Use 
-  `--smoke` to a single test case. The benchmark command needs `brew install 
-  cloudflared`.
-- **serve** is what the Docker image runs. It puts the agent on port 7873.
-  Use `--port` or set `PORT` to run it on a different port.
+- **benchmark** Runs your eval suite on Coval against the agent and then prints
+  the results (you can also see them in the Coval app). The agent dials in to
+  Coval for each call through the Coval Agent SDK, so nothing on your machine
+  needs a public address. Use `--smoke` to run a single test case.
+
+The Docker image runs `corral benchmark`; pass the scenario and models as
+flags or as the `S2S_*` environment variables the flags default to.
 
 For scripts, pass the mode and flags instead of answering prompts:
 

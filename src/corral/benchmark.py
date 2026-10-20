@@ -1,21 +1,21 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""One benchmark: serve in-process behind a quick tunnel, point Coval at it, run, exit."""
+"""One benchmark: launch the suite on Coval, dial in to each call as it starts, print results."""
 
 from __future__ import annotations
 
 import asyncio
-import json
-import re
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
-import httpx
-import uvicorn
-from fastapi import FastAPI
+from coval_agent_sdk import AudioConnection, CovalVoiceClient
+from coval_agent_sdk.errors import CovalError
 from loguru import logger
-from websockets.asyncio.client import connect
+from pipecat.pipeline.worker import PipelineWorker
+from pipecat.workers.runner import WorkerRunner
 
 from corral.agent import Agent
 from corral.config import Settings, get_settings, remember
@@ -26,87 +26,20 @@ from corral.coval_api import (
     launch_body,
     results_lines,
     run_id_of,
+    run_succeeded,
     sync_target,
 )
-from corral.coval_wire import SESSION_READY
+from corral.coval_sdk import CovalSdkTransport
+from corral.observer import tracing
+from corral.pipeline import build_call
 from corral.scenarios import Suite, confirm_test_cases
-from corral.serve import create_app
 from corral.suite import choose_workspace, sync_suite
 
-PROBE_TIMEOUT_SECS = 30
-REACHABLE_TIMEOUT_SECS = 180
-POLL_SECS = 30
-TUNNEL_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+POLL_SECS = 2
+NOT_LIVE = frozenset({"PENDING", "IN QUEUE", "SKIPPED"})
 
-
-async def serve_in_process(
-    app: FastAPI, port: int
-) -> tuple[uvicorn.Server, asyncio.Task[None], int]:
-    """Start uvicorn on the loop we are on; returns the server, its task and the bound port."""
-    server = uvicorn.Server(
-        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", log_config=None)
-    )
-    task = asyncio.create_task(server.serve(), name="s2s-serve")
-    while not server.started:
-        if task.done():
-            task.result()
-            raise RuntimeError("server exited before starting")
-        await asyncio.sleep(0.05)
-    bound: int = server.servers[0].sockets[0].getsockname()[1]
-    return server, task, bound
-
-
-async def probe(url: str, token: str | None) -> dict[str, Any]:
-    """healthz over HTTP, then one authenticated call that must answer session_ready first."""
-    deadline = asyncio.get_running_loop().time() + REACHABLE_TIMEOUT_SECS
-    async with httpx.AsyncClient(timeout=10) as http:
-        while True:
-            try:
-                response = await http.get(f"{url}/healthz")
-                response.raise_for_status()
-                break
-            except httpx.HTTPError as error:
-                if asyncio.get_running_loop().time() > deadline:
-                    raise
-                logger.debug(f"healthz not up yet ({error!r}), retrying")
-                await asyncio.sleep(2)
-        health: dict[str, Any] = response.json()
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    ws_url = "ws" + url.removeprefix("http") + "/ws"
-    async with connect(ws_url, additional_headers=headers, open_timeout=PROBE_TIMEOUT_SECS) as ws:
-        first = await asyncio.wait_for(ws.recv(), PROBE_TIMEOUT_SECS)
-        if not isinstance(first, str) or json.loads(first) != SESSION_READY:
-            raise RuntimeError(f"expected session_ready first, got {first!r}")
-    return health
-
-
-async def open_tunnel(port: int) -> tuple[asyncio.subprocess.Process, str]:
-    """A Cloudflare quick tunnel to the port; returns the process and its public URL."""
-    process = await asyncio.create_subprocess_exec(
-        "cloudflared",
-        "tunnel",
-        "--url",
-        f"http://localhost:{port}",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stderr = process.stderr
-    if stderr is None:
-        raise RuntimeError("cloudflared started without a stderr pipe")
-    async with asyncio.timeout(PROBE_TIMEOUT_SECS):
-        while True:
-            line = await stderr.readline()
-            if not line:
-                raise RuntimeError(f"cloudflared exited with {await process.wait()} before a URL")
-            found = TUNNEL_URL.search(line.decode())
-            if found:
-                asyncio.create_task(_drain(stderr), name="cloudflared-stderr")
-                return process, found.group(0)
-
-
-async def _drain(stream: asyncio.StreamReader) -> None:
-    while await stream.readline():
-        pass
+SimulationHandler = Callable[[str], Coroutine[Any, Any, None]]
+"""Handles one simulation, by id, until Coval hangs up."""
 
 
 @dataclass(frozen=True)
@@ -114,6 +47,24 @@ class RunRequest:
     suite: Suite
     workspace_id: str | None
     sample: int
+
+
+@dataclass(frozen=True)
+class Outcome:
+    """A finished run and the calls the relay dropped, by simulation id, with why."""
+
+    run: dict[str, Any]
+    failed_calls: dict[str, str]
+
+    @property
+    def succeeded(self) -> bool:
+        return run_succeeded(self.run) and not self.failed_calls
+
+    def lines(self) -> list[str]:
+        return results_lines(self.run) + [
+            f"  call {simulation_id} failed: {why}"
+            for simulation_id, why in self.failed_calls.items()
+        ]
 
 
 def _secret(settings: Settings, name: str) -> str:
@@ -124,15 +75,13 @@ def _secret(settings: Settings, name: str) -> str:
     return secret
 
 
-async def run_on_coval(
-    coval: CovalClient, agent: Agent, url: str, token: str | None, request: RunRequest
-) -> list[dict[str, Any]]:
-    """Pick the workspace, sync the suite and agent, then run each persona in turn.
+async def pick_workspace(coval: CovalClient, wanted: str | None) -> str:
+    """Choose the workspace, use it, and pin it in .env when it had to be found by name.
 
     The Coval client is synchronous, so every call goes through a thread: this
-    loop is also serving the calls, and a blocked loop is a stalled call.
+    loop is also running the calls, and a blocked loop is a stalled call.
     """
-    choice = await asyncio.to_thread(choose_workspace, coval, request.workspace_id)
+    choice = await asyncio.to_thread(choose_workspace, coval, wanted)
     coval.use_workspace(choice.workspace_id)
     logger.info(f"Using Coval workspace {choice.workspace_id}")
     if choice.found_by_name:
@@ -140,13 +89,126 @@ async def run_on_coval(
             logger.info("Saved CORRAL_WORKSPACE_ID to .env; later runs use it")
         else:
             logger.info(f"Set CORRAL_WORKSPACE_ID={choice.workspace_id} to pin this workspace")
-    keys = list(request.suite.keyed_test_cases())
-    await confirm_test_cases(agent.scenario, keys)
+    return choice.workspace_id
+
+
+async def handle_simulation(
+    sdk: CovalVoiceClient,
+    coval: CovalClient,
+    agent: Agent,
+    settings: Settings,
+    simulation_id: str,
+) -> None:
+    """One call: build the pipeline, join the relay, run until Coval hangs up.
+
+    The relay counts unread caller audio from the moment it is ready, so the slow
+    part, loading the turn-taking models and seeding the scenario's backend, comes
+    before joining.
+    """
+    test_case = await asyncio.to_thread(coval.test_case_key, simulation_id)
+    logger.info(f"Call {simulation_id} started on {agent.slug}, test case {test_case}")
+    transport = CovalSdkTransport()
+    async with tracing(settings, simulation_id) as tracer:
+        call = await build_call(
+            agent,
+            transport,
+            settings,
+            test_case=test_case,
+            attributes={"simulation.id": simulation_id},
+            tracer=tracer,
+            conversation_id=simulation_id,
+        )
+        async with sdk.connect(simulation_id) as connection:
+            transport.attach(connection)
+            await run_until_hangup(call.worker, connection)
+    logger.info(f"Call {simulation_id} ended")
+
+
+async def run_until_hangup(worker: PipelineWorker, connection: AudioConnection) -> None:
+    """Run the pipeline until Coval hangs up, or until the pipeline dies.
+
+    Leaving the relay before Coval ends the call is a failure the SDK raises, so
+    a pipeline that dies mid-call fails the run rather than passing as a short
+    conversation. A relay failure is raised here too, once the pipeline is down.
+    """
+    runner = WorkerRunner(handle_sigint=False)
+    await runner.add_workers(worker)
+    running = asyncio.create_task(runner.run(), name=f"call-{connection.simulation_id}")
+    closing = asyncio.create_task(
+        connection.wait_closed(), name=f"relay-{connection.simulation_id}"
+    )
+    try:
+        done, _ = await asyncio.wait({running, closing}, return_when=asyncio.FIRST_COMPLETED)
+        if running not in done:
+            await worker.cancel()
+        await running
+        if closing in done:
+            await closing
+    finally:
+        closing.cancel()
+        await asyncio.gather(running, closing, return_exceptions=True)
+
+
+async def await_run(coval: CovalClient, run: dict[str, Any], handler: SimulationHandler) -> Outcome:
+    """Poll the run, joining each simulation as Coval starts it, until the run is over
+    and every call has ended.
+
+    A call the relay drops is logged and reported, and the run goes on: Coval keeps
+    going regardless, and the other calls are still worth having. Any other failure
+    in a call is a bug here, and stops the run.
+    """
+    calls: dict[str, asyncio.Task[None]] = {}
+    failed: dict[str, str] = {}
+    seen: dict[str, Any] = {}
+    status = None
+    try:
+        while True:
+            for simulation in await asyncio.to_thread(coval.list_simulations, run_id_of(run)):
+                simulation_id = str(simulation.get("simulation_id") or simulation.get("id"))
+                if seen.get(simulation_id) != simulation.get("status"):
+                    seen[simulation_id] = simulation.get("status")
+                    logger.debug(f"Simulation {simulation_id}: {simulation.get('status')}")
+                if simulation_id in calls or simulation.get("status") in NOT_LIVE:
+                    continue
+                if is_terminal(simulation):
+                    continue
+                calls[simulation_id] = asyncio.create_task(handler(simulation_id))
+            for simulation_id, task in calls.items():
+                if not task.done() or simulation_id in failed:
+                    continue
+                error = task.exception()
+                if isinstance(error, CovalError):
+                    failed[simulation_id] = str(error)
+                    logger.error(f"Call {simulation_id} failed: {error}")
+                elif error is not None:
+                    raise error
+            if run.get("status") != status:
+                status = run.get("status")
+                logger.info(f"Run {run_id_of(run)}: {status} {run.get('progress') or ''}".rstrip())
+            if is_terminal(run) and all(task.done() for task in calls.values()):
+                return Outcome(run, failed)
+            await asyncio.sleep(POLL_SECS)
+            run = await asyncio.to_thread(coval.get_run, run_id_of(run))
+    finally:
+        for task in calls.values():
+            task.cancel()
+        await asyncio.gather(*calls.values(), return_exceptions=True)
+
+
+async def run_suite(
+    coval: CovalClient,
+    agent: Agent,
+    request: RunRequest,
+    workspace_id: str,
+    handler: SimulationHandler,
+) -> list[Outcome]:
+    """Sync the suite and the agent record, then run each persona in turn."""
+    await confirm_test_cases(agent.scenario, list(request.suite.keyed_test_cases()))
     ids = await asyncio.to_thread(sync_suite, coval, request.suite)
-    definition = CovalTarget(agent.slug, url, token, ids.test_set_id, choice.workspace_id)
+    definition = CovalTarget(agent.slug, ids.test_set_id, workspace_id)
     agent_id = await asyncio.to_thread(sync_target, coval, definition)
     # One persona at a time, like one test case at a time, so no two calls share the machine.
-    runs = []
+    outcomes = []
     for persona_id in ids.persona_ids:
         body = launch_body(
             agent_id,
@@ -158,42 +220,22 @@ async def run_on_coval(
         )
         run = await asyncio.to_thread(coval.launch_run, body)
         logger.info(f"Run {run_id_of(run)} launched on agent {agent_id}: {run.get('status')}")
-        while not is_terminal(run):
-            await asyncio.sleep(POLL_SECS)
-            run = await asyncio.to_thread(coval.get_run, run_id_of(run))
-            logger.info(
-                f"Run {run_id_of(run)}: {run.get('status')} {run.get('progress') or ''}".rstrip()
-            )
-        runs.append(run)
-    return runs
+        outcomes.append(await await_run(coval, run, handler))
+    return outcomes
 
 
-async def run(agent: Agent, port: int, tunnel: bool, request: RunRequest) -> int:
+async def run(agent: Agent, request: RunRequest) -> int:
     settings = get_settings()
-    token = settings.s2s_agent_token.get_secret_value() if settings.s2s_agent_token else None
     api_key = _secret(settings, "coval_api_key")
     with CovalClient(api_key, settings.coval_api_base) as coval:
-        app = create_app(agent, coval)
-        server, task, port = await serve_in_process(app, port)
-        process = None
-        try:
-            if tunnel:
-                process, url = await open_tunnel(port)
-            else:
-                url = f"http://127.0.0.1:{port}"
-            logger.debug(f"Probing {url}")
-            health = await probe(url, token)
-            logger.info(f"Agent {health['agent']} is up at {url}")
-            print(url, flush=True)
-            finals = await run_on_coval(coval, agent, url, token, request)
-            for final in finals:
-                level = "INFO" if final.get("status") == "COMPLETED" else "WARNING"
-                logger.log(level, f"Run {run_id_of(final)} finished: {final.get('status')}")
-                print("\n".join(results_lines(final)), flush=True)
-            return 0 if all(final.get("status") == "COMPLETED" for final in finals) else 1
-        finally:
-            if process is not None and process.returncode is None:
-                process.terminate()
-                await process.wait()
-            server.should_exit = True
-            await task
+        workspace_id = await pick_workspace(coval, request.workspace_id)
+        sdk = CovalVoiceClient(
+            api_key=api_key, api_base_url=settings.coval_api_base, workspace_id=workspace_id
+        )
+        handler = partial(handle_simulation, sdk, coval, agent, settings)
+        outcomes = await run_suite(coval, agent, request, workspace_id, handler)
+    for outcome in outcomes:
+        level = "INFO" if outcome.succeeded else "WARNING"
+        logger.log(level, f"Run {run_id_of(outcome.run)} finished: {outcome.run.get('status')}")
+        print("\n".join(outcome.lines()), flush=True)
+    return 0 if all(outcome.succeeded for outcome in outcomes) else 1

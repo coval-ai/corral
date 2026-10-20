@@ -2,29 +2,24 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import importlib.util
-import shutil
-import socket
 from typing import Any
 
 import pytest
 
 from corral.cli import (
     BENCHMARK,
-    SERVE,
     TALK,
     build_parser,
     checker,
     choose_agent,
     choose_mode,
     choose_model,
-    choose_port,
     choose_scenario,
     choose_test_case,
     flagged_agent,
     known_scenario,
     misplaced_flag,
     offered_models,
-    port_in_use,
 )
 from corral.config import Settings
 
@@ -127,7 +122,6 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
-    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/local/bin/cloudflared")
     assert choose_mode(read=lambda _prompt: "2", settings=ALL_KEYS).name == "benchmark"
     talk, benchmark, *rest = capsys.readouterr().out.splitlines()
     assert talk.startswith("1. talk") and "(needs: uv sync)" in talk
@@ -179,39 +173,12 @@ def test_ctrl_c_or_ctrl_d_at_a_menu_exits_without_a_traceback(key: type[BaseExce
     assert exited.value.code == 130
 
 
-def test_a_benchmark_takes_any_free_port_and_serve_takes_the_images() -> None:
-    assert choose_port(BENCHMARK, None, None) == 0
-    assert choose_port(SERVE, None, None) == 7873
-    assert choose_port(BENCHMARK, None, "9000") == 9000
-    assert choose_port(SERVE, 8080, "9000") == 8080
-
-
-def test_a_pinned_port_that_is_taken_is_noticed_before_anything_runs() -> None:
-    with socket.socket() as taken:
-        taken.bind(("127.0.0.1", 0))
-        taken.listen()
-        port = taken.getsockname()[1]
-        assert port_in_use(port)
-    assert not port_in_use(port)
-    assert not port_in_use(0)
-
-
-def test_a_port_that_is_not_a_number_or_out_of_range_is_refused() -> None:
-    with pytest.raises(ValueError, match="PORT is 'abc', not a port number"):
-        choose_port(SERVE, None, "abc")
-    with pytest.raises(ValueError, match="port 99999 is out of range"):
-        choose_port(SERVE, 99999, None)
-    with pytest.raises(ValueError, match="port 0 is out of range"):
-        choose_port(SERVE, None, "0")
-    assert choose_port(SERVE, None, "8080") == 8080
-
-
 def test_a_flag_for_another_mode_is_named_rather_than_ignored() -> None:
-    args = build_parser(ALL_KEYS).parse_args(["serve", "--test-case", "x"])
-    assert misplaced_flag(SERVE, args) == "--test-case is for talk"
+    args = build_parser(ALL_KEYS).parse_args(["benchmark", "--test-case", "x"])
+    assert misplaced_flag(BENCHMARK, args) == "--test-case is for talk"
     args = build_parser(ALL_KEYS).parse_args(["talk", "--smoke"])
     assert misplaced_flag(TALK, args) == "--smoke is for benchmark"
-    args = build_parser(ALL_KEYS).parse_args(["benchmark", "--smoke", "--no-tunnel"])
+    args = build_parser(ALL_KEYS).parse_args(["benchmark", "--smoke"])
     assert misplaced_flag(BENCHMARK, args) is None
 
 

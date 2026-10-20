@@ -121,7 +121,7 @@ def _sync_kind(client: CovalClient, kind: Kind, entries: list[Entry]) -> list[st
 
 
 def _sync_test_cases(client: CovalClient, test_set_id: str, cases: list[dict[str, Any]]) -> None:
-    """A case's ``test_case`` goes in Coval's attributes field, which the served agent asks for."""
+    """A case's ``test_case`` goes in Coval's attributes field; the agent asks for it each call."""
     inputs = [case.get("input_str") for case in cases]
     if len(set(inputs)) != len(inputs) or not all(isinstance(i, str) and i for i in inputs):
         raise SyncError("every test case needs an input_str, and no two can share one")

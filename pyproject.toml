@@ -4,7 +4,7 @@
 [project]
 name = "benchmark-harness"
 version = "0.1.0"
-description = "Coval's own agent for the S2S benchmarks: Pipecat stacks served to Coval's simulator"
+description = "Coval's own agent for the S2S benchmarks: Pipecat stacks run against Coval's simulator"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.12,<3.13"
 readme = "README.md"
@@ -13,12 +13,10 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "loguru>=0.7",
     "httpx>=0.27",
-    "fastapi>=0.111",
-    "uvicorn[standard]>=0.30",
-    "websockets>=13,<14",
     "opentelemetry-sdk>=1.30",
     "opentelemetry-exporter-otlp-proto-http>=1.30",
-    "pipecat-ai[deepgram,elevenlabs,google,openai,silero,soniox,websocket]~=1.12",
+    "pipecat-ai[deepgram,elevenlabs,google,openai,silero,soniox]~=1.12",
+    "coval-agent-sdk>=0.1.0,<0.2",
 ]
 
 [project.scripts]
