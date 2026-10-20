@@ -3,9 +3,11 @@
 
 import importlib.util
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
+from corral import cli
 from corral.cli import (
     BENCHMARK,
     TALK,
@@ -22,6 +24,7 @@ from corral.cli import (
     offered_models,
 )
 from corral.config import Settings
+from corral.scenarios import Suite
 
 KEYS: dict[str, Any] = {
     "coval_api_key": "ck",
@@ -136,31 +139,40 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
 def test_talk_asks_which_seed_when_the_suite_names_test_cases(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert choose_test_case("demo", read=lambda _prompt: "2") == "already-booked"
-    out = capsys.readouterr().out.splitlines()
-    assert out[0].startswith("1. book-cleaning   The slot is free")
-    assert out[1].startswith("2. already-booked  The patient already has an appointment")
-    assert choose_test_case("demo", read=lambda _prompt: "") == "book-cleaning"
-    capsys.readouterr()
+    cases = [
+        {"test_case": "book-cleaning", "description": "The slot is free"},
+        {"test_case": "already-booked", "description": "The patient already has one"},
+    ]
+    suite = Suite(test_set={"test_cases": cases}, personas=["p1"])
+    with patch.object(cli, "load_suite", return_value=suite):
+        assert choose_test_case("dental", read=lambda _prompt: "2") == "already-booked"
+        out = capsys.readouterr().out.splitlines()
+        assert out[0].startswith("1. book-cleaning   The slot is free")
+        assert out[1].startswith("2. already-booked  The patient already has one")
+        assert choose_test_case("dental", read=lambda _prompt: "") == "book-cleaning"
+
+
+def test_talk_asks_nothing_when_the_suite_has_no_test_case_keys(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert choose_test_case("ultrabank", read=lambda _prompt: "9") is None
     assert capsys.readouterr().out == ""
 
 
 def test_a_scenario_that_does_not_exist_says_which_do() -> None:
-    assert known_scenario("demo") == "demo"
-    with pytest.raises(ValueError, match="no scenario 'dental'; have default, demo, ultrabank"):
+    assert known_scenario("ultrabank") == "ultrabank"
+    with pytest.raises(ValueError, match="no scenario 'dental'; have default, ultrabank"):
         known_scenario("dental")
 
 
 def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFixture[str]) -> None:
-    assert choose_scenario(TALK, read=lambda _prompt: "3") == "ultrabank"
+    assert choose_scenario(TALK, read=lambda _prompt: "2") == "ultrabank"
     out = capsys.readouterr().out
     assert "1. default    helpful assistant\n" in out
-    assert "2. demo       fake dental booking backend, just for trying tools\n" in out
-    assert "3. ultrabank  Instruction adherence test set (internal)\n" in out
-    assert choose_scenario(BENCHMARK, read=lambda _prompt: "2") == "ultrabank"
+    assert "2. ultrabank  Instruction adherence test set (internal)\n" in out
+    assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "ultrabank"
     out = capsys.readouterr().out
-    assert "default" not in out and out.startswith("1. demo")
+    assert "default" not in out and out.startswith("1. ultrabank")
 
 
 @pytest.mark.parametrize("key", [KeyboardInterrupt, EOFError])

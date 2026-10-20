@@ -1,9 +1,14 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
+from unittest.mock import patch
+
 import pytest
 
+from corral import scenarios
+from corral.environment import JsonEnvironment, ToolsFile
 from corral.scenarios import (
+    Suite,
     behavior_files,
     confirm_test_cases,
     load_environment,
@@ -12,43 +17,53 @@ from corral.scenarios import (
 )
 
 
+def _booking() -> JsonEnvironment:
+    """One tool, one answer, one test case that changes it."""
+    spec = ToolsFile(
+        tools=[{"name": "book", "description": "Book it."}],
+        responses={"book": {"ok": True}},
+        test_cases={"already-booked": {"book": {"ok": False}}},
+    )
+    return JsonEnvironment(spec)
+
+
 def test_a_scenario_carries_its_coval_suite_or_is_for_talking_only() -> None:
     ultrabank = require_suite("ultrabank")
     assert ultrabank.test_set == "QjkAPGkb"
     assert ultrabank.workspace == "01KVGSYSYM8VWWE8M8Y5S14D5N"
     assert len(ultrabank.personas) == 1 and len(ultrabank.metrics) == 3
     assert load_suite("default") is None
-    demo = require_suite("demo")
-    assert isinstance(demo.test_set, dict)
-    assert list(demo.keyed_test_cases()) == ["book-cleaning", "already-booked"]
-    assert ultrabank.keyed_test_cases() == {}
-
-
-async def test_every_test_case_key_has_to_seed_the_backend_before_a_run() -> None:
-    await confirm_test_cases("demo", ["book-cleaning", "already-booked"])
-    await confirm_test_cases("ultrabank", [])
-    with pytest.raises(ValueError, match="no test case 'already-booke'"):
-        await confirm_test_cases("demo", ["already-booke"])
-    with pytest.raises(ValueError, match="default has test case keys but no tools"):
-        await confirm_test_cases("default", ["x"])
     with pytest.raises(ValueError, match="'default' has no coval.json"):
         require_suite("default")
 
 
-async def test_a_scenario_with_a_tools_py_gives_the_agent_a_fresh_backend_per_call() -> None:
+def test_a_written_out_test_case_names_the_seed_its_backend_uses() -> None:
+    assert require_suite("ultrabank").keyed_test_cases() == {}
+    suite = Suite(
+        test_set={"test_cases": [{"test_case": "already-booked", "description": "Taken."}]},
+        personas=["p1"],
+    )
+    assert suite.keyed_test_cases() == {"already-booked": "Taken."}
+
+
+async def test_every_test_case_key_is_tried_on_the_backend_before_a_run() -> None:
+    with patch.object(scenarios, "load_environment", return_value=_booking()):
+        await confirm_test_cases("dental", ["already-booked"])
+        with pytest.raises(ValueError, match="no test case 'already-booke'"):
+            await confirm_test_cases("dental", ["already-booke"])
+
+
+async def test_a_test_case_key_on_a_scenario_without_tools_is_refused() -> None:
+    await confirm_test_cases("default", [])
+    with pytest.raises(ValueError, match="default has test case keys but no tools"):
+        await confirm_test_cases("default", ["x"])
+
+
+def test_a_scenario_without_a_tools_py_gives_the_agent_no_backend() -> None:
     assert load_environment("default") is None
-    first, second = load_environment("demo"), load_environment("demo")
-    assert first is not None and second is not None and first is not second
-    assert [tool.schema.name for tool in first.tools] == ["find_patient", "book_appointment"]
-    await first.start("already-booked")
-    await second.start(None)
-    book = {tool.schema.name: tool.handler for tool in second.tools}["book_appointment"]
-    assert await book({"patient_id": 123, "date": "2026-10-21"}) == {
-        "ok": True,
-        "confirmation": "A1B2",
-    }
+    assert load_environment("ultrabank") is None
 
 
 def test_the_files_that_change_the_agent_are_the_prompt_and_the_tools() -> None:
     assert list(behavior_files("default")) == ["system-prompt.txt"]
-    assert list(behavior_files("demo")) == ["system-prompt.txt", "tools.json", "tools.py"]
+    assert list(behavior_files("ultrabank")) == ["system-prompt.txt"]

@@ -10,9 +10,7 @@ A scenario is a directory here with:
   the agent just talks.
 
 `default` is a plain assistant for trying models by voice. `ultrabank` is
-Ultra Bank with the short daily test set. `demo` is a dental receptionist
-over a fake booking backend. It's only there to try tools out and isn't one
-of the scenarios we publish results for.
+Ultra Bank with the short daily test set.
 
 ## tools.py
 
@@ -20,9 +18,9 @@ of the scenarios we publish results for.
 one call: a list of tools, `start(test_case)` to seed it, `finish()` to clean
 up. Every call gets its own, so calls can't see each other's bookings.
 
-The easy version is canned answers from a `tools.json` next to it. `demo`
-is the example: each tool answers the same thing however it's called, and a
-test case swaps in different answers. When you need answers that depend on the
+The easy version is canned answers from a `tools.json` next to it, loaded
+with `JsonEnvironment.load`: each tool answers the same thing however it's
+called, and a test case swaps in different answers. When you need answers that depend on the
 arguments, or state that changes after a write, write your own in `tools.py`
 with those same three parts. Handlers take the arguments as a dict and return
 the result. They never see Pipecat.

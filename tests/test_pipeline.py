@@ -22,7 +22,7 @@ from pipecat.transports.base_transport import BaseTransport
 from corral import pipeline
 from corral.agent import load_cascade_agent, load_native_agent
 from corral.config import Settings
-from corral.environment import Tool
+from corral.environment import JsonEnvironment, Tool, ToolsFile
 from corral.models import CascadeServices, NativeService
 from corral.pipeline import (
     LastWordWatch,
@@ -120,37 +120,73 @@ async def test_a_handler_that_raises_answers_the_llm_with_the_error() -> None:
     ]
 
 
+def _booking() -> JsonEnvironment:
+    """One tool, one answer, one test case that changes it."""
+    spec = ToolsFile(
+        tools=[{"name": "book", "description": "Book it."}],
+        responses={"book": {"ok": True}},
+        test_cases={"already-booked": {"book": {"ok": False}}},
+    )
+    return JsonEnvironment(spec)
+
+
+def _cascade(llm: LLMService) -> CascadeServices:
+    return CascadeServices(stt=FrameProcessor(), llm=llm, tts=FrameProcessor())
+
+
 async def test_a_call_seeds_the_backend_and_puts_its_tools_on_the_llm() -> None:
     llm = LLMService()
-    fakes = CascadeServices(stt=FrameProcessor(), llm=llm, tts=FrameProcessor())
-    with patch.object(pipeline, "resolve", return_value=fakes):
-        demo = load_cascade_agent("demo", *REFERENCE)
-        call = await build_call(demo, _Transport(), SETTINGS, test_case="already-booked")
-        assert call.tool_calls == []
-        assert llm.has_function("find_patient") and llm.has_function("book_appointment")
-        results: list[Any] = []
-        registered = cast(Any, llm._functions["book_appointment"]).handler
-        await registered(_params({"patient_id": 123}, results))
-        assert results == [{"ok": False, "error": "patient already has an appointment"}]
-        assert call.tool_calls == [ToolCall("book_appointment", {"patient_id": 123}, results[0])]
-        with pytest.raises(ValueError, match="no test case 'nope'"):
-            await build_call(
-                load_cascade_agent("demo", *REFERENCE), _Transport(), SETTINGS, test_case="nope"
-            )
-        with pytest.raises(ValueError, match="default has no tools"):
-            await build_call(
-                load_cascade_agent("default", *REFERENCE), _Transport(), SETTINGS, test_case="x"
-            )
-        plain = await build_call(load_cascade_agent("default", *REFERENCE), _Transport(), SETTINGS)
-        assert plain.tool_calls is None
+    with (
+        patch.object(pipeline, "resolve", return_value=_cascade(llm)),
+        patch.object(pipeline, "load_environment", return_value=_booking()),
+    ):
+        agent = load_cascade_agent("ultrabank", *REFERENCE)
+        call = await build_call(agent, _Transport(), SETTINGS, test_case="already-booked")
+    assert call.tool_calls == []
+    assert llm.has_function("book")
+    results: list[Any] = []
+    registered = cast(Any, llm._functions["book"]).handler
+    await registered(_params({"date": "2026-10-21"}, results))
+    assert results == [{"ok": False}]
+    assert call.tool_calls == [ToolCall("book", {"date": "2026-10-21"}, {"ok": False})]
+
+
+async def test_a_test_case_the_backend_cannot_seed_is_refused() -> None:
+    with (
+        patch.object(pipeline, "resolve", return_value=_cascade(LLMService())),
+        patch.object(pipeline, "load_environment", return_value=_booking()),
+        pytest.raises(ValueError, match="no test case 'nope'"),
+    ):
+        await build_call(
+            load_cascade_agent("ultrabank", *REFERENCE), _Transport(), SETTINGS, test_case="nope"
+        )
+
+
+async def test_a_test_case_on_a_scenario_without_tools_is_refused() -> None:
+    with (
+        patch.object(pipeline, "resolve", return_value=_cascade(LLMService())),
+        pytest.raises(ValueError, match="default has no tools"),
+    ):
+        await build_call(
+            load_cascade_agent("default", *REFERENCE), _Transport(), SETTINGS, test_case="x"
+        )
+
+
+async def test_a_call_without_tools_logs_no_tool_calls() -> None:
+    with patch.object(pipeline, "resolve", return_value=_cascade(LLMService())):
+        call = await build_call(load_cascade_agent("default", *REFERENCE), _Transport(), SETTINGS)
+    assert call.tool_calls is None
 
 
 async def test_a_native_call_puts_the_tools_on_the_one_model_and_watches_the_last_word() -> None:
     model = LLMService()
-    agent = load_native_agent("demo", "openai/gpt-realtime-2.1")
-    with patch.object(pipeline, "resolve", return_value=NativeService(model)):
-        call = await build_call(agent, _Transport(), SETTINGS, test_case="book-cleaning")
-    assert model.has_function("find_patient") and model.has_function("book_appointment")
+    agent = load_native_agent("ultrabank", "openai/gpt-realtime-2.1")
+    with (
+        patch.object(pipeline, "resolve", return_value=NativeService(model)),
+        patch.object(pipeline, "load_environment", return_value=_booking()),
+    ):
+        call = await build_call(agent, _Transport(), SETTINGS, test_case="already-booked")
+    assert model.has_function("book")
     assert call.observer._native is True and call.observer._llm is model
     assert call.observer._stt is None and call.observer._tts is None
     inner = next(p for p in call.worker._pipeline._processors if isinstance(p, Pipeline))
@@ -178,7 +214,7 @@ async def test_the_backend_is_cleaned_up_when_the_pipeline_finishes() -> None:
         patch.object(pipeline, "load_environment", return_value=environment),
     ):
         call = await build_call(
-            load_cascade_agent("demo", *REFERENCE), _Transport(), SETTINGS, test_case="x"
+            load_cascade_agent("ultrabank", *REFERENCE), _Transport(), SETTINGS, test_case="x"
         )
     assert environment.events == ["start x"]
     await call.worker._call_event_handler("on_pipeline_finished", None)
