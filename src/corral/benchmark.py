@@ -140,12 +140,10 @@ async def run_on_coval(
             logger.info("Saved CORRAL_WORKSPACE_ID to .env; later runs use it")
         else:
             logger.info(f"Set CORRAL_WORKSPACE_ID={choice.workspace_id} to pin this workspace")
-    keys = request.suite.test_case_keys()
+    keys = list(request.suite.keyed_test_cases())
     await confirm_test_cases(agent.scenario, keys)
     ids = await asyncio.to_thread(sync_suite, coval, request.suite)
-    definition = CovalTarget(
-        agent.slug, url, token, ids.test_set_id, choice.workspace_id, keyed=bool(keys)
-    )
+    definition = CovalTarget(agent.slug, url, token, ids.test_set_id, choice.workspace_id)
     agent_id = await asyncio.to_thread(sync_target, coval, definition)
     # One persona at a time, like one test case at a time, so no two calls share the machine.
     runs = []
@@ -174,27 +172,28 @@ async def run(agent: Agent, port: int, tunnel: bool, request: RunRequest) -> int
     settings = get_settings()
     token = settings.s2s_agent_token.get_secret_value() if settings.s2s_agent_token else None
     api_key = _secret(settings, "coval_api_key")
-    server, task, port = await serve_in_process(create_app(agent), port)
-    process = None
-    try:
-        if tunnel:
-            process, url = await open_tunnel(port)
-        else:
-            url = f"http://127.0.0.1:{port}"
-        logger.debug(f"Probing {url}")
-        health = await probe(url, token)
-        logger.info(f"Agent {health['agent']} is up at {url}")
-        print(url, flush=True)
-        with CovalClient(api_key, settings.coval_api_base) as coval:
+    with CovalClient(api_key, settings.coval_api_base) as coval:
+        app = create_app(agent, coval)
+        server, task, port = await serve_in_process(app, port)
+        process = None
+        try:
+            if tunnel:
+                process, url = await open_tunnel(port)
+            else:
+                url = f"http://127.0.0.1:{port}"
+            logger.debug(f"Probing {url}")
+            health = await probe(url, token)
+            logger.info(f"Agent {health['agent']} is up at {url}")
+            print(url, flush=True)
             finals = await run_on_coval(coval, agent, url, token, request)
-        for final in finals:
-            level = "INFO" if final.get("status") == "COMPLETED" else "WARNING"
-            logger.log(level, f"Run {run_id_of(final)} finished: {final.get('status')}")
-            print("\n".join(results_lines(final)), flush=True)
-        return 0 if all(final.get("status") == "COMPLETED" for final in finals) else 1
-    finally:
-        if process is not None and process.returncode is None:
-            process.terminate()
-            await process.wait()
-        server.should_exit = True
-        await task
+            for final in finals:
+                level = "INFO" if final.get("status") == "COMPLETED" else "WARNING"
+                logger.log(level, f"Run {run_id_of(final)} finished: {final.get('status')}")
+                print("\n".join(results_lines(final)), flush=True)
+            return 0 if all(final.get("status") == "COMPLETED" for final in finals) else 1
+        finally:
+            if process is not None and process.returncode is None:
+                process.terminate()
+                await process.wait()
+            server.should_exit = True
+            await task

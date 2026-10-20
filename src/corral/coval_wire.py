@@ -28,19 +28,12 @@ from pipecat.serializers.base_serializer import FrameSerializer
 from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ
 
 SIMULATION_HEADER = "x-coval-simulation-id"
-TEST_CASE_HEADER = "x-corral-test-case"
 SESSION_READY = {"type": "session_ready"}
 
 
 def simulation_id(headers: Mapping[str, str]) -> str | None:
     lowered = {key.lower(): value for key, value in headers.items()}
     return lowered.get(SIMULATION_HEADER) or None
-
-
-def case_key(headers: Mapping[str, str]) -> str | None:
-    """Which test case this call is, so the scenario's backend can seed for it."""
-    lowered = {key.lower(): value for key, value in headers.items()}
-    return lowered.get(TEST_CASE_HEADER) or None
 
 
 def authorized(headers: Mapping[str, str], token: str | None) -> bool:

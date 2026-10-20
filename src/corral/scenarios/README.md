@@ -28,8 +28,10 @@ with those same three parts. Handlers take the arguments as a dict and return
 the result. They never see Pipecat.
 
 To seed the backend differently per test case, give each case in `coval.json`
-a `test_case` naming the seed. Coval sends it to the agent in a header, and
-one the backend doesn't know fails before the run starts.
+a `test_case` naming the seed. When Coval calls, the agent asks Coval which
+test case is on the line and seeds the backend for it, so the Coval key needs
+`simulations:read`. A name the backend doesn't know fails before the run
+starts.
 
 ## coval.json
 

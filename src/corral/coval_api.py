@@ -14,7 +14,7 @@ from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, Settings
 
 COVAL_API_BASE = "https://api.coval.dev/v1"
 WORKSPACE_HEADER = "X-Coval-Workspace-Id"
-TEST_CASE_HEADER = "X-Corral-Test-Case"
+TEST_CASE_ATTRIBUTE = "test_case"
 _TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
@@ -129,6 +129,19 @@ class CovalClient:
     def get_run(self, run_id: str) -> dict[str, Any]:
         return _unwrap(self._request("GET", f"/runs/{run_id}"), "run")
 
+    def test_case_key(self, simulation_id: str) -> str | None:
+        """The calling test case's ``test_case`` attribute, or None when it has none."""
+        path = f"/simulations/{simulation_id}/attributes/{TEST_CASE_ATTRIBUTE}"
+        response = self._client.get(path)
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise SyncError(f"GET {path} -> {response.status_code}: {response.text[:400]}")
+        value = response.json()
+        if not isinstance(value, str):
+            raise SyncError(f"the test case's {TEST_CASE_ATTRIBUTE} is {value!r}, not a name")
+        return value
+
 
 def _unwrap(payload: dict[str, Any], key: str) -> dict[str, Any]:
     """Coval wraps one item under its singular name; fall back to the payload if it doesn't."""
@@ -150,7 +163,6 @@ class CovalTarget:
     token: str | None
     test_set_id: str
     workspace_id: str
-    keyed: bool = False
 
     @property
     def customer_agent_id(self) -> str:
@@ -162,9 +174,7 @@ class CovalTarget:
         return self.slug
 
     def target_body(self) -> dict[str, Any]:
-        headers = {"X-Coval-Simulation-Id": "{{simulation_id}}"}
-        if self.keyed:
-            headers[TEST_CASE_HEADER] = "{{test_case.test_case}}"
+        headers = {"X-Coval-Simulation-Id": "{{simulation_output_id}}"}
         metadata: dict[str, Any] = {
             "connection_mode": "direct",
             "endpoint": "wss" + self.url.removeprefix("https").removeprefix("http") + "/ws",

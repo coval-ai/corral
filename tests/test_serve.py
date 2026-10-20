@@ -4,6 +4,7 @@
 from collections.abc import Iterator
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from pipecat.frames.frames import Frame, InputAudioRawFrame, OutputAudioRawFrame
@@ -13,6 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 from corral import pipeline, serve
 from corral.agent import load_cascade_agent
 from corral.config import Settings
+from corral.coval_api import CovalClient
 from corral.models import CascadeServices
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
@@ -36,6 +38,17 @@ class _Echo(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
+def _coval() -> CovalClient:
+    """Coval that knows one simulation, running the demo's booking case."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/simulations/sim-booked/attributes/test_case":
+            return httpx.Response(200, json="book-cleaning")
+        return httpx.Response(404, json={"error": {"message": "no such attribute"}})
+
+    return CovalClient("coval-key", "https://api.coval.dev/v1", httpx.MockTransport(handler))
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     agent = load_cascade_agent("ultrabank", *REFERENCE)
@@ -45,7 +58,7 @@ def client() -> Iterator[TestClient]:
         patch.object(pipeline, "resolve", return_value=fakes),
         patch.object(serve, "get_settings", return_value=settings),
     ):
-        yield TestClient(serve.create_app(agent))
+        yield TestClient(serve.create_app(agent, _coval()))
 
 
 def test_healthz_names_the_agent_and_a_bad_bearer_is_refused(client: TestClient) -> None:
@@ -60,7 +73,7 @@ def test_healthz_names_the_agent_and_a_bad_bearer_is_refused(client: TestClient)
 
 
 def test_a_test_case_the_scenario_cannot_seed_is_refused_not_crashed(client: TestClient) -> None:
-    headers = {"Authorization": "Bearer s3cret", "X-Corral-Test-Case": "book-cleaning"}
+    headers = {"Authorization": "Bearer s3cret", "X-Coval-Simulation-Id": "sim-booked"}
     with (
         client.websocket_connect("/ws", headers=headers) as socket,
         pytest.raises(WebSocketDisconnect) as refused,
