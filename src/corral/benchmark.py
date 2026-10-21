@@ -139,12 +139,17 @@ async def run_until_hangup(worker: PipelineWorker, connection: AudioConnection) 
     )
     try:
         done, _ = await asyncio.wait({running, closing}, return_when=asyncio.FIRST_COMPLETED)
-        if running not in done:
+        if running in done:
+            await running
+        else:
             await worker.cancel()
-        await running
         if closing in done:
             await closing
     finally:
+        # Reached on cancellation too: the pipeline has to come down with the handler,
+        # or its provider connections stay open and shutdown hangs on them.
+        if not running.done():
+            await worker.cancel()
         closing.cancel()
         await asyncio.gather(running, closing, return_exceptions=True)
 

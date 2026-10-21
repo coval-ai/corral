@@ -42,13 +42,16 @@ class _Connection:
 
     simulation_id = "S1"
 
-    def __init__(self) -> None:
+    def __init__(self, hangs_up: bool = True) -> None:
         self.closed = False
         self.sent = bytearray()
         self.enough = asyncio.Event()
+        self.hangs_up = hangs_up
 
     async def wait_closed(self) -> None:
         await self.enough.wait()
+        if not self.hangs_up:
+            await asyncio.Event().wait()
         self.closed = True
 
     async def receive_audio(self) -> AsyncIterator[bytes]:
@@ -75,6 +78,26 @@ async def test_the_sdk_transport_carries_audio_both_ways_until_coval_hangs_up() 
     await asyncio.wait_for(benchmark.run_until_hangup(worker, connection), 10)
     expected = bytes(range(256)) * (CHUNK // 256) + bytes(reversed(range(256))) * (CHUNK // 256)
     assert bytes(cast(_Connection, connection).sent[: 2 * CHUNK]) == expected
+
+
+async def test_cancelling_the_handler_brings_the_pipeline_down_with_it() -> None:
+    connection = _Connection(hangs_up=False)
+    transport = CovalSdkTransport()
+    transport.attach(cast(AudioConnection, connection))
+    worker = PipelineWorker(
+        Pipeline([transport.input(), _Echo(), transport.output()]),
+        params=PipelineParams(
+            audio_in_sample_rate=SDK_SAMPLE_RATE_HZ, audio_out_sample_rate=SDK_SAMPLE_RATE_HZ
+        ),
+    )
+    handling = asyncio.create_task(
+        benchmark.run_until_hangup(worker, cast(AudioConnection, connection))
+    )
+    await asyncio.wait_for(connection.enough.wait(), 10)
+    handling.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(handling, 10)
+    assert worker.has_finished()
 
 
 def test_a_call_cannot_start_before_the_sdk_connection_is_attached() -> None:
