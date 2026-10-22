@@ -104,6 +104,12 @@ the file and it's gone from Coval too.
 
 Every persona gets its own run.
 
+To keep many test cases but place only some per run, set `sample` to how many.
+Corral asks Coval for that many, picked by the UTC date, so every agent and
+persona benchmarked the same day gets the same ones, and the set rotates from
+day to day. `id_roulette` uses `"sample": 1`. `--smoke` still picks one at
+random.
+
 `workspace` is where all of it lives. If you leave it out, Corral uses
 `CORRAL_WORKSPACE_ID` from your `.env`. If that's empty too, it finds the
 workspace called Corral, or makes it, and saves the id to your `.env`.

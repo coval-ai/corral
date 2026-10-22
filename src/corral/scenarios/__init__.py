@@ -37,10 +37,13 @@ Entry = str | dict[str, Any]
 
 
 class Suite(JsonModel):
+    """``sample`` runs that many of the test cases per run, the same ones all day."""
+
     workspace: str | None = None
     test_set: Entry
     personas: list[Entry] = Field(min_length=1)
     metrics: list[Entry] = Field(default_factory=list)
+    sample: int | None = Field(default=None, ge=1)
 
     def keyed_test_cases(self) -> dict[str, str]:
         """Each written-out case's ``test_case``, the seed its backend uses, with its description.

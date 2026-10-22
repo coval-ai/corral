@@ -12,6 +12,7 @@ import importlib.util
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import NoReturn
 
 from corral import benchmark, talk
@@ -304,7 +305,9 @@ def main() -> None:
         except ValueError as error:
             fail(parser, interactive, str(error))
         workspace_id = suite.workspace or get_settings().corral_workspace_id
-        request = benchmark.RunRequest(suite, workspace_id, sample=1 if args.smoke else 0)
+        request = benchmark.run_request(
+            suite, workspace_id, smoke=args.smoke, today=datetime.now(UTC).date()
+        )
 
     test_case = args.test_case
     if interactive and mode is TALK:

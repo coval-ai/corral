@@ -1,4 +1,5 @@
 {
+  "sample": 1,
   "test_set": {
     "display_name": "Corral ID Roulette",
     "test_cases": [

@@ -3,6 +3,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import date
 from typing import Any, cast
 from unittest.mock import patch
 
@@ -196,3 +197,16 @@ async def test_a_workspace_found_by_name_is_pinned_for_next_time() -> None:
         assert await benchmark.pick_workspace(cast(CovalClient, client), None) == "W1"
     assert client.workspace_id == "W1"
     remembered.assert_called_once_with("CORRAL_WORKSPACE_ID", "W1")
+
+
+def test_a_sampled_suite_runs_the_same_test_cases_all_day_and_a_smoke_runs_one_at_random() -> None:
+    sampled = require_suite("id_roulette")
+    assert sampled.sample == 1
+    day = benchmark.run_request(sampled, "W", smoke=False, today=date(2026, 10, 22))
+    assert (day.sample, day.seed) == (1, 20261022)
+    smoke = benchmark.run_request(sampled, "W", smoke=True, today=date(2026, 10, 22))
+    assert (smoke.sample, smoke.seed) == (1, None)
+    every = benchmark.run_request(
+        require_suite("ultrabank"), None, smoke=False, today=date(2026, 10, 22)
+    )
+    assert (every.sample, every.seed) == (0, None)

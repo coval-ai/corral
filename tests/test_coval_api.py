@@ -95,7 +95,16 @@ def test_launch_runs_the_boards_metrics_one_call_at_a_time() -> None:
     assert body["options"] == {"iteration_count": 1, "concurrency": 1}
     assert body["metric_ids"] == ["M1", "M2"]
     sampled = launch_body("A" * 22, "P" * 22, "TSBANK", [], sample=2, display_name="x")
-    assert sampled["options"]["sub_sample_size"] == 2
+    assert (
+        sampled["options"]["sub_sample_size"] == 2 and "sub_sample_seed" not in sampled["options"]
+    )
+    seeded = launch_body("A" * 22, "P" * 22, "TSBANK", [], sample=1, display_name="x", seed=7)
+    assert seeded["options"] == {
+        "iteration_count": 1,
+        "concurrency": 1,
+        "sub_sample_size": 1,
+        "sub_sample_seed": 7,
+    }
     assert not is_terminal({"status": "RUNNING"}) and is_terminal({"status": "COMPLETED"})
 
 
