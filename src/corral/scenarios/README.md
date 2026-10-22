@@ -11,6 +11,11 @@ A scenario is a directory here with:
 
 `default` is a plain assistant for trying models by voice. `ultrabank` is
 Ultra Bank with the short daily test set.
+`id_roulette` is one short call: the caller reads out a detail once and the
+agent looks it up as it heard it. The details are account ids, emails, card
+numbers, postal codes and spelled surnames, three of each. Its personas run
+from a quiet room to an office to a landline with an air conditioner, so it
+shows which details and which caller conditions make agents mishear.
 
 ## tools.py
 
@@ -18,9 +23,9 @@ Ultra Bank with the short daily test set.
 one call: a list of tools, `start(test_case)` to seed it, `finish()` to clean
 up. Every call gets its own, so calls can't see each other's bookings.
 
-The easy version is canned answers from a `tools.json` next to it, loaded
-with `JsonEnvironment.load`: each tool answers the same thing however it's
-called, and a test case swaps in different answers. When you need answers that depend on the
+The easy version is canned answers from a `tools.json` next to it, like
+`id_roulette` has: each tool answers the same thing however it's called, and
+a test case swaps in different answers. When you need answers that depend on the
 arguments, or state that changes after a write, write your own in `tools.py`
 with those same three parts. Handlers take the arguments as a dict and return
 the result. They never see Pipecat.

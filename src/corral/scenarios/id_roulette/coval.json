@@ -1,0 +1,101 @@
+{
+  "test_set": {
+    "display_name": "Corral ID Roulette",
+    "test_cases": [
+      {
+        "description": "A long account id of easily confused letters and digits.",
+        "input_str": "Your account id is K D 7 B O 0 R W N L M X 0 O 4 B Y D. When the agent asks what to look up, say \"My account id is\" and read it once, one character at a time: K, D, seven, B, oh, zero, R, W, N, L, M, X, zero, oh, four, B, Y, D. Say zero for each digit zero and oh for each letter O. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A long account id of easily confused letters and digits.",
+        "input_str": "Your account id is M 0 N 8 D B W 3 O E N 5. When the agent asks what to look up, say \"My account id is\" and read it once, one character at a time: M, zero, N, eight, D, B, W, three, oh, E, N, five. Say zero for each digit zero and oh for each letter O. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A long account id of easily confused letters and digits.",
+        "input_str": "Your account id is B 9 D P T V 0 O E G 2 M 4 N. When the agent asks what to look up, say \"My account id is\" and read it once, one character at a time: B, nine, D, P, T, V, zero, oh, E, G, two, M, four, N. Say zero for each digit zero and oh for each letter O. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "An email address with letters, digits and symbols said aloud.",
+        "input_str": "Your email address is j.okafor_88@example.com. When the agent asks what to look up, say \"My email is\" and then say it like this: J, dot, O K A F O R, underscore, eight eight, at example dot com. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "An email address with letters, digits and symbols said aloud.",
+        "input_str": "Your email address is mbdn.weiss-07@example.org. When the agent asks what to look up, say \"My email is\" and then say it like this: M B D N, dot, W E I S S, dash, zero seven, at example dot org. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "An email address with letters, digits and symbols said aloud.",
+        "input_str": "Your email address is s_nguyen.ott@example.net. When the agent asks what to look up, say \"My email is\" and then say it like this: S, underscore, N G U Y E N, dot, O T T, at example dot net. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A card number read in groups.",
+        "input_str": "Your card number is 4242424242424242. When the agent asks what to look up, say \"My card number is\" and read it once in groups, with a short pause between groups: four two four two, four two four two, four two four two, four two four two. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A card number read in groups.",
+        "input_str": "Your card number is 5555555555554444. When the agent asks what to look up, say \"My card number is\" and read it once in groups, with a short pause between groups: five five five five, five five five five, five five five five, four four four four. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A card number read in groups.",
+        "input_str": "Your card number is 378282246310005. When the agent asks what to look up, say \"My card number is\" and read it once in groups, with a short pause between groups: three seven eight two, eight two two four six three, one zero zero zero five. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A postal code that alternates letters and digits.",
+        "input_str": "Your postal code is K1A 0B1. When the agent asks what to look up, say \"My postal code is\" and read it once, one character at a time, with a short pause in the middle: K, one, A, zero, B, one. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A postal code that alternates letters and digits.",
+        "input_str": "Your postal code is V6B 4Y8. When the agent asks what to look up, say \"My postal code is\" and read it once, one character at a time, with a short pause in the middle: V, six, B, four, Y, eight. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A postal code that alternates letters and digits.",
+        "input_str": "Your postal code is SW1A 1AA. When the agent asks what to look up, say \"My postal code is\" and read it once, one character at a time, with a short pause in the middle: S, W, one, A, one, A, A. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A surname said, then spelled letter by letter.",
+        "input_str": "Your last name is Szczepanski. When the agent asks what to look up, say \"My last name is Szczepanski\", then spell it once: S, Z, C, Z, E, P, A, N, S, K, I. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A surname said, then spelled letter by letter.",
+        "input_str": "Your last name is O'Neill. When the agent asks what to look up, say \"My last name is O'Neill\", then spell it once: O, apostrophe, N, E, I, L, L. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      },
+      {
+        "description": "A surname said, then spelled letter by letter.",
+        "input_str": "Your last name is Nguyen. When the agent asks what to look up, say \"My last name is Nguyen\", then spell it once: N, G, U, Y, E, N. Don't use words like 'as in', don't add anything else, and don't repeat it unless the agent asks. When the agent says goodbye, end the call."
+      }
+    ]
+  },
+  "personas": [
+    {
+      "name": "ID Roulette: quiet room",
+      "persona_prompt": "You are calling to give your account id. Answer plainly and cooperatively.",
+      "voice_name": "angela",
+      "language_code": "en",
+      "conversation_initiation": "wait_for_user"
+    },
+    {
+      "name": "ID Roulette: office desk",
+      "persona_prompt": "You are calling to give your account id. Answer plainly and cooperatively.",
+      "voice_name": "angela",
+      "language_code": "en",
+      "conversation_initiation": "wait_for_user",
+      "background_sound": "office",
+      "background_sound_volume": 0.4
+    },
+    {
+      "name": "ID Roulette: landline with air conditioner",
+      "persona_prompt": "You are calling to give your account id. Answer plainly and cooperatively.",
+      "voice_name": "angela",
+      "language_code": "en",
+      "conversation_initiation": "wait_for_user",
+      "background_sound": "portable-air-conditioner",
+      "background_sound_volume": 0.25,
+      "audio_degradation": {
+        "preset": "landline",
+        "preset_version": 1
+      }
+    }
+  ],
+  "metrics": [
+    "AemJTdBJk7JUcPfvngvrD9"
+  ]
+}

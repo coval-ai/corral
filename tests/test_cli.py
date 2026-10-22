@@ -160,19 +160,21 @@ def test_talk_asks_nothing_when_the_suite_has_no_test_case_keys(
 
 
 def test_a_scenario_that_does_not_exist_says_which_do() -> None:
-    assert known_scenario("ultrabank") == "ultrabank"
-    with pytest.raises(ValueError, match="no scenario 'dental'; have default, ultrabank"):
+    assert known_scenario("id_roulette") == "id_roulette"
+    have = "have default, id_roulette, ultrabank"
+    with pytest.raises(ValueError, match=f"no scenario 'dental'; {have}"):
         known_scenario("dental")
 
 
 def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFixture[str]) -> None:
-    assert choose_scenario(TALK, read=lambda _prompt: "2") == "ultrabank"
+    assert choose_scenario(TALK, read=lambda _prompt: "3") == "ultrabank"
     out = capsys.readouterr().out
-    assert "1. default    helpful assistant\n" in out
-    assert "2. ultrabank  Instruction adherence test set (internal)\n" in out
-    assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "ultrabank"
+    assert "1. default      helpful assistant\n" in out
+    assert "2. id_roulette  does the agent hear spelled-out details right the first time\n" in out
+    assert "3. ultrabank    Instruction adherence test set (internal)\n" in out
+    assert choose_scenario(BENCHMARK, read=lambda _prompt: "2") == "ultrabank"
     out = capsys.readouterr().out
-    assert "default" not in out and out.startswith("1. ultrabank")
+    assert "default" not in out and out.startswith("1. id_roulette")
 
 
 @pytest.mark.parametrize("key", [KeyboardInterrupt, EOFError])
