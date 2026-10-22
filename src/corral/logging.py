@@ -31,6 +31,6 @@ def configure_logging() -> None:
     """Route stdlib logging into loguru.
 
     Libraries like websockets and httpcore log every frame and header at DEBUG, so
-    stdlib loggers start at WARNING. Uvicorn sets its own level when it starts.
+    stdlib loggers start at WARNING.
     """
     logging.basicConfig(handlers=[_ToLoguru()], level=logging.WARNING, force=True)

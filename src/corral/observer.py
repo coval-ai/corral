@@ -41,10 +41,12 @@ thought the caller was done, and missing when the vendor never says.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import dataclasses
 import json
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
 from loguru import logger
@@ -71,6 +73,7 @@ from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from corral.agent import Agent
+from corral.config import Settings
 from corral.models import Model, Native
 
 SPAN_NAME = "turn_latency"
@@ -246,6 +249,21 @@ def models_by_modality(agent: Agent) -> dict[str, dict[str, str]]:
         "llm_second": _tag(stack.llm),
         "tts": _tag(stack.tts),
     }
+
+
+@contextlib.asynccontextmanager
+async def tracing(settings: Settings, simulation_id: str) -> AsyncIterator[Tracer | None]:
+    """A tracer whose spans go to Coval under the simulation, flushed on the way out.
+    None without a Coval key, since there is nothing to send them under."""
+    key = settings.coval_api_key.get_secret_value() if settings.coval_api_key else ""
+    if not key:
+        yield None
+        return
+    provider = coval_trace_provider(key, settings.coval_api_base, simulation_id)
+    try:
+        yield provider.get_tracer(__name__)
+    finally:
+        await asyncio.to_thread(provider.shutdown)
 
 
 def coval_trace_provider(api_key: str, api_base: str, simulation_id: str) -> TracerProvider:

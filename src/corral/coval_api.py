@@ -10,7 +10,7 @@ from typing import Any, Self
 
 import httpx
 
-from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, Settings
+from corral.config import Settings
 
 COVAL_API_BASE = "https://api.coval.dev/v1"
 WORKSPACE_HEADER = "X-Coval-Workspace-Id"
@@ -129,6 +129,9 @@ class CovalClient:
     def get_run(self, run_id: str) -> dict[str, Any]:
         return _unwrap(self._request("GET", f"/runs/{run_id}"), "run")
 
+    def list_simulations(self, run_id: str) -> list[dict[str, Any]]:
+        return self.list_all("/simulations", "simulations", {"filter": f'run_id="{run_id}"'})
+
     def test_case_key(self, simulation_id: str) -> str | None:
         """The calling test case's ``test_case`` attribute, or None when it has none."""
         path = f"/simulations/{simulation_id}/attributes/{TEST_CASE_ATTRIBUTE}"
@@ -149,64 +152,44 @@ def _unwrap(payload: dict[str, Any], key: str) -> dict[str, Any]:
     return item if isinstance(item, dict) else payload
 
 
-MODEL_TYPE = "MODEL_TYPE_WEBSOCKET"
-# PATCH replaces metadata wholesale, so it is reconciled as one value. test_set_ids
-# is additive: every set this agent has ever run stays attached.
-MANAGED = ("display_name", "metadata", "test_set_ids")
+MODEL_TYPE = "MODEL_TYPE_SDK_WEBSOCKET"
+# test_set_ids is additive: every set this agent has ever run stays attached.
+MANAGED = ("display_name", "test_set_ids")
 TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED", "DELETED"})
 
 
 @dataclass(frozen=True)
 class CovalTarget:
+    """The agent record a benchmark runs against. Coval reaches it through the SDK's
+    relay, so the record carries no address: the harness dials in for each call."""
+
     slug: str
-    url: str
-    token: str | None
     test_set_id: str
     workspace_id: str
 
     @property
     def customer_agent_id(self) -> str:
-        """Coval wants it unique across the organization, so it carries the workspace."""
-        return f"{self.slug}--{self.workspace_id}"
+        """Coval wants it unique across the organization, so it carries the workspace. The
+        ``sdk`` keeps it clear of the other records this stack has in Coval."""
+        return f"{self.slug}--sdk--{self.workspace_id}"
 
     @property
     def display_name(self) -> str:
         return self.slug
 
     def target_body(self) -> dict[str, Any]:
-        headers = {"X-Coval-Simulation-Id": "{{simulation_output_id}}"}
-        metadata: dict[str, Any] = {
-            "connection_mode": "direct",
-            "endpoint": "wss" + self.url.removeprefix("https").removeprefix("http") + "/ws",
-            "custom_headers": headers,
-            "handshake_ready_message_type": "session_ready",
-            "handshake_requires_session_id": False,
-            "handshake_timeout_seconds": 30,
-            "message_type_path": "type",
-            "send_audio_template": "{{audio_data}}",
-            "audio_encoding": "pcm",
-            "send_sample_rate_hertz": IN_SAMPLE_RATE_HZ,
-            "receive_sample_rate_hertz": OUT_SAMPLE_RATE_HZ,
-            "receive_audio_channels": 1,
-            "pace_inbound_binary_audio": True,
-            "speech_activity_enabled": False,
-        }
-        if self.token:
-            metadata["authorization_header"] = f"Bearer {self.token}"
         return {
             "display_name": self.display_name,
             "customer_agent_id": self.customer_agent_id,
             "model_type": MODEL_TYPE,
-            "metadata": metadata,
             "test_set_ids": [self.test_set_id],
         }
 
 
 def sync_target(client: CovalClient, definition: CovalTarget) -> str:
-    """Find-or-create the agent and point it at this serving; returns its id."""
+    """Find-or-create the agent and attach the suite's test set; returns its id."""
     wanted = definition.target_body()
-    # Agents made before workspaces are under the bare slug.
-    live = client.find_agent(definition.customer_agent_id) or client.find_agent(definition.slug)
+    live = client.find_agent(definition.customer_agent_id)
     if live is None:
         return str(client.create_agent(wanted)["id"])
     if live.get("model_type") != MODEL_TYPE:
@@ -250,7 +233,11 @@ def launch_body(
 def results_lines(run: dict[str, Any]) -> list[str]:
     """One line per metric: its name and every simulation's value, in output order."""
     results = run.get("results") or {}
+    progress = run.get("progress") or {}
     lines = [f"run {run_id_of(run)} {run.get('status')}"]
+    failed, total = progress.get("failed_test_cases"), progress.get("total_test_cases")
+    if failed:
+        lines.append(f"  {failed} of {total} calls failed")
     for metric in (results.get("metrics") or {}).values():
         values = [entry.get("value") for entry in metric.get("values") or []]
         lines.append(f"  {metric.get('metric_name')}: {', '.join(str(v) for v in values)}")
@@ -263,3 +250,9 @@ def run_id_of(run: dict[str, Any]) -> str:
 
 def is_terminal(run: dict[str, Any]) -> bool:
     return run.get("status") in TERMINAL_STATUSES
+
+
+def run_succeeded(run: dict[str, Any]) -> bool:
+    """Completed with every test case through: Coval calls a run with failed calls COMPLETED too."""
+    progress = run.get("progress") or {}
+    return run.get("status") == "COMPLETED" and not progress.get("failed_test_cases")

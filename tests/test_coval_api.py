@@ -16,11 +16,11 @@ from corral.coval_api import (
     is_terminal,
     launch_body,
     results_lines,
+    run_succeeded,
     sync_target,
 )
 
-URL = "https://quiet-hill.trycloudflare.com"
-DEFINITION = CovalTarget("cascade-x", URL, "s3cret", "TSBANK", "W1")
+DEFINITION = CovalTarget("cascade-x", "TSBANK", "W1")
 
 
 def _client(state: dict[str, Any]) -> CovalClient:
@@ -31,6 +31,9 @@ def _client(state: dict[str, Any]) -> CovalClient:
             wanted = request.url.params["filter"].split('"')[1]
             agents = [a for a in state["agents"] if a.get("customer_agent_id") == wanted]
             return httpx.Response(200, json={"agents": agents})
+        if request.method == "GET" and path == "/simulations":
+            state["filters"].append(request.url.params["filter"])
+            return httpx.Response(200, json={"simulations": [{"simulation_id": "S1"}]})
         state["writes"].append((request.method, path, body))
         if path == "/agents":
             created = {**body, "id": "A" * 22}
@@ -44,20 +47,12 @@ def _client(state: dict[str, Any]) -> CovalClient:
     return CovalClient("coval-key", "https://api.coval.dev/v1", httpx.MockTransport(handler))
 
 
-def test_the_target_speaks_raw_pcm_and_waits_for_session_ready() -> None:
+def test_the_target_is_an_sdk_agent_the_harness_dials_in_for() -> None:
     body = DEFINITION.target_body()
-    metadata = body["metadata"]
-    assert body["customer_agent_id"] == "cascade-x--W1"
+    assert body["customer_agent_id"] == "cascade-x--sdk--W1"
+    assert body["model_type"] == "MODEL_TYPE_SDK_WEBSOCKET"
     assert body["test_set_ids"] == ["TSBANK"]
-    assert metadata["endpoint"] == "wss://quiet-hill.trycloudflare.com/ws"
-    assert metadata["authorization_header"] == "Bearer s3cret"
-    assert metadata["handshake_ready_message_type"] == "session_ready"
-    assert metadata["speech_activity_enabled"] is False
-    assert metadata["custom_headers"] == {"X-Coval-Simulation-Id": "{{simulation_output_id}}"}
-    assert (metadata["send_sample_rate_hertz"], metadata["receive_sample_rate_hertz"]) == (
-        16000,
-        24000,
-    )
+    assert "metadata" not in body
 
 
 def test_the_calling_test_case_is_asked_for_by_simulation_id() -> None:
@@ -77,25 +72,22 @@ def test_the_calling_test_case_is_asked_for_by_simulation_id() -> None:
         client.test_case_key("sim-odd")
 
 
-def test_sync_creates_once_then_patches_only_what_changed() -> None:
+def test_sync_creates_once_then_attaches_new_test_sets() -> None:
     state: dict[str, Any] = {"agents": [], "writes": []}
     client = _client(state)
     assert sync_target(client, DEFINITION) == "A" * 22
     assert sync_target(client, DEFINITION) == "A" * 22
-    other = "https://other-hill.trycloudflare.com"
-    sync_target(client, CovalTarget("cascade-x", other, "s3cret", "TSBANK", "W1"))
-    sync_target(client, CovalTarget("cascade-x", other, "s3cret", "TSHARD", "W1"))
-    (_, _, created), (_, _, moved), (_, _, attached) = state["writes"]
-    assert created["customer_agent_id"] == "cascade-x--W1"
-    assert moved == {"metadata": {**created["metadata"], "endpoint": "wss://" + other[8:] + "/ws"}}
+    sync_target(client, CovalTarget("cascade-x", "TSHARD", "W1"))
+    (_, _, created), (_, _, attached) = state["writes"]
+    assert created["customer_agent_id"] == "cascade-x--sdk--W1"
     assert attached == {"test_set_ids": ["TSBANK", "TSHARD"]}
 
 
-def test_an_agent_made_before_workspaces_is_found_under_its_bare_slug() -> None:
-    old = {**DEFINITION.target_body(), "customer_agent_id": "cascade-x", "id": "OLD"}
-    state: dict[str, Any] = {"agents": [old], "writes": []}
-    assert sync_target(_client(state), DEFINITION) == "OLD"
-    assert [method for method, _, _ in state["writes"]] == []
+def test_a_run_lists_its_simulations() -> None:
+    state: dict[str, Any] = {"filters": []}
+    client = _client(state)
+    assert client.list_simulations("R1") == [{"simulation_id": "S1"}]
+    assert state["filters"] == ['run_id="R1"']
 
 
 def test_launch_runs_the_boards_metrics_one_call_at_a_time() -> None:
@@ -116,7 +108,7 @@ def test_results_print_one_line_per_metric() -> None:
     assert results_lines(run) == ["run R1 COMPLETED", "  Turn Count: 8.0"]
 
 
-def test_coval_answers_for_its_key_before_anything_is_served() -> None:
+def test_coval_answers_for_its_key_before_anything_runs() -> None:
     settings = Settings(_env_file=None, coval_api_key="ck")
     seen: list[httpx.Request] = []
 
@@ -130,3 +122,14 @@ def test_coval_answers_for_its_key_before_anything_is_served() -> None:
     denied = httpx.MockTransport(lambda _request: httpx.Response(401))
     assert coval_problem(settings, denied) == "coval returned 401"
     assert coval_problem(Settings(_env_file=None), denied) == "COVAL_API_KEY is unset"
+
+
+def test_a_completed_run_with_a_failed_call_is_not_a_success() -> None:
+    failed = {
+        "run_id": "R2",
+        "status": "COMPLETED",
+        "progress": {"total_test_cases": 1, "failed_test_cases": 1},
+    }
+    assert not run_succeeded(failed)
+    assert run_succeeded({"status": "COMPLETED", "progress": {"failed_test_cases": 0}})
+    assert results_lines(failed) == ["run R2 COMPLETED", "  1 of 1 calls failed"]

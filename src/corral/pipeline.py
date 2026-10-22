@@ -200,11 +200,10 @@ async def build_call(
     attributes: Mapping[str, Any] | None = None,
     tracer: Tracer | None = None,
     conversation_id: str | None = None,
-    before_greeting: Sequence[Frame] = (),
 ) -> Call:
     """One call on any transport: services, backend, pipeline, observer and the greeting.
 
-    Talk and serve both build their call here, so a change to how a call works
+    Talk and benchmark both build their call here, so a change to how a call works
     reaches both and their latency numbers stay comparable. A scenario with
     tools gets a fresh backend seeded for the test case, and its tools go on the
     LLM, or on the native model, which is one. The backend is cleaned up when the
@@ -252,8 +251,6 @@ async def build_call(
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
     async def _greet(started: PipelineWorker, _frame: Frame) -> None:
-        for frame in before_greeting:
-            await started.queue_frame(frame)
         await started.queue_frame(LLMRunFrame())
 
     @worker.event_handler("on_pipeline_finished")  # type: ignore[untyped-decorator]
