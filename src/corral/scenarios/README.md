@@ -30,6 +30,18 @@ arguments, or state that changes after a write, write your own in `tools.py`
 with those same three parts. Handlers take the arguments as a dict and return
 the result. They never see Pipecat.
 
+A tool in `tools.json` can also check what the agent passed it. List the check
+by name with the right value for each argument: one string for every test case,
+or a map from test case to its string, the way `id_roulette`'s `lookup` has
+`"character_error_rate": {"value": {"email-1": "j.okafor_88@example.com", ...}}`.
+When the call ends, the agent's first call of that tool is checked against the
+test case's value. Case and spaces don't count, and punctuation only counts
+where the right value has it, so an email's dots and @ matter but dashes in a
+card number don't. The result goes to Coval on a span named after the check,
+with one attribute per `<tool>.<argument>`, so `lookup.value` on a
+`character_error_rate` span. Read it with a custom trace metric in `coval.json`,
+the way `id_roulette` does.
+
 To seed the backend differently per test case, give each case in `coval.json`
 a `test_case` naming the seed. When Coval calls, the agent asks Coval which
 test case is on the line and seeds the backend for it, so the Coval key needs

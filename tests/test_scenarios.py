@@ -67,3 +67,14 @@ def test_a_scenario_without_a_tools_py_gives_the_agent_no_backend() -> None:
 def test_the_files_that_change_the_agent_are_the_prompt_and_the_tools() -> None:
     assert list(behavior_files("default")) == ["system-prompt.txt"]
     assert list(behavior_files("ultrabank")) == ["system-prompt.txt"]
+
+
+async def test_every_id_roulette_test_case_has_a_right_answer_to_check() -> None:
+    keys = list(require_suite("id_roulette").keyed_test_cases())
+    assert len(keys) == 15
+    await confirm_test_cases("id_roulette", keys)
+    backend = load_environment("id_roulette")
+    assert backend is not None
+    for key in keys:
+        await backend.start(key)
+        assert backend.tools[0].character_error_rate["value"]

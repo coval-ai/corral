@@ -6,6 +6,9 @@ from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.vad.vad_analyzer import VADAnalyzer, VADParams
 from pipecat.frames.frames import (
@@ -220,3 +223,38 @@ async def test_the_backend_is_cleaned_up_when_the_pipeline_finishes() -> None:
     await call.worker._call_event_handler("on_pipeline_finished", None)
     await call.worker.cleanup()
     assert environment.events == ["start x", "finish"]
+
+
+async def test_a_finished_call_sends_each_checked_arguments_character_error_rate() -> None:
+    spec = ToolsFile(
+        tools=[
+            {
+                "name": "lookup",
+                "description": "Look it up.",
+                "parameters": {"id": "string"},
+                "character_error_rate": {"id": "AB12"},
+            }
+        ],
+        responses={"lookup": {"received": True}},
+    )
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    llm = LLMService()
+    with (
+        patch.object(pipeline, "resolve", return_value=_cascade(llm)),
+        patch.object(pipeline, "load_environment", return_value=JsonEnvironment(spec)),
+    ):
+        call = await build_call(
+            load_cascade_agent("ultrabank", *REFERENCE),
+            _Transport(),
+            SETTINGS,
+            tracer=provider.get_tracer(__name__),
+        )
+    await cast(Any, llm._functions["lookup"]).handler(_params({"id": "ab-1"}, []))
+    assert call.character_error_rates() == {"lookup.id": 0.25}
+    await call.worker._call_event_handler("on_pipeline_finished", None)
+    await call.worker.cleanup()
+    (rates,) = [s for s in exporter.get_finished_spans() if s.name == "character_error_rate"]
+    assert rates.attributes is not None and rates.attributes["lookup.id"] == 0.25
+    assert rates.attributes["agent"] == call.observer._attributes["agent"]
