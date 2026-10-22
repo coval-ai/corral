@@ -10,9 +10,12 @@ A scenario is a directory here with:
   the agent just talks.
 
 `default` is a plain assistant for trying models by voice. `ultrabank` is
-Ultra Bank with the short daily test set. `demo` is a dental receptionist
-over a fake booking backend. It's only there to try tools out and isn't one
-of the scenarios we publish results for.
+Ultra Bank with the short daily test set.
+`id_roulette` is one short call: the caller reads out a detail once and the
+agent looks it up as it heard it. The details are account ids, emails, card
+numbers, postal codes and spelled surnames, three of each. Its personas run
+from a quiet room to an office to a landline with an air conditioner, so it
+shows which details and which caller conditions make agents mishear.
 
 ## tools.py
 
@@ -20,12 +23,24 @@ of the scenarios we publish results for.
 one call: a list of tools, `start(test_case)` to seed it, `finish()` to clean
 up. Every call gets its own, so calls can't see each other's bookings.
 
-The easy version is canned answers from a `tools.json` next to it. `demo`
-is the example: each tool answers the same thing however it's called, and a
-test case swaps in different answers. When you need answers that depend on the
+The easy version is canned answers from a `tools.json` next to it, like
+`id_roulette` has: each tool answers the same thing however it's called, and
+a test case swaps in different answers. When you need answers that depend on the
 arguments, or state that changes after a write, write your own in `tools.py`
 with those same three parts. Handlers take the arguments as a dict and return
 the result. They never see Pipecat.
+
+A tool in `tools.json` can also check what the agent passed it. List the check
+by name with the right value for each argument: one string for every test case,
+or a map from test case to its string, the way `id_roulette`'s `lookup` has
+`"character_error_rate": {"value": {"email-1": "j.okafor_88@example.com", ...}}`.
+When the call ends, the agent's first call of that tool is checked against the
+test case's value. Case and spaces don't count, and punctuation only counts
+where the right value has it, so an email's dots and @ matter but dashes in a
+card number don't. The result goes to Coval on a span named after the check,
+with one attribute per `<tool>.<argument>`, so `lookup.value` on a
+`character_error_rate` span. Read it with a custom trace metric in `coval.json`,
+the way `id_roulette` does.
 
 To seed the backend differently per test case, give each case in `coval.json`
 a `test_case` naming the seed. When Coval calls, the agent asks Coval which
@@ -88,6 +103,12 @@ workspace with the same name gets updated to match. Delete a test case from
 the file and it's gone from Coval too.
 
 Every persona gets its own run.
+
+To keep many test cases but place only some per run, set `sample` to how many.
+Corral asks Coval for that many, picked by the UTC date, so every agent and
+persona benchmarked the same day gets the same ones, and the set rotates from
+day to day. `id_roulette` uses `"sample": 1`. `--smoke` still picks one at
+random.
 
 `workspace` is where all of it lives. If you leave it out, Corral uses
 `CORRAL_WORKSPACE_ID` from your `.env`. If that's empty too, it finds the

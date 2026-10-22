@@ -216,10 +216,14 @@ def launch_body(
     *,
     sample: int,
     display_name: str,
+    seed: int | None = None,
 ) -> dict[str, Any]:
+    """``sample`` test cases, picked at random or by ``seed``: one seed, one pick."""
     options: dict[str, Any] = {"iteration_count": 1, "concurrency": 1}
     if sample:
         options["sub_sample_size"] = sample
+        if seed is not None:
+            options["sub_sample_seed"] = seed
     return {
         "agent_id": agent_id,
         "persona_id": persona_id,

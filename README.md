@@ -101,6 +101,8 @@ is the request after the result up to its first token. Each call is also an
 what Coval's tool call metric reads. A model that says "one moment" and then
 calls the tool has already ended the turn, so that call is a span on its own
 and not in the turn's count.
+When a scenario's tools check their arguments, the call also ends with a
+`character_error_rate` span holding each checked argument's rate.
 
 A native model does its own turn-taking, so its turn is measured differently
 under the same headline. Silero still runs on the caller's audio, but only as a

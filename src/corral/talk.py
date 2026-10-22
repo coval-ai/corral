@@ -41,6 +41,8 @@ async def run(agent: Agent, test_case: str | None = None) -> None:
         print(summary(call.observer.turns, models_by_modality(agent), agent.slug), flush=True)
         if call.tool_calls is not None:
             print(tool_log(call.tool_calls), flush=True)
+        for argument, rate in call.character_error_rates().items():
+            print(f"{argument} character error rate: {rate:.2f}", flush=True)
 
 
 STEPS = ("stt", "llm", "endpointing", "model", "tool", "llm_second", "model_second", "tts")

@@ -68,3 +68,29 @@ def test_a_tools_file_has_a_response_for_every_tool_and_nothing_else() -> None:
         ToolsFile.model_validate({**SPEC, "tools": SPEC["tools"] + SPEC["tools"][:1]})
     with pytest.raises(ValueError, match="descripton"):
         ToolsFile.model_validate({**SPEC, "tools": [{"name": "a", "descripton": "x"}]})
+
+
+def test_a_tool_can_check_an_argument_by_character_error_rate() -> None:
+    checked = {**SPEC["tools"][0], "character_error_rate": {"name": "Ana Reyes"}}
+    environment = JsonEnvironment(
+        ToolsFile.model_validate({**SPEC, "tools": [checked, SPEC["tools"][1]]})
+    )
+    assert [tool.character_error_rate for tool in environment.tools] == [{"name": "Ana Reyes"}, {}]
+    wrong = {**SPEC["tools"][0], "character_error_rate": {"dob": "x"}}
+    with pytest.raises(ValueError, match="find_patient checks arguments it doesn't take"):
+        ToolsFile.model_validate({**SPEC, "tools": [wrong]})
+
+
+async def test_a_right_value_can_be_given_per_test_case() -> None:
+    per_case = {"name": {"ana": "Ana Reyes", "bo": "Bo Lin"}}
+    checked = {**SPEC["tools"][0], "character_error_rate": per_case}
+    environment = JsonEnvironment(
+        ToolsFile.model_validate({**SPEC, "tools": [checked, SPEC["tools"][1]]})
+    )
+    assert environment.tools[0].character_error_rate == {}
+    await environment.start("bo")
+    assert environment.tools[0].character_error_rate == {"name": "Bo Lin"}
+    await environment.start("already-booked")
+    assert environment.tools[0].character_error_rate == {}
+    with pytest.raises(ValueError, match="no test case 'cy'"):
+        await environment.start("cy")

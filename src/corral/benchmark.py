@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
+from datetime import date
 from functools import partial
 from typing import Any
 
@@ -44,9 +45,22 @@ SimulationHandler = Callable[[str], Coroutine[Any, Any, None]]
 
 @dataclass(frozen=True)
 class RunRequest:
+    """``sample`` test cases per run, all of them at 0, picked by ``seed`` when one is given."""
+
     suite: Suite
     workspace_id: str | None
     sample: int
+    seed: int | None = None
+
+
+def run_request(suite: Suite, workspace_id: str | None, *, smoke: bool, today: date) -> RunRequest:
+    """A smoke runs one test case at random. A suite with ``sample`` runs that many, seeded by the
+    UTC date, so every agent and persona benchmarked the same day gets the same ones."""
+    if smoke:
+        return RunRequest(suite, workspace_id, sample=1)
+    if suite.sample:
+        return RunRequest(suite, workspace_id, sample=suite.sample, seed=int(f"{today:%Y%m%d}"))
+    return RunRequest(suite, workspace_id, sample=0)
 
 
 @dataclass(frozen=True)
@@ -222,6 +236,7 @@ async def run_suite(
             ids.metric_ids,
             sample=request.sample,
             display_name=definition.display_name,
+            seed=request.seed,
         )
         run = await asyncio.to_thread(coval.launch_run, body)
         logger.info(f"Run {run_id_of(run)} launched on agent {agent_id}: {run.get('status')}")

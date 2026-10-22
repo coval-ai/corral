@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -57,6 +57,7 @@ from corral.environment import Tool
 from corral.models import CascadeServices, NativeService, resolve
 from corral.observer import TurnLatencyObserver, models_by_modality
 from corral.scenarios import load_environment
+from corral.tool_checks import CHARACTER_ERROR_RATE, character_error_rates
 
 
 def silero() -> SileroVADAnalyzer:
@@ -157,6 +158,11 @@ class Call:
     worker: PipelineWorker
     observer: TurnLatencyObserver
     tool_calls: list[ToolCall] | None
+    expected: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    def character_error_rates(self) -> dict[str, float]:
+        """``<tool>.<argument>`` to its character error rate so far; empty with no checks."""
+        return character_error_rates(self.expected, self.tool_calls or [])
 
 
 def tool_handler(
@@ -253,9 +259,15 @@ async def build_call(
     async def _greet(started: PipelineWorker, _frame: Frame) -> None:
         await started.queue_frame(LLMRunFrame())
 
+    expected = {t.schema.name: t.character_error_rate for t in handlers if t.character_error_rate}
+    call = Call(worker, observer, log if environment else None, expected)
+
     @worker.event_handler("on_pipeline_finished")  # type: ignore[untyped-decorator]
     async def _finish(_worker: PipelineWorker, _frame: Frame) -> None:
         if environment is not None:
             await environment.finish()
+        if tracer is not None and expected:
+            rates = call.character_error_rates()
+            tracer.start_span(CHARACTER_ERROR_RATE, attributes={**tags, **rates}).end()
 
-    return Call(worker, observer, log if environment else None)
+    return call
