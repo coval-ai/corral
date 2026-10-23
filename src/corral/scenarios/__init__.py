@@ -10,6 +10,7 @@ In coval.json each test set, persona and metric is either the id of one that alr
 in Coval, or its full definition, which Corral creates in your workspace and keeps in sync.
 ``workspace`` is the id of the workspace that you'd like to run it. If workspace isn't set,
 defaults to CORRAL_WORKSPACE_ID, and if that isn't set, to a workspace named Corral.
+Or coval.json names its ``assets``, and the ids come from a manifest; see ``corral.assets``.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import json
 from importlib.resources.abc import Traversable
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from corral.environment import Environment
 from corral.models import JsonModel
@@ -37,18 +38,39 @@ Entry = str | dict[str, Any]
 
 
 class Suite(JsonModel):
-    """``sample`` runs that many of the test cases per run, the same ones all day."""
+    """``sample`` runs that many of the test cases per run, the same ones all day.
 
+    ``assets`` names a ``<scenario>.<version>`` in the manifest at CORRAL_ASSETS_URI instead of
+    ids; ``personas`` and ``metrics`` are then names from that entry, all of them when left out.
+    """
+
+    assets: str | None = None
     workspace: str | None = None
-    test_set: Entry
-    personas: list[Entry] = Field(min_length=1)
+    test_set: Entry | None = None
+    personas: list[Entry] = Field(default_factory=list)
     metrics: list[Entry] = Field(default_factory=list)
     sample: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _one_source(self) -> Suite:
+        if self.assets is None:
+            if self.test_set is None:
+                raise ValueError("coval.json needs a test_set, or assets naming one")
+            if not self.personas:
+                raise ValueError("coval.json needs at least one persona")
+            return self
+        if self.workspace is not None or self.test_set is not None:
+            raise ValueError(
+                "assets brings its own workspace and test set; drop them from coval.json"
+            )
+        if not all(isinstance(entry, str) for entry in [*self.personas, *self.metrics]):
+            raise ValueError("with assets, personas and metrics are names from the manifest")
+        return self
 
     def keyed_test_cases(self) -> dict[str, str]:
         """Each written-out case's ``test_case``, the seed its backend uses, with its description.
         In file order; empty for a test set id."""
-        if isinstance(self.test_set, str):
+        if not isinstance(self.test_set, dict):
             return {}
         return {
             case["test_case"]: str(case.get("description") or "")

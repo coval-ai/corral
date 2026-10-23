@@ -113,5 +113,19 @@ random.
 `CORRAL_WORKSPACE_ID` from your `.env`. If that's empty too, it finds the
 workspace called Corral, or makes it, and saves the id to your `.env`.
 
+**With assets**
+```json
+{ "assets": "workflow-bank.v1", "personas": ["clean"], "metrics": ["judge", "latency"] }
+```
+Instead of ids, name a `<scenario>.<version>` in a manifest shaped like the
+scenario map `benchmark-infra/assets` publishes, and set `CORRAL_ASSETS_URI`
+to it: `gs://coval-bench-asset-versions/coval-benchmarking/scenario_map.json`
+for the production assets, or a local file with the same shape for another
+org. The workspace, test set, personas and metrics come from that entry.
+`personas` are its conditions and `metrics` its metric names; leave either out
+for all of them. A gs:// manifest is read with your Google login
+(`gcloud auth application-default login`) and needs
+`roles/storage.objectViewer` on the bucket.
+
 To benchmark your own agent, add a directory with a prompt, a summary and
 a `coval.json`. It shows up in the menu on its own.

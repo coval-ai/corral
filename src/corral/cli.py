@@ -17,6 +17,7 @@ from typing import NoReturn
 
 from corral import benchmark, talk
 from corral.agent import Agent, load_cascade_agent, load_native_agent
+from corral.assets import resolve_assets
 from corral.config import Settings, get_settings
 from corral.coval_api import SyncError, coval_problem
 from corral.logging import configure_logging
@@ -301,7 +302,7 @@ def main() -> None:
     request = None
     if mode is BENCHMARK:
         try:
-            suite = require_suite(scenario)
+            suite = resolve_assets(require_suite(scenario), get_settings())
         except ValueError as error:
             fail(parser, interactive, str(error))
         workspace_id = suite.workspace or get_settings().corral_workspace_id
