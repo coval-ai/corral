@@ -16,10 +16,10 @@ from datetime import UTC, datetime
 from typing import NoReturn
 
 from corral import benchmark, talk
-from corral.agent import Agent, load_cascade_agent, load_native_agent
-from corral.assets import resolve_assets
+from corral.agent import Agent, load_asset_agent, load_cascade_agent, load_native_agent
+from corral.assets import AssetRun, load_asset_run, resolve_assets
 from corral.config import Settings, get_settings
-from corral.coval_api import SyncError, coval_problem
+from corral.coval_api import CovalClient, SyncError, coval_problem
 from corral.logging import configure_logging
 from corral.models import (
     CASCADE,
@@ -205,7 +205,14 @@ def choose_model(
         print(problem)
 
 
-MODE_FLAGS = {"test_case": TALK, "smoke": BENCHMARK}
+MODE_FLAGS = {
+    "test_case": TALK,
+    "smoke": BENCHMARK,
+    "assets": BENCHMARK,
+    "personas": BENCHMARK,
+    "metrics": BENCHMARK,
+    "prompt_from": BENCHMARK,
+}
 
 
 def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
@@ -263,10 +270,52 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     parser.add_argument_group("talk").add_argument(
         "--test-case", help="seed the scenario's tools for this test case"
     )
-    parser.add_argument_group("benchmark").add_argument(
+    benchmark_flags = parser.add_argument_group("benchmark")
+    benchmark_flags.add_argument(
         "--smoke", action="store_true", help="one test case, to check the wiring"
     )
+    benchmark_flags.add_argument(
+        "--assets",
+        default=os.environ.get("S2S_ASSETS"),
+        metavar="SCENARIO.VERSION",
+        help="run a scenario from the manifest at CORRAL_ASSETS_URI instead of --scenario",
+    )
+    benchmark_flags.add_argument(
+        "--personas", type=names, default=[], help="with --assets: conditions to run; default all"
+    )
+    benchmark_flags.add_argument(
+        "--metrics", type=names, default=[], help="with --assets: metrics to score; default all"
+    )
+    benchmark_flags.add_argument(
+        "--prompt-from",
+        metavar="MODEL",
+        help="with --assets: the agent whose prompt to use when the model isn't one of them",
+    )
     return parser
+
+
+def names(value: str) -> list[str]:
+    """A comma-separated flag as its names."""
+    return [name.strip() for name in value.split(",") if name.strip()]
+
+
+def asset_run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> AssetRun:
+    """The suite and prompt ``--assets`` names; Coval is asked for the agent's prompt."""
+    settings = get_settings()
+    api_key = settings.coval_api_key.get_secret_value() if settings.coval_api_key else ""
+    try:
+        with CovalClient(api_key, settings.coval_api_base) as coval:
+            return load_asset_run(
+                args.assets,
+                personas=args.personas,
+                metrics=args.metrics,
+                model_id=args.s2s or args.llm,
+                prompt_from=args.prompt_from,
+                settings=settings,
+                client=coval,
+            )
+    except (SyncError, ValueError) as error:
+        fail(parser, False, str(error))
 
 
 def main() -> None:
@@ -290,7 +339,15 @@ def main() -> None:
         if problem:
             fail(parser, interactive, problem)
 
-    if args.scenario:
+    assets = None
+    if args.assets:
+        if args.scenario:
+            fail(parser, interactive, "--assets names the scenario; drop --scenario")
+        if interactive:
+            fail(parser, interactive, "--assets runs from flags: corral benchmark --assets ...")
+        assets = asset_run(parser, args)
+        scenario = args.assets
+    elif args.scenario:
         try:
             scenario = known_scenario(args.scenario)
         except ValueError as error:
@@ -300,7 +357,12 @@ def main() -> None:
     else:
         scenario = TALK_SCENARIO if mode is TALK else BENCHMARK_SCENARIO
     request = None
-    if mode is BENCHMARK:
+    if assets:
+        request = benchmark.run_request(
+            assets.suite, assets.suite.workspace, smoke=args.smoke, today=datetime.now(UTC).date()
+        )
+        request = replace(request, workspace_source=assets.source)
+    elif mode is BENCHMARK:
         try:
             named = require_suite(scenario)
             suite = resolve_assets(named, get_settings())
@@ -318,7 +380,14 @@ def main() -> None:
     if interactive and mode is TALK:
         test_case = choose_test_case(scenario)
     check = checker(settings)
-    if interactive:
+    if assets:
+        try:
+            agent = load_asset_agent(
+                args.assets, assets.system_prompt, args.s2s, args.stt, args.llm, args.tts
+            )
+        except ValueError as error:
+            fail(parser, interactive, str(error))
+    elif interactive:
         agent = choose_agent(scenario, settings=settings, check=check)
     else:
         # argparse checks a flag against its choices, but not a default from the environment.

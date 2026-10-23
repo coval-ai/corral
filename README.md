@@ -71,6 +71,21 @@ A native model is `--s2s` on its own, with no `--stt`, `--llm` or `--tts`:
 uv run corral talk --s2s openai/gpt-realtime-2.1
 ```
 
+To run a scenario from the benchmark assets rather than a scenario directory,
+name it with `--assets` and set `CORRAL_ASSETS_URI` to the manifest. The test
+set, personas, metrics and workspace come from that entry, and the system
+prompt from the entry's agent for your model, as that agent is saved in Coval.
+When your model isn't one of the scenario's agents, `--prompt-from` names the
+one whose prompt to use. `--personas` and `--metrics` take comma-separated
+names from the entry; leave them out for all of them. The production manifest
+needs the production Coval key.
+
+```bash
+CORRAL_ASSETS_URI=gs://coval-bench-asset-versions/coval-benchmarking/scenario_map.json \
+  uv run corral benchmark --assets workflow-bank.v1 --personas clean \
+  --s2s openai/gpt-realtime-2.1 --prompt-from openai/gpt-realtime-2
+```
+
 ## What gets measured
 
 Every answered turn is a `turn_latency` span in Coval with `stt`, `llm` and

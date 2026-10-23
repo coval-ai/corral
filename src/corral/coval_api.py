@@ -134,6 +134,9 @@ class CovalClient:
     def update_agent(self, agent_id: str, body: dict[str, Any]) -> dict[str, Any]:
         return self.update("/agents", "agent", agent_id, body)
 
+    def get_agent(self, agent_id: str) -> dict[str, Any]:
+        return _unwrap(self._request("GET", f"/agents/{agent_id}"), "agent")
+
     def launch_run(self, body: dict[str, Any]) -> dict[str, Any]:
         return self.create("/runs", "run", body)
 

@@ -218,3 +218,19 @@ def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
     assert flagged_agent("default", args).slug == "openai-gpt-realtime-2.1"
     assert flagged_agent("default", parser.parse_args(["talk"])).slug.startswith("deepgram-")
     assert "--s2s" not in build_parser(no_openai).format_help()
+
+
+def test_the_assets_flags_belong_to_benchmark_and_split_on_commas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("S2S_ASSETS", raising=False)
+    flags = ["--assets", "workflow-bank.v1", "--personas", "clean, hard", "--metrics", "judge"]
+    args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
+    assert (args.assets, args.personas, args.metrics) == (
+        "workflow-bank.v1",
+        ["clean", "hard"],
+        ["judge"],
+    )
+    assert misplaced_flag(BENCHMARK, args) is None
+    args = build_parser(ALL_KEYS).parse_args(["talk", "--assets", "workflow-bank.v1"])
+    assert misplaced_flag(TALK, args) == "--assets is for benchmark"
