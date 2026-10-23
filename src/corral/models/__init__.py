@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 import httpx
 from pipecat.processors.frame_processor import FrameProcessor
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from corral.config import (
     IN_SAMPLE_RATE_HZ,
@@ -72,12 +72,6 @@ class S2sModel(Model):
 
     api: str = "realtime"
     delegation: dict[str, Any] | None = None
-
-    @model_validator(mode="after")
-    def _delegates_only_when_live(self) -> S2sModel:
-        if self.delegation is not None and self.api not in FULL_DUPLEX_APIS:
-            raise ValueError(f"{self.id} has a delegation, which only a live model takes")
-        return self
 
 
 @dataclass(frozen=True)
@@ -143,7 +137,15 @@ def _get[M: Model](modality: Modality, offered: list[M], model_id: str) -> M:
 
 
 CHECK_TIMEOUT_SECS = 10
-FULL_DUPLEX_APIS = frozenset({"live"})
+
+
+@dataclass(frozen=True)
+class S2sApi:
+    """One speech-to-speech service. A full-duplex one never says when the caller is done."""
+
+    path: str
+    full_duplex: bool = False
+    delegates: bool = False
 
 
 @dataclass(frozen=True)
@@ -157,7 +159,7 @@ class Vendor:
     stt: str | None = None
     llm: str | None = None
     tts: str | None = None
-    s2s: Mapping[str, str] | None = None
+    s2s: Mapping[str, S2sApi] | None = None
 
     @property
     def key_name(self) -> str:
@@ -176,8 +178,12 @@ VENDORS: dict[str, Vendor] = {
         "https://api.openai.com/v1/models",
         llm="pipecat.services.openai.llm:OpenAILLMService",
         s2s={
-            "realtime": "pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService",
-            "live": "pipecat.services.openai.live.llm:OpenAILiveLLMService",
+            "realtime": S2sApi("pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService"),
+            "live": S2sApi(
+                "pipecat.services.openai.live.llm:OpenAILiveLLMService",
+                full_duplex=True,
+                delegates=True,
+            ),
         },
     ),
     "elevenlabs": Vendor(
@@ -257,23 +263,34 @@ def supported(modality: Modality) -> list[str]:
     return sorted(name for name, vendor in VENDORS.items() if getattr(vendor, modality) is not None)
 
 
-def _resolve_vendor(
-    modality: Modality, provider: str, settings: Settings, api: str | None = None
-) -> tuple[str, str]:
+def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tuple[str, str]:
     """The class path for this modality and the key that pays for it, or why not."""
     vendor = VENDORS.get(provider)
-    found = getattr(vendor, modality) if vendor else None
-    if vendor is None or found is None:
+    path: str | None = getattr(vendor, modality) if vendor else None
+    if vendor is None or path is None:
         raise ValueError(f"no {modality} for {provider!r}; have {', '.join(supported(modality))}")
-    if isinstance(found, Mapping):
-        if api not in found:
-            raise ValueError(f"no {api!r} {modality} for {provider!r}; have {', '.join(found)}")
-        found = found[api]
-    path: str = found
+    return path, _key(vendor, provider, settings)
+
+
+def _resolve_s2s(model: S2sModel, settings: Settings) -> tuple[S2sApi, str]:
+    """The model's speech-to-speech service and the key that pays for it, or why not."""
+    vendor = VENDORS.get(model.provider)
+    if vendor is None or vendor.s2s is None:
+        raise ValueError(f"no s2s for {model.provider!r}; have {', '.join(supported('s2s'))}")
+    api = vendor.s2s.get(model.api)
+    if api is None:
+        have = ", ".join(vendor.s2s)
+        raise ValueError(f"no {model.api!r} s2s for {model.provider!r}; have {have}")
+    if model.delegation is not None and not api.delegates:
+        raise ValueError(f"{model.id} has a delegation, which its {model.api} API doesn't take")
+    return api, _key(vendor, model.provider, settings)
+
+
+def _key(vendor: Vendor, provider: str, settings: Settings) -> str:
     key = api_key(provider, settings)
     if key is None:
         raise RuntimeError(f"{vendor.key_name} is unset")
-    return path, key
+    return key
 
 
 def _build(
@@ -297,13 +314,13 @@ def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
     """Every vendor and key in the stack checked first, then its services built."""
     if isinstance(stack, Native):
         s2s = stack.s2s
-        path, key = _resolve_vendor("s2s", s2s.provider, settings, s2s.api)
+        api, key = _resolve_s2s(s2s, settings)
         fields = {"model": s2s.name, "system_instruction": system_prompt, **s2s.options}
         extra: dict[str, object] = {}
         if s2s.delegation is not None:
             extra["delegation"] = _responses_delegation(s2s.delegation, system_prompt)
-        model = _build(path, key, fields, None, **extra)
-        return NativeService(model, full_duplex=s2s.api in FULL_DUPLEX_APIS)
+        model = _build(api.path, key, fields, None, **extra)
+        return NativeService(model, full_duplex=api.full_duplex)
     stt_path, stt_key = _resolve_vendor("stt", stack.stt.provider, settings)
     llm_path, llm_key = _resolve_vendor("llm", stack.llm.provider, settings)
     tts_path, tts_key = _resolve_vendor("tts", stack.tts.provider, settings)

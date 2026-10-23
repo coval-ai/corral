@@ -3,6 +3,7 @@
 
 import dataclasses
 from typing import Any, cast
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -93,12 +94,20 @@ def test_a_live_model_delegates_to_a_responses_model_on_the_same_prompt() -> Non
     assert backend.extra == {"text": {"verbosity": "low"}}
 
 
-def test_a_delegation_needs_a_live_model_and_an_api_needs_a_service() -> None:
-    with pytest.raises(ValueError, match="only a live model takes"):
-        models.S2sModel(provider="openai", name="x", delegation={"model": "y"})
+def test_full_duplex_and_delegation_come_from_the_vendors_api_not_its_name() -> None:
+    settings = Settings(_env_file=None, **KEYS)
+    delegating = models.S2sModel(provider="openai", name="x", delegation={"model": "y"})
+    with pytest.raises(ValueError, match="its realtime API doesn't take"):
+        models.resolve(models.Native(delegating), "x", settings)
     odd = models.S2sModel(provider="openai", name="x", api="nope")
     with pytest.raises(ValueError, match="no 'nope' s2s for 'openai'; have realtime, live"):
-        models.resolve(models.Native(odd), "x", Settings(_env_file=None, **KEYS))
+        models.resolve(models.Native(odd), "x", settings)
+    plain = models.S2sApi("pipecat.services.openai.live.llm:OpenAILiveLLMService")
+    vendor = dataclasses.replace(models.VENDORS["openai"], s2s={"live": plain})
+    live = models.S2sModel(provider="openai", name="gpt-live-1", api="live")
+    with patch.dict(models.VENDORS, {"openai": vendor}):
+        service = models.resolve(models.Native(live), "x", settings)
+    assert isinstance(service, models.NativeService) and not service.full_duplex
 
 
 def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> None:
