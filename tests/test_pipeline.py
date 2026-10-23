@@ -143,7 +143,7 @@ async def test_a_call_seeds_the_backend_and_puts_its_tools_on_the_llm() -> None:
         patch.object(pipeline, "resolve", return_value=_cascade(llm)),
         patch.object(pipeline, "load_environment", return_value=_booking()),
     ):
-        agent = load_cascade_agent("ultrabank", *REFERENCE)
+        agent = load_cascade_agent("default", *REFERENCE)
         call = await build_call(agent, _Transport(), SETTINGS, test_case="already-booked")
     assert call.tool_calls == []
     assert llm.has_function("book")
@@ -161,7 +161,7 @@ async def test_a_test_case_the_backend_cannot_seed_is_refused() -> None:
         pytest.raises(ValueError, match="no test case 'nope'"),
     ):
         await build_call(
-            load_cascade_agent("ultrabank", *REFERENCE), _Transport(), SETTINGS, test_case="nope"
+            load_cascade_agent("default", *REFERENCE), _Transport(), SETTINGS, test_case="nope"
         )
 
 
@@ -183,7 +183,7 @@ async def test_a_call_without_tools_logs_no_tool_calls() -> None:
 
 async def test_a_native_call_puts_the_tools_on_the_one_model_and_watches_the_last_word() -> None:
     model = LLMService()
-    agent = load_native_agent("ultrabank", "openai/gpt-realtime-2.1")
+    agent = load_native_agent("default", "openai/gpt-realtime-2.1")
     with (
         patch.object(pipeline, "resolve", return_value=NativeService(model)),
         patch.object(pipeline, "load_environment", return_value=_booking()),
@@ -217,7 +217,7 @@ async def test_the_backend_is_cleaned_up_when_the_pipeline_finishes() -> None:
         patch.object(pipeline, "load_environment", return_value=environment),
     ):
         call = await build_call(
-            load_cascade_agent("ultrabank", *REFERENCE), _Transport(), SETTINGS, test_case="x"
+            load_cascade_agent("default", *REFERENCE), _Transport(), SETTINGS, test_case="x"
         )
     assert environment.events == ["start x"]
     await call.worker._call_event_handler("on_pipeline_finished", None)
@@ -246,7 +246,7 @@ async def test_a_finished_call_sends_each_checked_arguments_character_error_rate
         patch.object(pipeline, "load_environment", return_value=JsonEnvironment(spec)),
     ):
         call = await build_call(
-            load_cascade_agent("ultrabank", *REFERENCE),
+            load_cascade_agent("default", *REFERENCE),
             _Transport(),
             SETTINGS,
             tracer=provider.get_tracer(__name__),

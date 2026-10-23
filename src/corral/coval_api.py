@@ -108,6 +108,17 @@ class CovalClient:
                 return items
             query["page_token"] = token
 
+    def exists(self, path: str, item_id: str) -> bool:
+        """Whether this workspace has the item. Coval answers 404 for one in another org."""
+        response = self._client.get(f"{path}/{item_id}")
+        if response.status_code == 404:
+            return False
+        if response.status_code >= 400:
+            raise SyncError(
+                f"GET {path}/{item_id} -> {response.status_code}: {response.text[:400]}"
+            )
+        return True
+
     def create(self, path: str, key: str, body: dict[str, Any]) -> dict[str, Any]:
         return _unwrap(self._request("POST", path, body), key)
 

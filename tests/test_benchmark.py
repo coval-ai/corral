@@ -19,7 +19,7 @@ from corral import benchmark
 from corral.agent import load_cascade_agent
 from corral.coval_api import CovalClient
 from corral.coval_sdk import SDK_SAMPLE_RATE_HZ, CovalSdkTransport
-from corral.scenarios import require_suite
+from corral.scenarios import Suite, require_suite
 from corral.suite import SuiteIds, WorkspaceChoice
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
@@ -141,13 +141,13 @@ async def test_each_persona_gets_its_own_run_and_each_simulation_is_handled_once
         handled.append(simulation_id)
 
     ids = SuiteIds("TS", ["P1", "P2"], ["M1"])
-    request = benchmark.RunRequest(require_suite("ultrabank"), None, sample=1)
+    request = benchmark.RunRequest(Suite(test_set="TS", personas=["P1"]), None, sample=1)
     with (
         patch.object(benchmark, "sync_suite", return_value=ids),
         patch.object(benchmark, "sync_target", return_value="A"),
         patch.object(benchmark, "POLL_SECS", 0),
     ):
-        agent = load_cascade_agent("ultrabank", *REFERENCE)
+        agent = load_cascade_agent("default", *REFERENCE)
         outcomes = await benchmark.run_suite(
             cast(CovalClient, coval), agent, request, "W1", handler
         )
@@ -207,6 +207,6 @@ def test_a_sampled_suite_runs_the_same_test_cases_all_day_and_a_smoke_runs_one_a
     smoke = benchmark.run_request(sampled, "W", smoke=True, today=date(2026, 10, 22))
     assert (smoke.sample, smoke.seed) == (1, None)
     every = benchmark.run_request(
-        require_suite("ultrabank"), None, smoke=False, today=date(2026, 10, 22)
+        Suite(test_set="TS", personas=["P1"]), None, smoke=False, today=date(2026, 10, 22)
     )
     assert (every.sample, every.seed) == (0, None)

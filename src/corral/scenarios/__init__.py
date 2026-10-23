@@ -30,7 +30,7 @@ SUMMARY_FILE = "summary.txt"
 COVAL_FILE = "coval.json"
 TOOLS_FILE = "tools.py"
 TALK_SCENARIO = "default"
-BENCHMARK_SCENARIO = "ultrabank"
+BENCHMARK_SCENARIO = "id_roulette"
 
 
 Entry = str | dict[str, Any]

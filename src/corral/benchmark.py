@@ -89,13 +89,15 @@ def _secret(settings: Settings, name: str) -> str:
     return secret
 
 
-async def pick_workspace(coval: CovalClient, wanted: str | None) -> str:
+async def pick_workspace(
+    coval: CovalClient, wanted: str | None, source: str = "CORRAL_WORKSPACE_ID"
+) -> str:
     """Choose the workspace, use it, and pin it in .env when it had to be found by name.
 
     The Coval client is synchronous, so every call goes through a thread: this
     loop is also running the calls, and a blocked loop is a stalled call.
     """
-    choice = await asyncio.to_thread(choose_workspace, coval, wanted)
+    choice = await asyncio.to_thread(choose_workspace, coval, wanted, source)
     coval.use_workspace(choice.workspace_id)
     logger.info(f"Using Coval workspace {choice.workspace_id}")
     if choice.found_by_name:
@@ -248,7 +250,8 @@ async def run(agent: Agent, request: RunRequest) -> int:
     settings = get_settings()
     api_key = _secret(settings, "coval_api_key")
     with CovalClient(api_key, settings.coval_api_base) as coval:
-        workspace_id = await pick_workspace(coval, request.workspace_id)
+        source = "coval.json" if request.suite.workspace else "CORRAL_WORKSPACE_ID"
+        workspace_id = await pick_workspace(coval, request.workspace_id, source)
         sdk = CovalVoiceClient(
             api_key=api_key, api_base_url=settings.coval_api_base, workspace_id=workspace_id
         )
