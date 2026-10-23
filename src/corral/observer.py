@@ -37,6 +37,7 @@ A native model does its own turn-taking, so its turn has ``endpointing``, the ca
 last word to the moment the vendor said the caller was done, and ``model``, that moment
 to the first audio. Endpointing is negative when the model answered before Silero
 thought the caller was done, and missing when the vendor never says.
+A full-duplex model never says, and its first audio is its first frame that isn't silent.
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Tracer
 from pipecat.audio.turn.smart_turn.base_smart_turn import STOP_SECS as SMART_TURN_STOP_SECS
+from pipecat.audio.utils import is_silence
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     FunctionCallInProgressFrame,
@@ -64,6 +66,7 @@ from pipecat.frames.frames import (
     InterruptionFrame,
     LLMTextFrame,
     MetricsFrame,
+    SpeechOutputAudioRawFrame,
     TTSAudioRawFrame,
     UserStoppedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
@@ -290,6 +293,7 @@ class TurnLatencyObserver(BaseObserver):
         tracer: Tracer | None = None,
         clock: Callable[[], int] = time.time_ns,
         native: bool = False,
+        endpoints: bool = True,
     ) -> None:
         """``native`` means one speech-to-speech service, handed in as ``llm``."""
         super().__init__()
@@ -299,6 +303,7 @@ class TurnLatencyObserver(BaseObserver):
         self._tracer = tracer
         self._clock = clock
         self._native = native
+        self._endpoints = endpoints
         self._turn = 0
         self._moment = Moments(native=native)
         self._calls: dict[str, ToolCallSpan] = {}
@@ -320,7 +325,7 @@ class TurnLatencyObserver(BaseObserver):
                 moment.llm_start = None
                 moment.tts_start = None
                 moment.tts_first_audio = None
-            case UserStoppedSpeakingFrame():
+            case UserStoppedSpeakingFrame() if self._endpoints:
                 moment.vad_done = now
             case MetricsFrame(data=reports) if moment.caller_stopped is not None:
                 self._record_request(data.source, now, _ttfb_ns(reports))
@@ -354,6 +359,12 @@ class TurnLatencyObserver(BaseObserver):
                     span.end(end_time=now)
             case TTSAudioRawFrame() if (
                 moment.caller_stopped is not None and moment.tts_first_audio is None
+            ):
+                moment.tts_first_audio = now
+            case SpeechOutputAudioRawFrame(audio=audio) if (
+                moment.caller_stopped is not None
+                and moment.tts_first_audio is None
+                and not is_silence(audio)
             ):
                 moment.tts_first_audio = now
             case InterruptionFrame():

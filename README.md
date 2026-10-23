@@ -113,11 +113,13 @@ stopwatch for the last word; it has no say in the turn. The span has
   cascade that gap includes our turn-taking; for a native model the vendor's.
 - `endpointing_ms` is the last word to the moment the vendor said the caller
   was done. Negative means the model answered before Silero thought the caller
-  had finished. A vendor that never says, as Gemini Live doesn't, has none.
+  had finished. A vendor that never says has none. gpt-live-1 listens while it
+  talks and never says, so its `model_ms` starts at the last word.
 - `model_ms` is from there to the first audio. A tool call splits it into
   `model_ms`, `tool_ms` and `model_second_ms`.
 - `silero_missed` still applies; `stt_timed_out` and `smart_turn_timed_out`
-  don't.
+  don't. gpt-live-1 has nothing else to start a turn from, so a turn Silero
+  missed isn't counted.
 
 The last word is a guess. Silero fires on a mid-sentence pause too, and nothing
 cleans that up for a native model the way smart-turn does for a cascade.
@@ -127,7 +129,9 @@ cleans that up for a native model the way smart-turn does for a cascade.
 To add a model, put it in `src/corral/models/stt.json`, `llm.json`, `tts.json`
 or, for a native speech-to-speech model, `s2s.json`. The first one in the file
 is the default. A native row's voice and turn detection are vendor knobs, so
-they go in its `options` the way that vendor's Pipecat settings want them. If
+they go in its `options` the way that vendor's Pipecat settings want them. A
+vendor with more than one speech-to-speech API takes `api` to pick one, and a
+live model's `delegation` is the backend model it hands its reasoning to. If
 it's a provider we don't have yet, give it
 an entry in `src/corral/models/__init__.py` with its key and Pipecat class and
 add its extra to `pyproject.toml`.

@@ -43,7 +43,7 @@ from pipecat.turns.user_start.min_words_user_turn_start_strategy import (
 from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
     TurnAnalyzerUserTurnStopStrategy,
 )
-from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies, UserTurnStrategies
 
 from corral.agent import Agent
 from corral.config import (
@@ -65,7 +65,7 @@ def silero() -> SileroVADAnalyzer:
 
 
 def context_aggregators(
-    tools: Sequence[FunctionSchema] = (), *, native: bool = False
+    tools: Sequence[FunctionSchema] = (), *, native: bool = False, full_duplex: bool = False
 ) -> LLMContextAggregatorPair:
     """The conversation context and, for a cascade, the turn-taking the agent pins around it.
 
@@ -77,9 +77,15 @@ def context_aggregators(
     on every machine. While the agent is speaking, the caller has to say
     ``interrupt_min_words`` before it yields, so a backchannel does not cut it off.
 
-    A native model does its own turn-taking, so its aggregator has none of ours.
+    A native model does its own turn-taking, so its aggregator has none of ours, and a
+    full-duplex one's never interrupts.
     """
     context = LLMContext(tools=list(tools)) if tools else LLMContext()
+    if full_duplex:
+        external = ExternalUserTurnStrategies(enable_interruptions=False)
+        return LLMContextAggregatorPair(
+            context, user_params=LLMUserAggregatorParams(user_turn_strategies=external)
+        )
     if native:
         return LLMContextAggregatorPair(context)
     return LLMContextAggregatorPair(
@@ -225,8 +231,11 @@ async def build_call(
     else:
         await environment.start(test_case)
         handlers = list(environment.tools)
+    full_duplex = isinstance(services, NativeService) and services.full_duplex
     aggregators = context_aggregators(
-        [tool.schema for tool in handlers], native=isinstance(services, NativeService)
+        [tool.schema for tool in handlers],
+        native=isinstance(services, NativeService),
+        full_duplex=full_duplex,
     )
     tags = {**(attributes or {}), "agent": agent.slug, "digest": agent.digest}
     stages = models_by_modality(agent)
@@ -241,7 +250,12 @@ async def build_call(
             _register(model, handlers, log)
             middle = [LastWordWatch(silero()), aggregators.user(), model]
             observer = TurnLatencyObserver(
-                attributes=tags, models=stages, llm=model, tracer=tracer, native=True
+                attributes=tags,
+                models=stages,
+                llm=model,
+                tracer=tracer,
+                native=True,
+                endpoints=not full_duplex,
             )
     worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),

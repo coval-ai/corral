@@ -21,6 +21,7 @@ from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 from pipecat.tests.utils import run_test
 from pipecat.transports.base_transport import BaseTransport
+from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 
 from corral import pipeline
 from corral.agent import load_cascade_agent, load_native_agent
@@ -69,6 +70,14 @@ def test_cascade_runs_transcribe_accumulate_generate_synthesize() -> None:
 def test_a_native_aggregator_has_no_turn_taking_of_ours() -> None:
     assert context_aggregators(native=True).user()._vad_controller is None
     assert context_aggregators().user()._vad_controller is not None
+
+
+def test_a_full_duplex_aggregator_takes_the_models_turns_and_interrupts_nothing() -> None:
+    user = context_aggregators(native=True, full_duplex=True).user()
+    assert user._vad_controller is None
+    strategies = user._params.user_turn_strategies
+    assert isinstance(strategies, ExternalUserTurnStrategies)
+    assert strategies.enable_interruptions is False
 
 
 def test_the_context_offers_the_tools_on_every_request() -> None:

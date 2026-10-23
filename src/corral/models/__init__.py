@@ -18,12 +18,13 @@ import functools
 import importlib
 import importlib.resources
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
 from pipecat.processors.frame_processor import FrameProcessor
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from corral.config import (
     IN_SAMPLE_RATE_HZ,
@@ -66,7 +67,17 @@ class TtsModel(Model):
 
 
 class S2sModel(Model):
-    """A native speech-to-speech model. Voice and turn detection are vendor knobs, in options."""
+    """A native speech-to-speech model. Voice and turn detection are vendor knobs, in options.
+    ``delegation`` is the Responses model a live model hands its reasoning to."""
+
+    api: str = "realtime"
+    delegation: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _delegates_only_when_live(self) -> S2sModel:
+        if self.delegation is not None and self.api not in FULL_DUPLEX_APIS:
+            raise ValueError(f"{self.id} has a delegation, which only a live model takes")
+        return self
 
 
 @dataclass(frozen=True)
@@ -132,6 +143,7 @@ def _get[M: Model](modality: Modality, offered: list[M], model_id: str) -> M:
 
 
 CHECK_TIMEOUT_SECS = 10
+FULL_DUPLEX_APIS = frozenset({"live"})
 
 
 @dataclass(frozen=True)
@@ -145,7 +157,7 @@ class Vendor:
     stt: str | None = None
     llm: str | None = None
     tts: str | None = None
-    s2s: str | None = None
+    s2s: Mapping[str, str] | None = None
 
     @property
     def key_name(self) -> str:
@@ -163,7 +175,10 @@ VENDORS: dict[str, Vendor] = {
         "openai_api_key",
         "https://api.openai.com/v1/models",
         llm="pipecat.services.openai.llm:OpenAILLMService",
-        s2s="pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService",
+        s2s={
+            "realtime": "pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService",
+            "live": "pipecat.services.openai.live.llm:OpenAILiveLLMService",
+        },
     ),
     "elevenlabs": Vendor(
         "elevenlabs_api_key",
@@ -229,7 +244,10 @@ class CascadeServices:
 
 @dataclass(frozen=True)
 class NativeService:
+    """``full_duplex`` listens while it talks and never says when the caller is done."""
+
     model: FrameProcessor
+    full_duplex: bool = False
 
 
 Services = CascadeServices | NativeService
@@ -239,12 +257,19 @@ def supported(modality: Modality) -> list[str]:
     return sorted(name for name, vendor in VENDORS.items() if getattr(vendor, modality) is not None)
 
 
-def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tuple[str, str]:
+def _resolve_vendor(
+    modality: Modality, provider: str, settings: Settings, api: str | None = None
+) -> tuple[str, str]:
     """The class path for this modality and the key that pays for it, or why not."""
     vendor = VENDORS.get(provider)
-    path: str | None = getattr(vendor, modality) if vendor else None
-    if vendor is None or path is None:
+    found = getattr(vendor, modality) if vendor else None
+    if vendor is None or found is None:
         raise ValueError(f"no {modality} for {provider!r}; have {', '.join(supported(modality))}")
+    if isinstance(found, Mapping):
+        if api not in found:
+            raise ValueError(f"no {api!r} {modality} for {provider!r}; have {', '.join(found)}")
+        found = found[api]
+    path: str = found
     key = api_key(provider, settings)
     if key is None:
         raise RuntimeError(f"{vendor.key_name} is unset")
@@ -252,7 +277,7 @@ def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tu
 
 
 def _build(
-    path: str, api_key: str, fields: dict[str, Any], sample_rate: int | None, **extra: float
+    path: str, api_key: str, fields: dict[str, Any], sample_rate: int | None, **extra: object
 ) -> FrameProcessor:
     """Import the Pipecat class and build it with its Settings, the key and anything extra."""
     module_name, class_name = path.split(":")
@@ -271,13 +296,14 @@ def _build(
 def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
     """Every vendor and key in the stack checked first, then its services built."""
     if isinstance(stack, Native):
-        path, key = _resolve_vendor("s2s", stack.s2s.provider, settings)
-        fields = {
-            "model": stack.s2s.name,
-            "system_instruction": system_prompt,
-            **stack.s2s.options,
-        }
-        return NativeService(_build(path, key, fields, None))
+        s2s = stack.s2s
+        path, key = _resolve_vendor("s2s", s2s.provider, settings, s2s.api)
+        fields = {"model": s2s.name, "system_instruction": system_prompt, **s2s.options}
+        extra: dict[str, object] = {}
+        if s2s.delegation is not None:
+            extra["delegation"] = _responses_delegation(s2s.delegation, system_prompt)
+        model = _build(path, key, fields, None, **extra)
+        return NativeService(model, full_duplex=s2s.api in FULL_DUPLEX_APIS)
     stt_path, stt_key = _resolve_vendor("stt", stack.stt.provider, settings)
     llm_path, llm_key = _resolve_vendor("llm", stack.llm.provider, settings)
     tts_path, tts_key = _resolve_vendor("tts", stack.tts.provider, settings)
@@ -307,3 +333,19 @@ def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
             OUT_SAMPLE_RATE_HZ,
         ),
     )
+
+
+def _responses_delegation(spec: Mapping[str, Any], system_prompt: str) -> object:
+    """The Responses model a live model delegates to, on the same prompt."""
+    from pipecat.services.openai.live.llm import ResponsesDelegation
+    from pipecat.services.openai.responses.llm import (
+        OpenAIResponsesLLMService,
+        OpenAIResponsesReasoningConfig,
+    )
+
+    fields = {"system_instruction": system_prompt, **spec}
+    service_tier = fields.pop("service_tier", None)
+    if "reasoning" in fields:
+        fields["reasoning"] = OpenAIResponsesReasoningConfig(**fields["reasoning"])
+    settings = OpenAIResponsesLLMService.Settings.from_mapping(fields)
+    return ResponsesDelegation(settings=settings, service_tier=service_tier)

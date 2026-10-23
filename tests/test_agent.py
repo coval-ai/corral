@@ -23,7 +23,11 @@ def test_the_catalog_offers_models_per_role_and_any_mix_loads() -> None:
 
 
 def test_a_native_model_is_a_stack_of_one() -> None:
-    assert models.model_ids("s2s") == ["openai/gpt-realtime-2.1", "openai/gpt-realtime-2.1-mini"]
+    assert models.model_ids("s2s") == [
+        "openai/gpt-realtime-2.1",
+        "openai/gpt-realtime-2.1-mini",
+        "openai/gpt-live-1",
+    ]
     agent = agents.load_native_agent("default", "openai/gpt-realtime-2.1")
     assert isinstance(agent.stack, models.Native)
     assert agent.slug == "openai-gpt-realtime-2.1"
@@ -31,6 +35,9 @@ def test_a_native_model_is_a_stack_of_one() -> None:
     assert agent.system_prompt == agents.load_cascade_agent("default", *REFERENCE).system_prompt
     mini = agents.load_native_agent("default", "openai/gpt-realtime-2.1-mini")
     assert len(agent.digest) == 64 and mini.digest != agent.digest
+    live = agents.load_native_agent("default", "openai/gpt-live-1")
+    assert live.slug == "openai-gpt-live-1" and live.digest not in {agent.digest, mini.digest}
+    assert set(agents._config(agent.stack)["s2s"]) == {"provider", "name", "options"}
     with pytest.raises(ValueError, match="no s2s model 'openai/nope'; have openai/gpt-realtime"):
         agents.load_native_agent("default", "openai/nope")
 
