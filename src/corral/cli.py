@@ -11,12 +11,13 @@ import contextlib
 import importlib.util
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import NoReturn
 
 from corral import benchmark, talk
 from corral.agent import Agent, load_cascade_agent, load_native_agent
+from corral.assets import resolve_assets
 from corral.config import Settings, get_settings
 from corral.coval_api import SyncError, coval_problem
 from corral.logging import configure_logging
@@ -301,13 +302,17 @@ def main() -> None:
     request = None
     if mode is BENCHMARK:
         try:
-            suite = require_suite(scenario)
+            named = require_suite(scenario)
+            suite = resolve_assets(named, get_settings())
         except ValueError as error:
             fail(parser, interactive, str(error))
         workspace_id = suite.workspace or get_settings().corral_workspace_id
         request = benchmark.run_request(
             suite, workspace_id, smoke=args.smoke, today=datetime.now(UTC).date()
         )
+        if named.assets:
+            source = f"{get_settings().corral_assets_uri} ({named.assets})"
+            request = replace(request, workspace_source=source)
 
     test_case = args.test_case
     if interactive and mode is TALK:

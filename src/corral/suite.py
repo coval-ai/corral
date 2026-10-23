@@ -84,6 +84,8 @@ def choose_workspace(
 
 
 def sync_suite(client: CovalClient, suite: Suite) -> SuiteIds:
+    if suite.test_set is None:
+        raise SyncError(f"suite for assets {suite.assets} wasn't resolved to ids before syncing")
     metric_ids = _sync_kind(client, METRIC, suite.metrics)
     persona_ids = _sync_kind(client, PERSONA, suite.personas)
     if isinstance(suite.test_set, str):
