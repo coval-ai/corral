@@ -155,24 +155,23 @@ def test_talk_asks_which_seed_when_the_suite_names_test_cases(
 def test_talk_asks_nothing_when_the_suite_has_no_test_case_keys(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert choose_test_case("ultrabank", read=lambda _prompt: "9") is None
+    assert choose_test_case("default", read=lambda _prompt: "9") is None
     assert capsys.readouterr().out == ""
 
 
 def test_a_scenario_that_does_not_exist_says_which_do() -> None:
     assert known_scenario("id_roulette") == "id_roulette"
-    have = "have default, id_roulette, ultrabank"
+    have = "have default, id_roulette"
     with pytest.raises(ValueError, match=f"no scenario 'dental'; {have}"):
         known_scenario("dental")
 
 
 def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFixture[str]) -> None:
-    assert choose_scenario(TALK, read=lambda _prompt: "3") == "ultrabank"
+    assert choose_scenario(TALK, read=lambda _prompt: "2") == "id_roulette"
     out = capsys.readouterr().out
     assert "1. default      helpful assistant\n" in out
     assert "2. id_roulette  does the agent hear spelled-out details right the first time\n" in out
-    assert "3. ultrabank    Instruction adherence test set (internal)\n" in out
-    assert choose_scenario(BENCHMARK, read=lambda _prompt: "2") == "ultrabank"
+    assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "id_roulette"
     out = capsys.readouterr().out
     assert "default" not in out and out.startswith("1. id_roulette")
 
@@ -200,17 +199,17 @@ def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     answers = iter(["2", "2"])
-    native = choose_agent("ultrabank", lambda _prompt: next(answers), ALL_KEYS, answers_fine)
+    native = choose_agent("default", lambda _prompt: next(answers), ALL_KEYS, answers_fine)
     assert native.slug == "openai-gpt-realtime-2.1-mini"
     out = capsys.readouterr().out
     assert "1. cascade  an STT, an LLM and a TTS\n2. native   one speech-to-speech model\n" in out
     answers = iter(["", "", "2", ""])
-    cascade = choose_agent("ultrabank", lambda _prompt: next(answers), ALL_KEYS, answers_fine)
+    cascade = choose_agent("default", lambda _prompt: next(answers), ALL_KEYS, answers_fine)
     assert cascade.slug == "deepgram-nova-3--google-gemini-2.5-flash--elevenlabs-eleven-flash-v2"
     no_openai = Settings(_env_file=None, **{**KEYS, "openai_api_key": None})
     capsys.readouterr()
     answers = iter(["", "", ""])
-    choose_agent("ultrabank", lambda _prompt: next(answers), no_openai, answers_fine)
+    choose_agent("default", lambda _prompt: next(answers), no_openai, answers_fine)
     assert "Stack" not in capsys.readouterr().out
 
     parser = build_parser(ALL_KEYS)

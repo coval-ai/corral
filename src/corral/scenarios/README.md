@@ -9,8 +9,7 @@ A scenario is a directory here with:
 - `tools.py`: the tools the agent can call, if it has any. Leave this out and
   the agent just talks.
 
-`default` is a plain assistant for trying models by voice. `ultrabank` is
-Ultra Bank with the short daily test set.
+`default` is a plain assistant for trying models by voice.
 `id_roulette` is one short call: the caller reads out a detail once and the
 agent looks it up as it heard it. The details are account ids, emails, card
 numbers, postal codes and spelled surnames, three of each. Its personas run

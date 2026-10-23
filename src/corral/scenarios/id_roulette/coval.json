@@ -121,6 +121,6 @@
       "aggregation_method": "average",
       "value_source": "attribute"
     },
-    "AemJTdBJk7JUcPfvngvrD9"
+    { "metric_name": "Tool Call Count", "metric_type": "METRIC_TOOL_CALL_RATE" }
   ]
 }

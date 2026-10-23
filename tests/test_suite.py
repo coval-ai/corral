@@ -8,8 +8,8 @@ import httpx
 import pytest
 
 from corral.coval_api import CovalClient, SyncError
-from corral.scenarios import Suite, load_suite
-from corral.suite import WorkspaceChoice, choose_workspace, sync_suite
+from corral.scenarios import Suite
+from corral.suite import SuiteIds, WorkspaceChoice, choose_workspace, sync_suite
 
 COLLECTIONS = {
     "metrics": "metric",
@@ -41,6 +41,8 @@ class Workspace:
         store = self.items[collection]
         key = COLLECTIONS.get(collection, "test_case")
         body: dict[str, Any] = json.loads(request.content) if request.content else {}
+        if request.method == "GET" and item_id:
+            return httpx.Response(200 if item_id in store else 404, json={})
         if request.method == "GET":
             found = list(store.values())
             if wanted := request.url.params.get("filter"):
@@ -89,12 +91,21 @@ def _defined() -> Suite:
     return Suite.model_validate(DEFINED)
 
 
-def test_a_suite_of_ids_is_used_as_is_without_calling_coval() -> None:
+def test_a_suite_of_ids_is_used_as_is_once_coval_has_each() -> None:
     workspace = Workspace()
-    suite = load_suite("ultrabank")
-    assert suite is not None
-    ids = sync_suite(workspace.client(), suite)
-    assert ids.test_set_id == "QjkAPGkb" and len(ids.metric_ids) == 3
+    for collection, item_id in [("test-sets", "TS"), ("personas", "P1"), ("metrics", "M1")]:
+        workspace.items[collection][item_id] = {"id": item_id}
+    suite = Suite(test_set="TS", personas=["P1"], metrics=["M1"])
+    assert sync_suite(workspace.client(), suite) == SuiteIds("TS", ["P1"], ["M1"])
+    assert workspace.writes == []
+
+
+def test_an_id_from_another_organization_is_named_before_anything_is_written() -> None:
+    workspace = Workspace()
+    workspace.items["test-sets"]["TS"] = {"id": "TS"}
+    suite = Suite(test_set="TS", personas=["P-old"], metrics=[])
+    with pytest.raises(SyncError, match="persona P-old in coval.json isn't in this workspace"):
+        sync_suite(workspace.client(), suite)
     assert workspace.writes == []
 
 
@@ -129,6 +140,7 @@ def test_editing_the_file_patches_what_changed_and_drops_removed_cases() -> None
 
 def test_ids_and_definitions_mix_and_keep_their_order() -> None:
     workspace = Workspace()
+    workspace.items["metrics"]["EXISTING"] = {"id": "EXISTING"}
     raw = _defined().model_dump()
     raw["metrics"] = ["EXISTING", raw["metrics"][0]]
     ids = sync_suite(workspace.client(), Suite.model_validate(raw))
@@ -152,9 +164,16 @@ def test_a_definition_without_a_name_is_refused() -> None:
         sync_suite(Workspace().client(), Suite.model_validate(raw))
 
 
-def test_a_configured_workspace_is_used_without_looking() -> None:
+def test_a_configured_workspace_is_used_when_the_key_can_see_it() -> None:
     workspace = Workspace()
-    assert choose_workspace(workspace.client(), "W9") == WorkspaceChoice("W9")
+    assert choose_workspace(workspace.client(), "W0") == WorkspaceChoice("W0")
+    assert workspace.writes == []
+
+
+def test_a_configured_workspace_from_another_organization_says_where_it_came_from() -> None:
+    workspace = Workspace()
+    with pytest.raises(SyncError, match=r"workspace W9 from coval.json .* has Default \(W0\)"):
+        choose_workspace(workspace.client(), "W9", "coval.json")
     assert workspace.writes == []
 
 

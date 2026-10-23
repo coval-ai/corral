@@ -62,7 +62,7 @@ For scripts, pass the mode and flags instead of answering prompts:
 
 
 ```bash
-uv run corral benchmark --scenario ultrabank --stt soniox/stt-rt-v5 --llm google/gemini-2.5-flash --smoke
+uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v5 --llm google/gemini-2.5-flash --smoke
 ```
 
 A native model is `--s2s` on its own, with no `--stt`, `--llm` or `--tts`:
