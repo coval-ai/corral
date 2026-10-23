@@ -151,6 +151,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "coval-agent-sdk" },
+    { name = "google-auth", extra = ["requests"] },
     { name = "httpx" },
     { name = "loguru" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
@@ -174,6 +175,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "coval-agent-sdk", specifier = ">=0.1.0,<0.2" },
+    { name = "google-auth", extras = ["requests"], specifier = ">=2.40" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.30" },

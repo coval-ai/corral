@@ -45,12 +45,14 @@ SimulationHandler = Callable[[str], Coroutine[Any, Any, None]]
 
 @dataclass(frozen=True)
 class RunRequest:
-    """``sample`` test cases per run, all of them at 0, picked by ``seed`` when one is given."""
+    """``sample`` test cases per run, all of them at 0, picked by ``seed`` when one is given.
+    ``workspace_source`` names where the workspace came from when it wasn't coval.json or .env."""
 
     suite: Suite
     workspace_id: str | None
     sample: int
     seed: int | None = None
+    workspace_source: str | None = None
 
 
 def run_request(suite: Suite, workspace_id: str | None, *, smoke: bool, today: date) -> RunRequest:
@@ -250,7 +252,9 @@ async def run(agent: Agent, request: RunRequest) -> int:
     settings = get_settings()
     api_key = _secret(settings, "coval_api_key")
     with CovalClient(api_key, settings.coval_api_base) as coval:
-        source = "coval.json" if request.suite.workspace else "CORRAL_WORKSPACE_ID"
+        source = request.workspace_source or (
+            "coval.json" if request.suite.workspace else "CORRAL_WORKSPACE_ID"
+        )
         workspace_id = await pick_workspace(coval, request.workspace_id, source)
         sdk = CovalVoiceClient(
             api_key=api_key, api_base_url=settings.coval_api_base, workspace_id=workspace_id

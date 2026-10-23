@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     coval_api_key: SecretStr | None = None
     coval_api_base: str = "https://api.coval.dev/v1"
     corral_workspace_id: str | None = None
+    corral_assets_uri: str | None = None
 
 
 @functools.lru_cache(maxsize=1)
