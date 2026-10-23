@@ -13,7 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
 
-VAD_STOP_SECS = 0.2
+VAD_STOP_SECS = 0.3
 STT_FINALIZE_FALLBACK_SECS = 60 * 60
 INTERRUPT_MIN_WORDS = 3
 IN_SAMPLE_RATE_HZ = 16000

@@ -3,10 +3,10 @@
 
 """Turn a scenario's suite into ids in your Coval workspace.
 
-An id is used as is. A definition is found by its name in the workspace, created if it isn't
-there, and patched where it drifted from the file, so running again changes nothing and
-editing the file updates Coval. Test cases are matched by their input; one removed from the
-file is deleted from the scenario's test set.
+An id must already be in the workspace. A definition is found by its name in the workspace,
+created if it isn't there, and patched where it drifted from the file, so running again
+changes nothing and editing the file updates Coval. Test cases are matched by their input;
+one removed from the file is deleted from the scenario's test set.
 """
 
 from __future__ import annotations
@@ -49,16 +49,26 @@ class WorkspaceChoice:
     found_by_name: bool = False
 
 
-def choose_workspace(client: CovalClient, configured: str | None) -> WorkspaceChoice:
+def choose_workspace(
+    client: CovalClient, configured: str | None, source: str = "CORRAL_WORKSPACE_ID"
+) -> WorkspaceChoice:
     """The configured workspace, else the one named Corral, made the first time.
 
-    Two named Corral is an error rather than a guess.
+    A configured one the key can't see, or two named Corral, is an error rather than a guess.
+    ``source`` is where the configured id came from, for that error.
     """
+    workspaces = client.list_workspaces()
     if configured:
+        if not any(workspace.get("id") == configured for workspace in workspaces):
+            have = ", ".join(f"{w.get('display_name')} ({w.get('id')})" for w in workspaces)
+            raise SyncError(
+                f"workspace {configured} from {source} isn't in the organization your "
+                f"COVAL_API_KEY belongs to, which has {have}"
+            )
         return WorkspaceChoice(configured)
     named = [
         workspace
-        for workspace in client.list_workspaces()
+        for workspace in workspaces
         if workspace.get("display_name") == WORKSPACE_NAME and workspace.get("status") == "ACTIVE"
     ]
     if len(named) > 1:
@@ -77,7 +87,7 @@ def sync_suite(client: CovalClient, suite: Suite) -> SuiteIds:
     metric_ids = _sync_kind(client, METRIC, suite.metrics)
     persona_ids = _sync_kind(client, PERSONA, suite.personas)
     if isinstance(suite.test_set, str):
-        test_set_id = suite.test_set
+        (test_set_id,) = _sync_kind(client, TEST_SET, [suite.test_set])
     else:
         definition = dict(suite.test_set)
         cases = definition.pop("test_cases", [])
@@ -88,6 +98,13 @@ def sync_suite(client: CovalClient, suite: Suite) -> SuiteIds:
 
 def _sync_kind(client: CovalClient, kind: Kind, entries: list[Entry]) -> list[str]:
     """Ids for these entries, in order, syncing the definitions among them."""
+    for entry in entries:
+        if isinstance(entry, str) and not client.exists(kind.path, entry):
+            raise SyncError(
+                f"{kind.noun} {entry} in coval.json isn't in this workspace. An id only works "
+                "in the organization it was made in, so write it out in full or use one from "
+                "the organization your COVAL_API_KEY belongs to."
+            )
     if all(isinstance(entry, str) for entry in entries):
         return [str(entry) for entry in entries]
     live = {item.get(kind.name_field): item for item in client.list_all(kind.path, kind.many, {})}

@@ -31,7 +31,7 @@ KEYS: dict[str, Any] = {
 
 def test_each_stack_resolves_to_its_vendors_with_our_endpointing() -> None:
     settings = Settings(_env_file=None, **KEYS)
-    agent = load_cascade_agent("ultrabank", *REFERENCE)
+    agent = load_cascade_agent("default", *REFERENCE)
     reference = models.resolve(agent.stack, agent.system_prompt, settings)
     assert isinstance(reference, models.CascadeServices)
     assert isinstance(reference.stt, DeepgramSTTService)
@@ -40,7 +40,7 @@ def test_each_stack_resolves_to_its_vendors_with_our_endpointing() -> None:
     assert vars(reference.stt._settings)["endpointing"] is False
     assert reference.stt._stt_ttfb_timeout == STT_FINALIZE_FALLBACK_SECS
     assert vars(reference.llm._settings)["system_instruction"] == agent.system_prompt
-    mixed = load_cascade_agent("ultrabank", *SONIOX_GEMINI)
+    mixed = load_cascade_agent("default", *SONIOX_GEMINI)
     soniox = models.resolve(mixed.stack, mixed.system_prompt, settings)
     assert isinstance(soniox, models.CascadeServices)
     assert isinstance(soniox.stt, SonioxSTTService)
@@ -52,7 +52,7 @@ def test_each_stack_resolves_to_its_vendors_with_our_endpointing() -> None:
 
 def test_a_native_model_resolves_to_one_service_with_the_prompt_on_it() -> None:
     settings = Settings(_env_file=None, **KEYS)
-    agent = load_native_agent("ultrabank", "openai/gpt-realtime-2.1")
+    agent = load_native_agent("default", "openai/gpt-realtime-2.1")
     native = models.resolve(agent.stack, agent.system_prompt, settings)
     assert isinstance(native, models.NativeService)
     assert isinstance(native.model, OpenAIRealtimeLLMService)
@@ -72,7 +72,7 @@ def test_a_native_model_resolves_to_one_service_with_the_prompt_on_it() -> None:
 
 
 def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> None:
-    agent = load_cascade_agent("ultrabank", *REFERENCE)
+    agent = load_cascade_agent("default", *REFERENCE)
     assert isinstance(agent.stack, models.Cascade)
     nope = agent.stack.tts.model_copy(update={"provider": "nope"})
     bad = dataclasses.replace(agent.stack, tts=nope)
@@ -80,9 +80,9 @@ def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> Non
         models.resolve(bad, agent.system_prompt, Settings(_env_file=None, **KEYS))
     unpaid = Settings(_env_file=None, **{**KEYS, "soniox_api_key": None})
     with pytest.raises(RuntimeError, match="SONIOX_API_KEY is unset"):
-        models.resolve(load_cascade_agent("ultrabank", *SONIOX_GEMINI).stack, "x", unpaid)
+        models.resolve(load_cascade_agent("default", *SONIOX_GEMINI).stack, "x", unpaid)
     no_openai = Settings(_env_file=None, **{**KEYS, "openai_api_key": None})
-    native = load_native_agent("ultrabank", "openai/gpt-realtime-2.1")
+    native = load_native_agent("default", "openai/gpt-realtime-2.1")
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY is unset"):
         models.resolve(native.stack, "x", no_openai)
     assert models.supported("s2s") == ["openai"]
