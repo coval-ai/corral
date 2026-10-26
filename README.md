@@ -93,6 +93,9 @@ Gemini 3.8 Live Extended Thinking is named as it is in the map, so it needs no
 `--prompt-from`. Its session settings match 3.8 Live's Coval agent, plus a `MEDIUM`
 thinking level, which the Coval agent can't set.
 
+Grok Voice 3.0 is named as it is in the map, so it needs no `--prompt-from`; its
+session settings in `s2s.json` match its Coval agent. It needs `XAI_API_KEY`.
+
 ## What gets measured
 
 Every answered turn is a `turn_latency` span in Coval with `stt`, `llm` and

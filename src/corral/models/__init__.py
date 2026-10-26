@@ -215,6 +215,11 @@ VENDORS: dict[str, Vendor] = {
             )
         },
     ),
+    "xai": Vendor(
+        "xai_api_key",
+        "https://api.x.ai/v1/models",
+        s2s={"realtime": S2sApi("pipecat.services.xai.realtime.llm:GrokRealtimeLLMService")},
+    ),
 }
 
 
