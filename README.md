@@ -96,6 +96,9 @@ thinking level, which the Coval agent can't set.
 Grok Voice 3.0 is named as it is in the map, so it needs no `--prompt-from`; its
 session settings in `s2s.json` match its Coval agent. It needs `XAI_API_KEY`.
 
+Eleven Realtime v1 Mini and Max are named as they are in the map, so they need no
+`--prompt-from`; their session settings in `s2s.json` match their Coval agents.
+
 ## What gets measured
 
 Every answered turn is a `turn_latency` span in Coval with `stt`, `llm` and

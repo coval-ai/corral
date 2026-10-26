@@ -142,9 +142,10 @@ CHECK_TIMEOUT_SECS = 10
 @dataclass(frozen=True)
 class S2sApi:
     """One speech-to-speech service. ``waits_for_cue`` is one that only opens the call when
-    told to."""
+    told to; ``base_url`` is for a vendor that speaks another vendor's protocol."""
 
     path: str
+    base_url: str | None = None
     reports_turn_end: bool = True
     waits_for_cue: bool = False
     delegates: bool = False
@@ -195,6 +196,12 @@ VENDORS: dict[str, Vendor] = {
         auth_header="xi-api-key",
         auth_prefix="",
         tts="pipecat.services.elevenlabs.tts:ElevenLabsTTSService",
+        s2s={
+            "realtime": S2sApi(
+                "corral.models.eleven:ElevenRealtimeLLMService",
+                base_url="wss://api.elevenlabs.io/v1/convai/realtime",
+            )
+        },
     ),
     "soniox": Vendor(
         "soniox_api_key",
@@ -329,7 +336,7 @@ def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
         s2s = stack.s2s
         api, key = _resolve_s2s(s2s, settings)
         fields = {"model": s2s.name, "system_instruction": system_prompt, **s2s.options}
-        extra: dict[str, object] = {}
+        extra: dict[str, object] = {} if api.base_url is None else {"base_url": api.base_url}
         if s2s.delegation is not None:
             extra["delegation"] = _responses_delegation(s2s.delegation, system_prompt)
         model = _build(api.path, key, fields, None, **extra)
