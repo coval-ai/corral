@@ -213,7 +213,8 @@ def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
     assert "Stack" not in capsys.readouterr().out
 
     parser = build_parser(ALL_KEYS)
-    assert "  s2s  openai/gpt-realtime-2.1, openai/gpt-realtime-2.1-mini\n" in parser.format_help()
+    offered = "  s2s  openai/gpt-realtime-2.1, openai/gpt-realtime-2.1-mini, openai/gpt-live-1\n"
+    assert offered in parser.format_help()
     args = parser.parse_args(["talk", "--s2s", "openai/gpt-realtime-2.1"])
     assert flagged_agent("default", args).slug == "openai-gpt-realtime-2.1"
     assert flagged_agent("default", parser.parse_args(["talk"])).slug.startswith("deepgram-")

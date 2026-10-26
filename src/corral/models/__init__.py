@@ -18,6 +18,7 @@ import functools
 import importlib
 import importlib.resources
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -66,7 +67,11 @@ class TtsModel(Model):
 
 
 class S2sModel(Model):
-    """A native speech-to-speech model. Voice and turn detection are vendor knobs, in options."""
+    """A native speech-to-speech model. Voice and turn detection are vendor knobs, in options.
+    ``delegation`` is the Responses model a live model hands its reasoning to."""
+
+    api: str = "realtime"
+    delegation: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +140,17 @@ CHECK_TIMEOUT_SECS = 10
 
 
 @dataclass(frozen=True)
+class S2sApi:
+    """One speech-to-speech service. ``waits_for_cue`` is one that only opens the call when
+    told to."""
+
+    path: str
+    reports_turn_end: bool = True
+    waits_for_cue: bool = False
+    delegates: bool = False
+
+
+@dataclass(frozen=True)
 class Vendor:
     """Which key pays for a provider, the GET that proves the key works, and its services."""
 
@@ -145,7 +161,7 @@ class Vendor:
     stt: str | None = None
     llm: str | None = None
     tts: str | None = None
-    s2s: str | None = None
+    s2s: Mapping[str, S2sApi] | None = None
 
     @property
     def key_name(self) -> str:
@@ -163,7 +179,15 @@ VENDORS: dict[str, Vendor] = {
         "openai_api_key",
         "https://api.openai.com/v1/models",
         llm="pipecat.services.openai.llm:OpenAILLMService",
-        s2s="pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService",
+        s2s={
+            "realtime": S2sApi("pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService"),
+            "live": S2sApi(
+                "pipecat.services.openai.live.llm:OpenAILiveLLMService",
+                reports_turn_end=False,
+                waits_for_cue=True,
+                delegates=True,
+            ),
+        },
     ),
     "elevenlabs": Vendor(
         "elevenlabs_api_key",
@@ -230,6 +254,8 @@ class CascadeServices:
 @dataclass(frozen=True)
 class NativeService:
     model: FrameProcessor
+    reports_turn_end: bool = True
+    waits_for_cue: bool = False
 
 
 Services = CascadeServices | NativeService
@@ -245,14 +271,32 @@ def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tu
     path: str | None = getattr(vendor, modality) if vendor else None
     if vendor is None or path is None:
         raise ValueError(f"no {modality} for {provider!r}; have {', '.join(supported(modality))}")
+    return path, _key(vendor, provider, settings)
+
+
+def _resolve_s2s(model: S2sModel, settings: Settings) -> tuple[S2sApi, str]:
+    """The model's speech-to-speech service and the key that pays for it, or why not."""
+    vendor = VENDORS.get(model.provider)
+    if vendor is None or vendor.s2s is None:
+        raise ValueError(f"no s2s for {model.provider!r}; have {', '.join(supported('s2s'))}")
+    api = vendor.s2s.get(model.api)
+    if api is None:
+        have = ", ".join(vendor.s2s)
+        raise ValueError(f"no {model.api!r} s2s for {model.provider!r}; have {have}")
+    if model.delegation is not None and not api.delegates:
+        raise ValueError(f"{model.id} has a delegation, which its {model.api} API doesn't take")
+    return api, _key(vendor, model.provider, settings)
+
+
+def _key(vendor: Vendor, provider: str, settings: Settings) -> str:
     key = api_key(provider, settings)
     if key is None:
         raise RuntimeError(f"{vendor.key_name} is unset")
-    return path, key
+    return key
 
 
 def _build(
-    path: str, api_key: str, fields: dict[str, Any], sample_rate: int | None, **extra: float
+    path: str, api_key: str, fields: dict[str, Any], sample_rate: int | None, **extra: object
 ) -> FrameProcessor:
     """Import the Pipecat class and build it with its Settings, the key and anything extra."""
     module_name, class_name = path.split(":")
@@ -271,13 +315,16 @@ def _build(
 def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
     """Every vendor and key in the stack checked first, then its services built."""
     if isinstance(stack, Native):
-        path, key = _resolve_vendor("s2s", stack.s2s.provider, settings)
-        fields = {
-            "model": stack.s2s.name,
-            "system_instruction": system_prompt,
-            **stack.s2s.options,
-        }
-        return NativeService(_build(path, key, fields, None))
+        s2s = stack.s2s
+        api, key = _resolve_s2s(s2s, settings)
+        fields = {"model": s2s.name, "system_instruction": system_prompt, **s2s.options}
+        extra: dict[str, object] = {}
+        if s2s.delegation is not None:
+            extra["delegation"] = _responses_delegation(s2s.delegation, system_prompt)
+        model = _build(api.path, key, fields, None, **extra)
+        return NativeService(
+            model, reports_turn_end=api.reports_turn_end, waits_for_cue=api.waits_for_cue
+        )
     stt_path, stt_key = _resolve_vendor("stt", stack.stt.provider, settings)
     llm_path, llm_key = _resolve_vendor("llm", stack.llm.provider, settings)
     tts_path, tts_key = _resolve_vendor("tts", stack.tts.provider, settings)
@@ -307,3 +354,19 @@ def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
             OUT_SAMPLE_RATE_HZ,
         ),
     )
+
+
+def _responses_delegation(spec: Mapping[str, Any], system_prompt: str) -> object:
+    """The Responses model a live model delegates to, on the same prompt."""
+    from pipecat.services.openai.live.llm import ResponsesDelegation
+    from pipecat.services.openai.responses.llm import (
+        OpenAIResponsesLLMService,
+        OpenAIResponsesReasoningConfig,
+    )
+
+    fields = {"system_instruction": system_prompt, **spec}
+    service_tier = fields.pop("service_tier", None)
+    if "reasoning" in fields:
+        fields["reasoning"] = OpenAIResponsesReasoningConfig(**fields["reasoning"])
+    settings = OpenAIResponsesLLMService.Settings.from_mapping(fields)
+    return ResponsesDelegation(settings=settings, service_tier=service_tier)

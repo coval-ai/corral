@@ -12,7 +12,10 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.vad.vad_analyzer import VADAnalyzer, VADParams
 from pipecat.frames.frames import (
+    Frame,
     InputAudioRawFrame,
+    LLMMessagesAppendFrame,
+    LLMRunFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
@@ -21,6 +24,7 @@ from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams, LLMService
 from pipecat.tests.utils import run_test
 from pipecat.transports.base_transport import BaseTransport
+from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 
 from corral import pipeline
 from corral.agent import load_cascade_agent, load_native_agent
@@ -69,6 +73,14 @@ def test_cascade_runs_transcribe_accumulate_generate_synthesize() -> None:
 def test_a_native_aggregator_has_no_turn_taking_of_ours() -> None:
     assert context_aggregators(native=True).user()._vad_controller is None
     assert context_aggregators().user()._vad_controller is not None
+
+
+def test_a_model_without_turn_ends_proposes_them_and_is_never_interrupted() -> None:
+    user = context_aggregators(native=True, reports_turn_end=False).user()
+    assert user._vad_controller is None
+    strategies = user._params.user_turn_strategies
+    assert isinstance(strategies, ExternalUserTurnStrategies)
+    assert strategies.enable_interruptions is False
 
 
 def test_the_context_offers_the_tools_on_every_request() -> None:
@@ -196,6 +208,27 @@ async def test_a_native_call_puts_the_tools_on_the_one_model_and_watches_the_las
     kinds = [type(p).__name__ for p in inner._processors]
     order = [kinds.index(k) for k in ("LastWordWatch", "LLMUserAggregator", "LLMService")]
     assert order == sorted(order)
+
+
+async def test_a_model_that_waits_for_a_cue_is_told_to_open_the_call() -> None:
+    greetings: dict[bool, list[Frame]] = {}
+    for waits in (False, True):
+        agent = load_native_agent("default", "openai/gpt-realtime-2.1")
+        service = NativeService(LLMService(), waits_for_cue=waits)
+        with patch.object(pipeline, "resolve", return_value=service):
+            call = await build_call(agent, _Transport(), SETTINGS)
+        queued: list[Frame] = []
+
+        async def queue(frame: Frame, queued: list[Frame] = queued) -> None:
+            queued.append(frame)
+
+        for handler in call.worker._event_handlers["on_pipeline_started"].handlers:
+            await handler(SimpleNamespace(queue_frame=queue), None)
+        greetings[waits] = queued
+    assert [type(frame) for frame in greetings[False]] == [LLMRunFrame]
+    (cue,) = greetings[True]
+    assert isinstance(cue, LLMMessagesAppendFrame) and cue.run_llm
+    assert cue.messages == [{"role": "developer", "content": pipeline.OPENING_CUE}]
 
 
 async def test_the_backend_is_cleaned_up_when_the_pipeline_finishes() -> None:

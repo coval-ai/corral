@@ -3,14 +3,17 @@
 
 import dataclasses
 from typing import Any, cast
+from unittest.mock import patch
 
 import httpx
 import pytest
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.google.llm import GoogleLLMService
+from pipecat.services.openai.live.llm import OpenAILiveLLMService, ResponsesDelegation
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
+from pipecat.services.openai.responses.llm import OpenAIResponsesReasoningConfig
 from pipecat.services.soniox.stt import SonioxSTTService
 from pipecat.services.soniox.tts import SonioxTTSService
 
@@ -56,6 +59,7 @@ def test_a_native_model_resolves_to_one_service_with_the_prompt_on_it() -> None:
     native = models.resolve(agent.stack, agent.system_prompt, settings)
     assert isinstance(native, models.NativeService)
     assert isinstance(native.model, OpenAIRealtimeLLMService)
+    assert native.reports_turn_end
     session = vars(native.model._settings)["session_properties"]
     assert vars(native.model._settings)["model"] == "gpt-realtime-2.1"
     assert session.instructions == agent.system_prompt
@@ -69,6 +73,41 @@ def test_a_native_model_resolves_to_one_service_with_the_prompt_on_it() -> None:
     assert isinstance(service, models.NativeService)
     session = vars(cast(Any, service.model)._settings)["session_properties"]
     assert session.audio.input.turn_detection.type == "semantic_vad"
+
+
+def test_a_live_model_delegates_to_a_responses_model_on_the_same_prompt() -> None:
+    agent = load_native_agent("default", "openai/gpt-live-1")
+    native = models.resolve(agent.stack, agent.system_prompt, Settings(_env_file=None, **KEYS))
+    assert isinstance(native, models.NativeService) and not native.reports_turn_end
+    assert isinstance(native.model, OpenAILiveLLMService)
+    live = vars(native.model._settings)
+    assert (live["model"], live["voice"]) == ("gpt-live-1", "alloy")
+    assert live["system_instruction"] == agent.system_prompt
+    delegation: Any = native.model._delegation
+    assert isinstance(delegation, ResponsesDelegation)
+    assert delegation.service_tier == "priority"
+    backend = delegation.settings
+    assert backend.model == "gpt-5.6-luna"
+    assert backend.system_instruction == agent.system_prompt
+    assert backend.max_completion_tokens == 2048
+    assert backend.reasoning == OpenAIResponsesReasoningConfig(effort="medium", summary="auto")
+    assert backend.extra == {"text": {"verbosity": "low"}}
+
+
+def test_turn_ends_and_delegation_come_from_the_vendors_api_not_its_name() -> None:
+    settings = Settings(_env_file=None, **KEYS)
+    delegating = models.S2sModel(provider="openai", name="x", delegation={"model": "y"})
+    with pytest.raises(ValueError, match="its realtime API doesn't take"):
+        models.resolve(models.Native(delegating), "x", settings)
+    odd = models.S2sModel(provider="openai", name="x", api="nope")
+    with pytest.raises(ValueError, match="no 'nope' s2s for 'openai'; have realtime, live"):
+        models.resolve(models.Native(odd), "x", settings)
+    plain = models.S2sApi("pipecat.services.openai.live.llm:OpenAILiveLLMService")
+    vendor = dataclasses.replace(models.VENDORS["openai"], s2s={"live": plain})
+    live = models.S2sModel(provider="openai", name="gpt-live-1", api="live")
+    with patch.dict(models.VENDORS, {"openai": vendor}):
+        service = models.resolve(models.Native(live), "x", settings)
+    assert isinstance(service, models.NativeService) and service.reports_turn_end
 
 
 def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> None:

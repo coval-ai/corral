@@ -15,6 +15,7 @@ from pipecat.frames.frames import (
     InterruptionFrame,
     LLMTextFrame,
     MetricsFrame,
+    SpeechOutputAudioRawFrame,
     TTSAudioRawFrame,
     UserStoppedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
@@ -29,6 +30,8 @@ MS = 1_000_000
 OPENAI = {"provider": "openai", "model": "gpt-4.1"}
 STT, LLM, TTS = FrameProcessor(), FrameProcessor(), FrameProcessor()
 AUDIO = TTSAudioRawFrame(audio=b"\x00\x00", sample_rate=24000, num_channels=1)
+SILENCE = SpeechOutputAudioRawFrame(audio=b"\x00\x00" * 240, sample_rate=24000, num_channels=1)
+SPEECH = SpeechOutputAudioRawFrame(audio=b"\xff\x3f" * 240, sample_rate=24000, num_channels=1)
 USAGE = MetricsFrame(data=[STTUsageMetricsData(processor="x", value=STTUsage(audio_seconds=1))])
 
 
@@ -40,7 +43,7 @@ REALTIME = {"provider": "openai", "model": "gpt-realtime-2.1"}
 
 
 class Call:
-    def __init__(self, native: bool = False) -> None:
+    def __init__(self, native: bool = False, reports_turn_end: bool = True) -> None:
         self.exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(self.exporter))
@@ -58,6 +61,7 @@ class Call:
             tracer=provider.get_tracer("test"),
             clock=lambda: self.now_ns,
             native=native,
+            reports_turn_end=reports_turn_end,
         )
 
     async def at(
@@ -86,6 +90,11 @@ def call() -> Call:
 @pytest.fixture
 def native() -> Call:
     return Call(native=True)
+
+
+@pytest.fixture
+def silent_turns() -> Call:
+    return Call(native=True, reports_turn_end=False)
 
 
 async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None:
@@ -361,3 +370,27 @@ async def test_a_tool_called_after_the_agent_starts_answering_is_still_a_span(
     (tool,) = [s for s in native.exporter.get_finished_spans() if s.name == "llm_tool_call"]
     assert (tool.start_time, tool.end_time) == (4_000 * MS, 4_300 * MS)
     assert dict(tool.attributes or {})["function.name"] == "book_appointment"
+
+
+async def test_a_turn_with_no_reported_end_runs_from_the_last_word_to_the_first_sound(
+    silent_turns: Call,
+) -> None:
+    await silent_turns.at(1_000, SILENCE)
+    await silent_turns.at(1_200, VADUserStoppedSpeakingFrame(stop_secs=0.2))
+    await silent_turns.at(1_400, UserStoppedSpeakingFrame())
+    await silent_turns.at(1_500, SILENCE)
+    await silent_turns.at(1_700, SPEECH)
+    await silent_turns.at(1_720, BotStartedSpeakingFrame())
+    (turn,) = silent_turns.turns
+    assert turn["s2s.turn_latency_ms"] == 700.0
+    assert turn["s2s.turn_latency.model_ms"] == 700.0
+    assert turn["s2s.turn_latency.transport_ms"] == 20.0
+    assert "s2s.turn_latency.endpointing_ms" not in turn
+    assert set(silent_turns.stages()) == {"model"}
+
+
+async def test_a_turn_with_no_reported_end_silero_missed_is_not_counted(silent_turns: Call) -> None:
+    await silent_turns.at(1_000, UserStoppedSpeakingFrame())
+    await silent_turns.at(1_500, SPEECH)
+    await silent_turns.at(1_520, BotStartedSpeakingFrame())
+    assert silent_turns.turns == []

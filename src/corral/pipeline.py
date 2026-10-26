@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
+from openai.types.chat import ChatCompletionDeveloperMessageParam
 from opentelemetry.trace import Tracer
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
@@ -19,6 +20,7 @@ from pipecat.audio.vad.vad_controller import VADController
 from pipecat.frames.frames import (
     Frame,
     InputAudioRawFrame,
+    LLMMessagesAppendFrame,
     LLMRunFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
@@ -43,7 +45,7 @@ from pipecat.turns.user_start.min_words_user_turn_start_strategy import (
 from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
     TurnAnalyzerUserTurnStopStrategy,
 )
-from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies, UserTurnStrategies
 
 from corral.agent import Agent
 from corral.config import (
@@ -59,13 +61,15 @@ from corral.observer import TurnLatencyObserver, models_by_modality
 from corral.scenarios import load_environment
 from corral.tool_checks import CHARACTER_ERROR_RATE, character_error_rates
 
+OPENING_CUE = "The caller is on the line. Open the call the way your instructions say."
+
 
 def silero() -> SileroVADAnalyzer:
     return SileroVADAnalyzer(params=VADParams(stop_secs=VAD_STOP_SECS))
 
 
 def context_aggregators(
-    tools: Sequence[FunctionSchema] = (), *, native: bool = False
+    tools: Sequence[FunctionSchema] = (), *, native: bool = False, reports_turn_end: bool = True
 ) -> LLMContextAggregatorPair:
     """The conversation context and, for a cascade, the turn-taking the agent pins around it.
 
@@ -77,9 +81,15 @@ def context_aggregators(
     on every machine. While the agent is speaking, the caller has to say
     ``interrupt_min_words`` before it yields, so a backchannel does not cut it off.
 
-    A native model does its own turn-taking, so its aggregator has none of ours.
+    A native model does its own turn-taking, so its aggregator has none of ours. One that
+    doesn't report turn ends proposes them from its transcript and is never interrupted.
     """
     context = LLMContext(tools=list(tools)) if tools else LLMContext()
+    if native and not reports_turn_end:
+        external = ExternalUserTurnStrategies(enable_interruptions=False)
+        return LLMContextAggregatorPair(
+            context, user_params=LLMUserAggregatorParams(user_turn_strategies=external)
+        )
     if native:
         return LLMContextAggregatorPair(context)
     return LLMContextAggregatorPair(
@@ -225,8 +235,11 @@ async def build_call(
     else:
         await environment.start(test_case)
         handlers = list(environment.tools)
+    reports_turn_end = not isinstance(services, NativeService) or services.reports_turn_end
     aggregators = context_aggregators(
-        [tool.schema for tool in handlers], native=isinstance(services, NativeService)
+        [tool.schema for tool in handlers],
+        native=isinstance(services, NativeService),
+        reports_turn_end=reports_turn_end,
     )
     tags = {**(attributes or {}), "agent": agent.slug, "digest": agent.digest}
     stages = models_by_modality(agent)
@@ -241,7 +254,12 @@ async def build_call(
             _register(model, handlers, log)
             middle = [LastWordWatch(silero()), aggregators.user(), model]
             observer = TurnLatencyObserver(
-                attributes=tags, models=stages, llm=model, tracer=tracer, native=True
+                attributes=tags,
+                models=stages,
+                llm=model,
+                tracer=tracer,
+                native=True,
+                reports_turn_end=reports_turn_end,
             )
     worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
@@ -257,7 +275,11 @@ async def build_call(
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
     async def _greet(started: PipelineWorker, _frame: Frame) -> None:
-        await started.queue_frame(LLMRunFrame())
+        if isinstance(services, NativeService) and services.waits_for_cue:
+            cue: ChatCompletionDeveloperMessageParam = {"role": "developer", "content": OPENING_CUE}
+            await started.queue_frame(LLMMessagesAppendFrame([cue], run_llm=True))
+        else:
+            await started.queue_frame(LLMRunFrame())
 
     expected = {t.schema.name: t.character_error_rate for t in handlers if t.character_error_rate}
     call = Call(worker, observer, log if environment else None, expected)

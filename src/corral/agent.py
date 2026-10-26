@@ -62,7 +62,7 @@ def _config(stack: Stack) -> dict[str, Any]:
     turn-taking, so the cascade's pinned turn-taking isn't part of its digest."""
     if isinstance(stack, Native):
         return {
-            "s2s": stack.s2s.model_dump(),
+            "s2s": stack.s2s.model_dump(exclude_defaults=True),
             "sample_rates_hz": [IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ],
         }
     return {
