@@ -5,6 +5,7 @@ import pytest
 
 from corral import agent as agents
 from corral import models
+from corral.scenarios import Suite, require_suite
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 
@@ -50,14 +51,11 @@ def test_an_unknown_model_or_a_misspelled_catalog_key_fails_to_load() -> None:
         models.TtsModel.model_validate(entry)
 
 
-def test_an_asset_agent_runs_the_prompt_it_is_given_and_its_digest_follows_it() -> None:
-    asset = agents.load_asset_agent("workflow-bank.v1", " Be brief. ", "openai/gpt-realtime-2.1")
-    assert asset.scenario == "workflow-bank.v1"
-    assert asset.system_prompt == "Be brief."
-    assert asset.slug == agents.load_native_agent("default", "openai/gpt-realtime-2.1").slug
-    other = agents.load_asset_agent("workflow-bank.v1", "Be kind.", "openai/gpt-realtime-2.1")
-    assert other.digest != asset.digest
-    cascade = agents.load_asset_agent("workflow-bank.v1", "Be brief.", None, *REFERENCE)
-    assert isinstance(cascade.stack, models.Cascade)
-    with pytest.raises(ValueError, match="prompt is empty"):
-        agents.load_asset_agent("workflow-bank.v1", "  ", "openai/gpt-realtime-2.1")
+def test_ultrabank_gives_each_model_its_prompt_and_its_suite_comes_from_the_assets() -> None:
+    live = agents.load_native_agent("ultrabank", "openai/gpt-live-1")
+    realtime = agents.load_native_agent("ultrabank", "openai/gpt-realtime-2.1")
+    cascade = agents.load_cascade_agent("ultrabank", *REFERENCE)
+    assert live.system_prompt.startswith("You are Ultra Bank Bot")
+    assert realtime.system_prompt.startswith("# Role & Objective")
+    assert cascade.system_prompt == realtime.system_prompt
+    assert require_suite("ultrabank") == Suite(assets="workflow-bank.v1")

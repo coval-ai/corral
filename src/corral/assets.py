@@ -5,17 +5,15 @@
 
 ``benchmark-infra/assets`` publishes that map for every scenario and version it manages; a
 staging manifest is the same shape with the staging org's ids. CORRAL_ASSETS_URI points at one,
-as ``gs://bucket/object`` or a local path. The workspace, test set, personas and metric ids make
-the suite. A run from ``--assets`` also takes its system prompt from one of the entry's agents, as
-that agent is saved in Coval; Corral still makes its own agent record to run it.
+as ``gs://bucket/object`` or a local path. Only the workspace, test set, personas and metric ids
+are read; Corral still makes its own agent record.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 from urllib.parse import quote
 
 import google.auth
@@ -40,18 +38,12 @@ class _Persona(BaseModel):
     id: str
 
 
-class _Agent(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-
-
 class _Entry(BaseModel):
     model_config = ConfigDict(extra="ignore")
     workspace_id: str
     test_set_id: str
     personas: dict[str, _Persona]
     metric_ids: dict[str, str] = {}
-    agents: dict[str, _Agent] = {}
 
 
 def load_manifest(uri: str, transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
@@ -101,24 +93,24 @@ def _read_gcs(uri: str, transport: httpx.BaseTransport | None) -> bytes:
     return response.content
 
 
-def _entry(name: str, manifest: dict[str, Any], source: str) -> _Entry:
-    scenario, _, version = name.rpartition(".")
+def resolve(suite: Suite, manifest: dict[str, Any], source: str) -> Suite:
+    """The suite in id form, from the manifest entry its ``assets`` names."""
+    scenario, _, version = (suite.assets or "").rpartition(".")
     versions = manifest.get(scenario)
     if not scenario or not isinstance(versions, dict):
         have = ", ".join(sorted(manifest)) or "none"
-        raise AssetsError(f"assets {name}: no scenario {scenario!r} in {source}; it has {have}")
+        raise AssetsError(
+            f"assets {suite.assets}: no scenario {scenario!r} in {source}; it has {have}"
+        )
     if version not in versions:
         have = ", ".join(sorted(versions)) or "none"
-        raise AssetsError(f"assets {name}: no version {version!r} in {source}; it has {have}")
+        raise AssetsError(
+            f"assets {suite.assets}: no version {version!r} in {source}; it has {have}"
+        )
     try:
-        return _Entry.model_validate(versions[version])
+        entry = _Entry.model_validate(versions[version])
     except ValidationError as error:
-        raise AssetsError(f"assets {name} in {source} is malformed: {error}") from None
-
-
-def resolve(suite: Suite, manifest: dict[str, Any], source: str) -> Suite:
-    """The suite in id form, from the manifest entry its ``assets`` names."""
-    entry = _entry(suite.assets or "", manifest, source)
+        raise AssetsError(f"assets {suite.assets} in {source} is malformed: {error}") from None
     personas = _pick("persona", suite, [str(p) for p in suite.personas], entry.personas, source)
     metrics = _pick("metric", suite, [str(m) for m in suite.metrics], entry.metric_ids, source)
     return Suite(
@@ -155,71 +147,3 @@ def resolve_assets(suite: Suite, settings: Settings) -> Suite:
             f"coval.json names assets {suite.assets}; set CORRAL_ASSETS_URI to a manifest"
         )
     return resolve(suite, load_manifest(uri), uri)
-
-
-class AgentReader(Protocol):
-    """The part of the Coval client an asset run needs: a workspace and one agent."""
-
-    def use_workspace(self, workspace_id: str) -> None: ...
-
-    def get_agent(self, agent_id: str) -> dict[str, Any]: ...
-
-
-@dataclass(frozen=True)
-class AssetRun:
-    """A run straight from the assets: the suite in id form and the agent's system prompt."""
-
-    suite: Suite
-    system_prompt: str
-    source: str
-
-
-def load_asset_run(
-    name: str,
-    *,
-    personas: list[str],
-    metrics: list[str],
-    model_id: str,
-    prompt_from: str | None,
-    settings: Settings,
-    client: AgentReader,
-) -> AssetRun:
-    """The suite for ``name`` and the prompt of its agent for ``model_id``, or ``prompt_from``'s
-    when that model isn't one of the scenario's agents."""
-    uri = settings.corral_assets_uri
-    if not uri:
-        raise AssetsError(f"--assets {name} needs CORRAL_ASSETS_URI set to a manifest")
-    manifest = load_manifest(uri)
-    suite = resolve(Suite(assets=name, personas=personas, metrics=metrics), manifest, uri)
-    entry = _entry(name, manifest, uri)
-    wanted = prompt_from or model_id
-    agent = entry.agents.get(wanted)
-    if agent is None:
-        have = ", ".join(sorted(entry.agents)) or "none"
-        hint = "" if prompt_from else "; pass --prompt-from with one of them"
-        raise AssetsError(f"assets {name} has no agent {wanted} in {uri}{hint}. It has {have}")
-    client.use_workspace(entry.workspace_id)
-    prompt = agent_prompt(client.get_agent(agent.id))
-    if not prompt:
-        raise AssetsError(f"agent {wanted} ({agent.id}) has no system prompt saved in Coval")
-    return AssetRun(suite, prompt, f"{uri} ({name})")
-
-
-def agent_prompt(agent: dict[str, Any]) -> str | None:
-    """The system prompt saved on a Coval agent: Gemini Live keeps it in its own field, the
-    websocket agents in the session.update they send first."""
-    metadata = agent.get("metadata") or {}
-    gemini = metadata.get("gemini_realtime_instructions")
-    if isinstance(gemini, str) and gemini.strip():
-        return gemini.strip()
-    init = metadata.get("initialization_json")
-    if isinstance(init, str):
-        try:
-            init = json.loads(init)
-        except json.JSONDecodeError:
-            return None
-    if isinstance(init, list):
-        init = init[0] if init else None
-    session = init.get("session") if isinstance(init, dict) else None
-    instructions = session.get("instructions") if isinstance(session, dict) else None
-    return instructions.strip() if isinstance(instructions, str) and instructions.strip() else None

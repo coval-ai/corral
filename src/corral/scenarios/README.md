@@ -3,6 +3,9 @@
 A scenario is a directory here with:
 
 - `system-prompt.txt`: the prompt the agent runs
+- `prompts/<provider>/<model>.txt`: a prompt for one model, if it needs its
+  own. The model that reads it is the native model or the cascade's LLM, and
+  every model without one runs `system-prompt.txt`.
 - `summary.txt`: its one line in the menu
 - `coval.json`: the Coval suite it's benchmarked with. Leave this out for a
   talk-only scenario.
@@ -15,6 +18,10 @@ agent looks it up as it heard it. The details are account ids, emails, card
 numbers, postal codes and spelled surnames, three of each. Its personas run
 from a quiet room to an office to a landline with an air conditioner, so it
 shows which details and which caller conditions make agents mishear.
+`ultrabank` is the daily board's Ultra Bank workflow: the agent checks the
+caller's name, phone and account number before it helps, and answers only
+from what it's been told. Its prompts are the board's, one per model where the
+board tunes them, and its Coval suite is `workflow-bank.v1` from the assets.
 
 ## tools.py
 
@@ -123,8 +130,9 @@ to it: `gs://coval-bench-asset-versions/coval-benchmarking/scenario_map.json`
 for the production assets, or a local file with the same shape for another
 org. The workspace, test set, personas and metrics come from that entry.
 `personas` are its conditions and `metrics` its metric names; leave either out
-for all of them. A gs:// manifest is read with your Google login
-(`gcloud auth application-default login`) and needs
+for all of them. `--personas` and `--metrics` on `corral benchmark` pick
+from the same names for one run, comma-separated. A gs:// manifest is read
+with your Google login (`gcloud auth application-default login`) and needs
 `roles/storage.objectViewer` on the bucket.
 
 To benchmark your own agent, add a directory with a prompt, a summary and

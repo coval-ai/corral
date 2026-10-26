@@ -1,0 +1,1 @@
+does the agent verify the caller before helping, and stick to what it knows

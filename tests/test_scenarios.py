@@ -12,6 +12,7 @@ from corral.scenarios import (
     behavior_files,
     confirm_test_cases,
     load_environment,
+    load_prompt,
     load_suite,
     require_suite,
 )
@@ -63,7 +64,15 @@ def test_a_scenario_without_a_tools_py_gives_the_agent_no_backend() -> None:
 
 
 def test_the_files_that_change_the_agent_are_the_prompt_and_the_tools() -> None:
-    assert list(behavior_files("default")) == ["system-prompt.txt"]
+    assert list(behavior_files("default", "openai/gpt-4.1")) == ["system-prompt.txt"]
+
+
+def test_a_model_with_its_own_prompt_runs_it_and_the_rest_run_the_scenarios() -> None:
+    own = load_prompt("ultrabank", "openai/gpt-live-1")
+    shared = load_prompt("ultrabank", "openai/gpt-realtime-2.1")
+    assert own != shared
+    assert shared == load_prompt("ultrabank", "openai/gpt-4.1")
+    assert behavior_files("ultrabank", "openai/gpt-live-1") == {"system-prompt.txt": own}
 
 
 async def test_every_id_roulette_test_case_has_a_right_answer_to_check() -> None:

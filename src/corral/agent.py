@@ -16,7 +16,7 @@ from typing import Any
 
 from corral.config import IN_SAMPLE_RATE_HZ, INTERRUPT_MIN_WORDS, OUT_SAMPLE_RATE_HZ, VAD_STOP_SECS
 from corral.models import Cascade, Native, Stack, catalog
-from corral.scenarios import PROMPT_FILE, behavior_files, load_prompt
+from corral.scenarios import behavior_files, load_prompt
 
 
 @dataclass(frozen=True)
@@ -40,37 +40,14 @@ def load_native_agent(scenario: str, s2s_id: str) -> Agent:
     return _agent(scenario, Native(catalog().get_s2s(s2s_id)))
 
 
-def load_asset_agent(
-    asset: str,
-    system_prompt: str,
-    s2s_id: str | None,
-    stt_id: str | None = None,
-    llm_id: str | None = None,
-    tts_id: str | None = None,
-) -> Agent:
-    """One native model, or the cascade's three, on a prompt taken from the assets. ``asset``
-    names the agent in place of a scenario; it has no tools."""
-    offered = catalog()
-    stack: Stack
-    if s2s_id:
-        stack = Native(offered.get_s2s(s2s_id))
-    elif stt_id and llm_id and tts_id:
-        stack = Cascade(offered.get_stt(stt_id), offered.get_llm(llm_id), offered.get_tts(tts_id))
-    else:
-        raise ValueError("an asset agent needs --s2s, or --stt, --llm and --tts")
-    return _build(asset, stack, system_prompt.strip(), {PROMPT_FILE: system_prompt.encode()})
-
-
 def _agent(scenario: str, stack: Stack) -> Agent:
-    system_prompt = load_prompt(scenario).decode().strip()
-    return _build(scenario, stack, system_prompt, behavior_files(scenario))
-
-
-def _build(scenario: str, stack: Stack, system_prompt: str, files: dict[str, bytes]) -> Agent:
+    """The prompt is the one for the model that reads it: the native model, or the cascade's LLM."""
+    reader = stack.s2s.id if isinstance(stack, Native) else stack.llm.id
+    system_prompt = load_prompt(scenario, reader).decode().strip()
     if not system_prompt:
         raise ValueError(f"{scenario}'s prompt is empty")
     hasher = hashlib.sha256(json.dumps(_config(stack), sort_keys=True).encode())
-    for name, content in files.items():
+    for name, content in behavior_files(scenario, reader).items():
         hasher.update(name.encode())
         hasher.update(content)
     digest = hasher.hexdigest()

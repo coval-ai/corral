@@ -3,6 +3,8 @@
 
 """Scenarios: one directory each with a prompt, a menu line, and a Coval suite if it's benchmarked.
 
+A model can have its own prompt under ``prompts/``; every other model runs the scenario's.
+
 A scenario can also ship a ``tools.py`` whose ``environment()`` returns a fresh backend for one
 call; see ``corral.environment``. Without one the agent has no tools.
 
@@ -27,6 +29,7 @@ from corral.environment import Environment
 from corral.models import JsonModel
 
 PROMPT_FILE = "system-prompt.txt"
+PROMPTS_DIR = "prompts"
 SUMMARY_FILE = "summary.txt"
 COVAL_FILE = "coval.json"
 TOOLS_FILE = "tools.py"
@@ -97,21 +100,26 @@ def scenario_summary(scenario: str) -> str:
     return path.read_text().strip() if path.is_file() else ""
 
 
-def load_prompt(scenario: str) -> bytes:
-    return _folder(scenario).joinpath(PROMPT_FILE).read_bytes()
+def load_prompt(scenario: str, model_id: str) -> bytes:
+    """The model's own prompt at ``prompts/<provider>/<model>.txt``, else the scenario's."""
+    folder = _folder(scenario)
+    own = folder.joinpath(PROMPTS_DIR, *f"{model_id}.txt".split("/"))
+    return (own if own.is_file() else folder.joinpath(PROMPT_FILE)).read_bytes()
 
 
-def behavior_files(scenario: str) -> dict[str, bytes]:
-    """Every file that changes what the agent does: the prompt, the tools and their data.
+def behavior_files(scenario: str, model_id: str) -> dict[str, bytes]:
+    """Every file that changes what the agent does: the model's prompt, the tools and their data.
 
     The menu line and the Coval suite don't change the agent, so they're left out.
     """
     folder = _folder(scenario)
-    return {
+    files = {
         entry.name: entry.read_bytes()
         for entry in sorted(folder.iterdir(), key=lambda entry: entry.name)
         if entry.is_file() and entry.name not in (SUMMARY_FILE, COVAL_FILE)
     }
+    files[PROMPT_FILE] = load_prompt(scenario, model_id)
+    return files
 
 
 def load_environment(scenario: str) -> Environment | None:

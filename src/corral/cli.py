@@ -16,10 +16,10 @@ from datetime import UTC, datetime
 from typing import NoReturn
 
 from corral import benchmark, talk
-from corral.agent import Agent, load_asset_agent, load_cascade_agent, load_native_agent
-from corral.assets import AssetRun, load_asset_run, resolve_assets
+from corral.agent import Agent, load_cascade_agent, load_native_agent
+from corral.assets import resolve_assets
 from corral.config import Settings, get_settings
-from corral.coval_api import CovalClient, SyncError, coval_problem
+from corral.coval_api import SyncError, coval_problem
 from corral.logging import configure_logging
 from corral.models import (
     CASCADE,
@@ -34,6 +34,7 @@ from corral.models import (
 from corral.scenarios import (
     BENCHMARK_SCENARIO,
     TALK_SCENARIO,
+    Suite,
     load_suite,
     require_suite,
     scenario_names,
@@ -205,24 +206,14 @@ def choose_model(
         print(problem)
 
 
-MODE_FLAGS = {
-    "test_case": TALK,
-    "smoke": BENCHMARK,
-    "assets": BENCHMARK,
-    "personas": BENCHMARK,
-    "metrics": BENCHMARK,
-    "prompt_from": BENCHMARK,
-}
+MODE_FLAGS = {"test_case": TALK, "smoke": BENCHMARK, "personas": BENCHMARK, "metrics": BENCHMARK}
 
 
 def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
-    """A flag that belongs to another mode, or needs --assets, so it would be silently ignored."""
+    """A flag that belongs to another mode, so it would be silently ignored."""
     for dest, owner in MODE_FLAGS.items():
         if getattr(args, dest) and mode is not owner:
             return f"--{dest.replace('_', '-')} is for {owner.name}"
-    for dest in ("personas", "metrics", "prompt_from"):
-        if getattr(args, dest) and not args.assets:
-            return f"--{dest.replace('_', '-')} needs --assets"
     return None
 
 
@@ -278,21 +269,10 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "--smoke", action="store_true", help="one test case, to check the wiring"
     )
     benchmark_flags.add_argument(
-        "--assets",
-        default=os.environ.get("S2S_ASSETS"),
-        metavar="SCENARIO.VERSION",
-        help="run a scenario from the manifest at CORRAL_ASSETS_URI instead of --scenario",
+        "--personas", type=names, default=[], help="with assets: conditions to run; default all"
     )
     benchmark_flags.add_argument(
-        "--personas", type=names, default=[], help="with --assets: conditions to run; default all"
-    )
-    benchmark_flags.add_argument(
-        "--metrics", type=names, default=[], help="with --assets: metrics to score; default all"
-    )
-    benchmark_flags.add_argument(
-        "--prompt-from",
-        metavar="MODEL",
-        help="with --assets: the agent whose prompt to use when the model isn't one of them",
+        "--metrics", type=names, default=[], help="with assets: metrics to score; default all"
     )
     return parser
 
@@ -302,23 +282,16 @@ def names(value: str) -> list[str]:
     return [name.strip() for name in value.split(",") if name.strip()]
 
 
-def asset_run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> AssetRun:
-    """The suite and prompt ``--assets`` names; Coval is asked for the agent's prompt."""
-    settings = get_settings()
-    api_key = settings.coval_api_key.get_secret_value() if settings.coval_api_key else ""
-    try:
-        with CovalClient(api_key, settings.coval_api_base) as coval:
-            return load_asset_run(
-                args.assets,
-                personas=args.personas,
-                metrics=args.metrics,
-                model_id=args.s2s or args.llm,
-                prompt_from=args.prompt_from,
-                settings=settings,
-                client=coval,
-            )
-    except (SyncError, ValueError) as error:
-        fail(parser, False, str(error))
+def narrowed(suite: Suite, personas: list[str], metrics: list[str]) -> Suite:
+    """The suite with the personas and metrics named on the flags, when its coval.json names
+    assets; those are names from the manifest entry, and ids or definitions aren't."""
+    if not personas and not metrics:
+        return suite
+    if suite.assets is None:
+        raise ValueError("--personas and --metrics pick from assets; this coval.json has its own")
+    return suite.model_copy(
+        update={"personas": personas or suite.personas, "metrics": metrics or suite.metrics}
+    )
 
 
 def main() -> None:
@@ -342,15 +315,7 @@ def main() -> None:
         if problem:
             fail(parser, interactive, problem)
 
-    assets = None
-    if args.assets:
-        if args.scenario:
-            fail(parser, interactive, "--assets names the scenario; drop --scenario")
-        if interactive:
-            fail(parser, interactive, "--assets runs from flags: corral benchmark --assets ...")
-        assets = asset_run(parser, args)
-        scenario = args.assets
-    elif args.scenario:
+    if args.scenario:
         try:
             scenario = known_scenario(args.scenario)
         except ValueError as error:
@@ -360,14 +325,9 @@ def main() -> None:
     else:
         scenario = TALK_SCENARIO if mode is TALK else BENCHMARK_SCENARIO
     request = None
-    if assets:
-        request = benchmark.run_request(
-            assets.suite, assets.suite.workspace, smoke=args.smoke, today=datetime.now(UTC).date()
-        )
-        request = replace(request, workspace_source=assets.source)
-    elif mode is BENCHMARK:
+    if mode is BENCHMARK:
         try:
-            named = require_suite(scenario)
+            named = narrowed(require_suite(scenario), args.personas, args.metrics)
             suite = resolve_assets(named, get_settings())
         except ValueError as error:
             fail(parser, interactive, str(error))
@@ -383,14 +343,7 @@ def main() -> None:
     if interactive and mode is TALK:
         test_case = choose_test_case(scenario)
     check = checker(settings)
-    if assets:
-        try:
-            agent = load_asset_agent(
-                args.assets, assets.system_prompt, args.s2s, args.stt, args.llm, args.tts
-            )
-        except ValueError as error:
-            fail(parser, interactive, str(error))
-    elif interactive:
+    if interactive:
         agent = choose_agent(scenario, settings=settings, check=check)
     else:
         # argparse checks a flag against its choices, but not a default from the environment.
