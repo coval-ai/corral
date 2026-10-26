@@ -14,5 +14,11 @@
       "text": { "verbosity": "low" }
     }
   },
-  { "provider": "google", "name": "gemini-3.8-live", "api": "live", "options": { "voice": "Charon", "temperature": 0.8 } }
+  { "provider": "google", "name": "gemini-3.8-live", "api": "live", "options": { "voice": "Charon", "temperature": 0.8 } },
+  {
+    "provider": "google",
+    "name": "gemini-3.8-live-extended-thinking",
+    "api": "live",
+    "options": { "voice": "Charon", "temperature": 0.8, "thinking": { "thinking_level": "MEDIUM" } }
+  }
 ]

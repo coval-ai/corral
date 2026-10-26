@@ -89,6 +89,10 @@ CORRAL_ASSETS_URI=gs://coval-bench-asset-versions/coval-benchmarking/scenario_ma
 Gemini 3.8 Live is named as it is in the map, so it needs no `--prompt-from`;
 its session settings in `s2s.json` match its Coval agent.
 
+Gemini 3.8 Live Extended Thinking is named as it is in the map, so it needs no
+`--prompt-from`. Its session settings match 3.8 Live's Coval agent, plus a `MEDIUM`
+thinking level, which the Coval agent can't set.
+
 ## What gets measured
 
 Every answered turn is a `turn_latency` span in Coval with `stt`, `llm` and
