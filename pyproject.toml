@@ -15,7 +15,7 @@ dependencies = [
     "httpx>=0.27",
     "opentelemetry-sdk>=1.30",
     "opentelemetry-exporter-otlp-proto-http>=1.30",
-    "pipecat-ai[deepgram,elevenlabs,google,openai,silero,soniox]~=1.12",
+    "pipecat-ai[deepgram,elevenlabs,google,openai,silero,soniox] @ https://github.com/pipecat-ai/pipecat/archive/00cad1894fd917acee1fce6136b54ec60dbb1ade.tar.gz#sha256=3bbe53da7408c0b270bc592c6d7b7ef76ec2a69026ca1e2ec8fd07f281a8e485",
     "coval-agent-sdk>=0.1.0,<0.2",
     "google-auth[requests]>=2.40",
 ]
@@ -68,3 +68,6 @@ filterwarnings = [
     "ignore:'audioop' is deprecated:DeprecationWarning",
     "ignore:`AudioContextTTSService` is deprecated:DeprecationWarning",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
