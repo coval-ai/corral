@@ -10,7 +10,15 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from corral.assets import AssetsError, load_manifest, resolve, resolve_assets
+from corral.assets import (
+    AssetRun,
+    AssetsError,
+    agent_prompt,
+    load_asset_run,
+    load_manifest,
+    resolve,
+    resolve_assets,
+)
 from corral.config import Settings
 from corral.scenarios import Suite
 
@@ -126,3 +134,108 @@ def test_a_gcs_manifest_the_account_cant_read_says_which_role_it_needs(signed_in
         load_manifest("gs://bucket/map.json", transport)
     with pytest.raises(AssetsError, match="gs://bucket/object"):
         load_manifest("gs://bucket", transport)
+
+
+AGENTS = {
+    "openai/gpt-realtime-2": {"id": "A-rt2", "registry_model": "gpt-realtime"},
+    "google/gemini-3.8-live": {"id": "A-gem"},
+}
+
+
+def _session(instructions: str) -> str:
+    return json.dumps({"type": "session.update", "session": {"instructions": instructions}})
+
+
+@pytest.mark.parametrize(
+    ("record", "prompt"),
+    [
+        (
+            {"metadata": {"initialization_json": _session(" Be Ultra Bank Bot. ")}},
+            "Be Ultra Bank Bot.",
+        ),
+        ({"metadata": {"initialization_json": f"[{_session('First frame.')}]"}}, "First frame."),
+        ({"metadata": {"gemini_realtime_instructions": "Gemini prompt."}}, "Gemini prompt."),
+        ({"metadata": {"initialization_json": "{not json"}}, None),
+        ({"metadata": {}}, None),
+        ({}, None),
+    ],
+)
+def test_an_agents_prompt_is_read_where_coval_keeps_it(
+    record: dict[str, object], prompt: str | None
+) -> None:
+    assert agent_prompt(record) == prompt
+
+
+class FakeCoval:
+    def __init__(self, records: dict[str, dict[str, object]]) -> None:
+        self.records = records
+        self.workspace: str | None = None
+
+    def use_workspace(self, workspace_id: str) -> None:
+        self.workspace = workspace_id
+
+    def get_agent(self, agent_id: str) -> dict[str, object]:
+        return self.records[agent_id]
+
+
+def _asset_run(
+    tmp_path: Path,
+    model_id: str,
+    prompt_from: str | None = None,
+    records: dict[str, dict[str, object]] | None = None,
+) -> tuple[AssetRun, FakeCoval]:
+    manifest = json.loads(json.dumps(MANIFEST))
+    manifest["workflow-bank"]["v1"]["agents"] = AGENTS
+    path = tmp_path / "map.json"
+    path.write_text(json.dumps(manifest))
+    coval = FakeCoval(
+        {
+            "A-rt2": {"metadata": {"initialization_json": _session("RT2 prompt.")}},
+            "A-gem": {"metadata": {"gemini_realtime_instructions": "Gemini prompt."}},
+            **(records or {}),
+        }
+    )
+    run = load_asset_run(
+        "workflow-bank.v1",
+        personas=["clean"],
+        metrics=[],
+        model_id=model_id,
+        prompt_from=prompt_from,
+        settings=Settings(corral_assets_uri=str(path)),
+        client=coval,
+    )
+    return run, coval
+
+
+def test_an_asset_run_takes_the_prompt_of_the_agent_for_its_model(tmp_path: Path) -> None:
+    run, coval = _asset_run(tmp_path, "openai/gpt-realtime-2")
+    assert run.system_prompt == "RT2 prompt."
+    assert run.suite.personas == ["P-clean"] and run.suite.test_set == "TS1"
+    assert coval.workspace == "W1"
+    assert run.source.endswith("map.json (workflow-bank.v1)")
+
+
+def test_a_model_the_scenario_has_no_agent_for_borrows_one_named_by_prompt_from(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(AssetsError, match="no agent openai/gpt-realtime-2.1 .*--prompt-from"):
+        _asset_run(tmp_path, "openai/gpt-realtime-2.1")
+    run, _ = _asset_run(tmp_path, "openai/gpt-realtime-2.1", "google/gemini-3.8-live")
+    assert run.system_prompt == "Gemini prompt."
+
+
+def test_an_agent_without_a_saved_prompt_or_a_missing_manifest_stops_the_run(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(AssetsError, match="has no system prompt saved in Coval"):
+        _asset_run(tmp_path, "openai/gpt-realtime-2", records={"A-rt2": {"metadata": {}}})
+    with pytest.raises(AssetsError, match="needs CORRAL_ASSETS_URI"):
+        load_asset_run(
+            "workflow-bank.v1",
+            personas=[],
+            metrics=[],
+            model_id="openai/gpt-realtime-2",
+            prompt_from=None,
+            settings=Settings(corral_assets_uri=None),
+            client=FakeCoval({}),
+        )

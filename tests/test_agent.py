@@ -48,3 +48,16 @@ def test_an_unknown_model_or_a_misspelled_catalog_key_fails_to_load() -> None:
     entry = {"provider": "elevenlabs", "name": "x", "voice": "v", "voise": "x"}
     with pytest.raises(ValueError, match="voise"):
         models.TtsModel.model_validate(entry)
+
+
+def test_an_asset_agent_runs_the_prompt_it_is_given_and_its_digest_follows_it() -> None:
+    asset = agents.load_asset_agent("workflow-bank.v1", " Be brief. ", "openai/gpt-realtime-2.1")
+    assert asset.scenario == "workflow-bank.v1"
+    assert asset.system_prompt == "Be brief."
+    assert asset.slug == agents.load_native_agent("default", "openai/gpt-realtime-2.1").slug
+    other = agents.load_asset_agent("workflow-bank.v1", "Be kind.", "openai/gpt-realtime-2.1")
+    assert other.digest != asset.digest
+    cascade = agents.load_asset_agent("workflow-bank.v1", "Be brief.", None, *REFERENCE)
+    assert isinstance(cascade.stack, models.Cascade)
+    with pytest.raises(ValueError, match="prompt is empty"):
+        agents.load_asset_agent("workflow-bank.v1", "  ", "openai/gpt-realtime-2.1")
