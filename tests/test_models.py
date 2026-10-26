@@ -59,7 +59,7 @@ def test_a_native_model_resolves_to_one_service_with_the_prompt_on_it() -> None:
     native = models.resolve(agent.stack, agent.system_prompt, settings)
     assert isinstance(native, models.NativeService)
     assert isinstance(native.model, OpenAIRealtimeLLMService)
-    assert not native.full_duplex
+    assert native.reports_turn_end
     session = vars(native.model._settings)["session_properties"]
     assert vars(native.model._settings)["model"] == "gpt-realtime-2.1"
     assert session.instructions == agent.system_prompt
@@ -78,7 +78,7 @@ def test_a_native_model_resolves_to_one_service_with_the_prompt_on_it() -> None:
 def test_a_live_model_delegates_to_a_responses_model_on_the_same_prompt() -> None:
     agent = load_native_agent("default", "openai/gpt-live-1")
     native = models.resolve(agent.stack, agent.system_prompt, Settings(_env_file=None, **KEYS))
-    assert isinstance(native, models.NativeService) and native.full_duplex
+    assert isinstance(native, models.NativeService) and not native.reports_turn_end
     assert isinstance(native.model, OpenAILiveLLMService)
     live = vars(native.model._settings)
     assert (live["model"], live["voice"]) == ("gpt-live-1", "alloy")
@@ -94,7 +94,7 @@ def test_a_live_model_delegates_to_a_responses_model_on_the_same_prompt() -> Non
     assert backend.extra == {"text": {"verbosity": "low"}}
 
 
-def test_full_duplex_and_delegation_come_from_the_vendors_api_not_its_name() -> None:
+def test_turn_ends_and_delegation_come_from_the_vendors_api_not_its_name() -> None:
     settings = Settings(_env_file=None, **KEYS)
     delegating = models.S2sModel(provider="openai", name="x", delegation={"model": "y"})
     with pytest.raises(ValueError, match="its realtime API doesn't take"):
@@ -107,7 +107,7 @@ def test_full_duplex_and_delegation_come_from_the_vendors_api_not_its_name() -> 
     live = models.S2sModel(provider="openai", name="gpt-live-1", api="live")
     with patch.dict(models.VENDORS, {"openai": vendor}):
         service = models.resolve(models.Native(live), "x", settings)
-    assert isinstance(service, models.NativeService) and not service.full_duplex
+    assert isinstance(service, models.NativeService) and service.reports_turn_end
 
 
 def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> None:

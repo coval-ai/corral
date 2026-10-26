@@ -37,7 +37,7 @@ A native model does its own turn-taking, so its turn has ``endpointing``, the ca
 last word to the moment the vendor said the caller was done, and ``model``, that moment
 to the first audio. Endpointing is negative when the model answered before Silero
 thought the caller was done, and missing when the vendor never says.
-A full-duplex model never says, and its first audio is its first frame that isn't silent.
+A model that streams silence has its first audio at its first frame that isn't silent.
 """
 
 from __future__ import annotations
@@ -293,7 +293,7 @@ class TurnLatencyObserver(BaseObserver):
         tracer: Tracer | None = None,
         clock: Callable[[], int] = time.time_ns,
         native: bool = False,
-        endpoints: bool = True,
+        reports_turn_end: bool = True,
     ) -> None:
         """``native`` means one speech-to-speech service, handed in as ``llm``."""
         super().__init__()
@@ -303,7 +303,7 @@ class TurnLatencyObserver(BaseObserver):
         self._tracer = tracer
         self._clock = clock
         self._native = native
-        self._endpoints = endpoints
+        self._reports_turn_end = reports_turn_end
         self._turn = 0
         self._moment = Moments(native=native)
         self._calls: dict[str, ToolCallSpan] = {}
@@ -325,7 +325,7 @@ class TurnLatencyObserver(BaseObserver):
                 moment.llm_start = None
                 moment.tts_start = None
                 moment.tts_first_audio = None
-            case UserStoppedSpeakingFrame() if self._endpoints:
+            case UserStoppedSpeakingFrame() if self._reports_turn_end:
                 moment.vad_done = now
             case MetricsFrame(data=reports) if moment.caller_stopped is not None:
                 self._record_request(data.source, now, _ttfb_ns(reports))

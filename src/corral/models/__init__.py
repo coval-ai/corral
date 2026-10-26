@@ -141,10 +141,12 @@ CHECK_TIMEOUT_SECS = 10
 
 @dataclass(frozen=True)
 class S2sApi:
-    """One speech-to-speech service. A full-duplex one never says when the caller is done."""
+    """One speech-to-speech service. ``waits_for_cue`` is one that only opens the call when
+    told to."""
 
     path: str
-    full_duplex: bool = False
+    reports_turn_end: bool = True
+    waits_for_cue: bool = False
     delegates: bool = False
 
 
@@ -181,7 +183,8 @@ VENDORS: dict[str, Vendor] = {
             "realtime": S2sApi("pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService"),
             "live": S2sApi(
                 "pipecat.services.openai.live.llm:OpenAILiveLLMService",
-                full_duplex=True,
+                reports_turn_end=False,
+                waits_for_cue=True,
                 delegates=True,
             ),
         },
@@ -250,10 +253,9 @@ class CascadeServices:
 
 @dataclass(frozen=True)
 class NativeService:
-    """``full_duplex`` listens while it talks and never says when the caller is done."""
-
     model: FrameProcessor
-    full_duplex: bool = False
+    reports_turn_end: bool = True
+    waits_for_cue: bool = False
 
 
 Services = CascadeServices | NativeService
@@ -320,7 +322,9 @@ def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
         if s2s.delegation is not None:
             extra["delegation"] = _responses_delegation(s2s.delegation, system_prompt)
         model = _build(api.path, key, fields, None, **extra)
-        return NativeService(model, full_duplex=api.full_duplex)
+        return NativeService(
+            model, reports_turn_end=api.reports_turn_end, waits_for_cue=api.waits_for_cue
+        )
     stt_path, stt_key = _resolve_vendor("stt", stack.stt.provider, settings)
     llm_path, llm_key = _resolve_vendor("llm", stack.llm.provider, settings)
     tts_path, tts_key = _resolve_vendor("tts", stack.tts.provider, settings)
