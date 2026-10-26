@@ -20,5 +20,13 @@
     "name": "gemini-3.8-live-extended-thinking",
     "api": "live",
     "options": { "voice": "Charon", "temperature": 0.8, "thinking": { "thinking_level": "MEDIUM" } }
+  },
+  {
+    "provider": "xai",
+    "name": "grok-voice-3.0",
+    "options": {
+      "voice": "ara",
+      "turn_detection": { "type": "server_vad", "threshold": 0.5, "prefix_padding_ms": 300, "silence_duration_ms": 500 }
+    }
   }
 ]

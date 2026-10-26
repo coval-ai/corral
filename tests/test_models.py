@@ -18,6 +18,7 @@ from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
 from pipecat.services.openai.responses.llm import OpenAIResponsesReasoningConfig
 from pipecat.services.soniox.stt import SonioxSTTService
 from pipecat.services.soniox.tts import SonioxTTSService
+from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 
 from corral import models
 from corral.agent import load_cascade_agent, load_native_agent
@@ -31,6 +32,7 @@ KEYS: dict[str, Any] = {
     "elevenlabs_api_key": "el",
     "soniox_api_key": "sx",
     "gemini_api_key": "gm",
+    "xai_api_key": "xa",
 }
 
 
@@ -117,6 +119,16 @@ def test_gemini_3_8_live_extended_thinking_thinks_at_medium() -> None:
     assert thinking is not None and thinking.thinking_level == ThinkingLevel.MEDIUM
 
 
+def test_grok_voice_3_runs_on_its_coval_agents_session_settings() -> None:
+    agent = load_native_agent("default", "xai/grok-voice-3.0")
+    grok = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+    assert isinstance(grok, models.NativeService) and grok.reports_turn_end
+    assert isinstance(grok.model, GrokRealtimeLLMService)
+    session = vars(grok.model._settings)["session_properties"]
+    assert session.voice == "ara"
+    assert session.turn_detection.silence_duration_ms == 500
+
+
 def test_turn_ends_and_delegation_come_from_the_vendors_api_not_its_name() -> None:
     settings = Settings(_env_file=None, **KEYS)
     delegating = models.S2sModel(provider="openai", name="x", delegation={"model": "y"})
@@ -147,7 +159,7 @@ def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> Non
     native = load_native_agent("default", "openai/gpt-realtime-2.1")
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY is unset"):
         models.resolve(native.stack, "x", no_openai)
-    assert models.supported("s2s") == ["google", "openai"]
+    assert models.supported("s2s") == ["google", "openai", "xai"]
 
 
 def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:
@@ -165,6 +177,7 @@ def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:
     assert seen["api.elevenlabs.io"].headers["xi-api-key"] == "el"
     assert seen["api.soniox.com"].headers["Authorization"] == "Bearer sx"
     assert seen["generativelanguage.googleapis.com"].headers["x-goog-api-key"] == "gm"
+    assert seen["api.x.ai"].headers["Authorization"] == "Bearer xa"
     assert all(request.method == "GET" and not request.url.query for request in seen.values())
 
 
