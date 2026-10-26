@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from google.genai.types import ThinkingLevel
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
@@ -103,6 +104,17 @@ def test_gemini_3_8_live_runs_on_its_coval_agents_session_settings() -> None:
     live = vars(gemini.model._settings)
     assert (live["voice"], live["temperature"]) == ("Charon", 0.8)
     assert gemini.model._resolved_thinking_config() is None
+
+
+def test_gemini_3_8_live_extended_thinking_thinks_at_medium() -> None:
+    agent = load_native_agent("default", "google/gemini-3.8-live-extended-thinking")
+    gemini = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+    assert isinstance(gemini, models.NativeService) and not gemini.reports_turn_end
+    assert isinstance(gemini.model, GeminiLiveLLMService)
+    live = vars(gemini.model._settings)
+    assert (live["voice"], live["temperature"]) == ("Charon", 0.8)
+    thinking = gemini.model._resolved_thinking_config()
+    assert thinking is not None and thinking.thinking_level == ThinkingLevel.MEDIUM
 
 
 def test_turn_ends_and_delegation_come_from_the_vendors_api_not_its_name() -> None:
