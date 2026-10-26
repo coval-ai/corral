@@ -86,6 +86,9 @@ CORRAL_ASSETS_URI=gs://coval-bench-asset-versions/coval-benchmarking/scenario_ma
   --s2s openai/gpt-realtime-2.1 --prompt-from openai/gpt-realtime-2
 ```
 
+Gemini 3.8 Live is named as it is in the map, so it needs no `--prompt-from`;
+its session settings in `s2s.json` match its Coval agent.
+
 ## What gets measured
 
 Every answered turn is a `turn_latency` span in Coval with `stt`, `llm` and
@@ -129,12 +132,13 @@ stopwatch for the last word; it has no say in the turn. The span has
 - `endpointing_ms` is the last word to the moment the vendor said the caller
   was done. Negative means the model answered before Silero thought the caller
   had finished. A vendor that never says has none. gpt-live-1 listens while it
-  talks and never says, so its `model_ms` starts at the last word.
+  talks and never says, and neither does Gemini Live, so their `model_ms` starts
+  at the last word.
 - `model_ms` is from there to the first audio. A tool call splits it into
   `model_ms`, `tool_ms` and `model_second_ms`.
 - `silero_missed` still applies; `stt_timed_out` and `smart_turn_timed_out`
-  don't. gpt-live-1 has nothing else to start a turn from, so a turn Silero
-  missed isn't counted.
+  don't. gpt-live-1 and Gemini Live have nothing else to start a turn from, so a
+  turn Silero missed isn't counted.
 
 The last word is a guess. Silero fires on a mid-sentence pause too, and nothing
 cleans that up for a native model the way smart-turn does for a cascade.

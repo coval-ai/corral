@@ -9,6 +9,7 @@ import httpx
 import pytest
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.services.google.llm import GoogleLLMService
 from pipecat.services.openai.live.llm import OpenAILiveLLMService, ResponsesDelegation
 from pipecat.services.openai.llm import OpenAILLMService
@@ -94,6 +95,16 @@ def test_a_live_model_delegates_to_a_responses_model_on_the_same_prompt() -> Non
     assert backend.extra == {"text": {"verbosity": "low"}}
 
 
+def test_gemini_3_8_live_runs_on_its_coval_agents_session_settings() -> None:
+    agent = load_native_agent("default", "google/gemini-3.8-live")
+    gemini = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+    assert isinstance(gemini, models.NativeService) and not gemini.reports_turn_end
+    assert isinstance(gemini.model, GeminiLiveLLMService)
+    live = vars(gemini.model._settings)
+    assert (live["voice"], live["temperature"]) == ("Charon", 0.8)
+    assert gemini.model._resolved_thinking_config() is None
+
+
 def test_turn_ends_and_delegation_come_from_the_vendors_api_not_its_name() -> None:
     settings = Settings(_env_file=None, **KEYS)
     delegating = models.S2sModel(provider="openai", name="x", delegation={"model": "y"})
@@ -124,7 +135,7 @@ def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> Non
     native = load_native_agent("default", "openai/gpt-realtime-2.1")
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY is unset"):
         models.resolve(native.stack, "x", no_openai)
-    assert models.supported("s2s") == ["openai"]
+    assert models.supported("s2s") == ["google", "openai"]
 
 
 def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:
