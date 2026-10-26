@@ -216,10 +216,13 @@ MODE_FLAGS = {
 
 
 def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
-    """A flag that belongs to another mode, so it would be silently ignored."""
+    """A flag that belongs to another mode, or needs --assets, so it would be silently ignored."""
     for dest, owner in MODE_FLAGS.items():
         if getattr(args, dest) and mode is not owner:
             return f"--{dest.replace('_', '-')} is for {owner.name}"
+    for dest in ("personas", "metrics", "prompt_from"):
+        if getattr(args, dest) and not args.assets:
+            return f"--{dest.replace('_', '-')} needs --assets"
     return None
 
 

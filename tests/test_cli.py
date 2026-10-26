@@ -234,3 +234,13 @@ def test_the_assets_flags_belong_to_benchmark_and_split_on_commas(
     assert misplaced_flag(BENCHMARK, args) is None
     args = build_parser(ALL_KEYS).parse_args(["talk", "--assets", "workflow-bank.v1"])
     assert misplaced_flag(TALK, args) == "--assets is for benchmark"
+
+
+def test_the_asset_selectors_need_assets(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("S2S_ASSETS", raising=False)
+    flags = ["--scenario", "id_roulette", "--personas", "clean"]
+    args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
+    assert misplaced_flag(BENCHMARK, args) == "--personas needs --assets"
+    flags = ["--prompt-from", "openai/gpt-realtime-2"]
+    args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
+    assert misplaced_flag(BENCHMARK, args) == "--prompt-from needs --assets"
