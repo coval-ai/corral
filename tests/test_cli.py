@@ -207,18 +207,19 @@ def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
     cascade = choose_agent("default", lambda _prompt: next(answers), ALL_KEYS, answers_fine)
     assert cascade.slug == "deepgram-nova-3--google-gemini-2.5-flash--elevenlabs-eleven-flash-v2"
     no_openai = Settings(_env_file=None, **{**KEYS, "openai_api_key": None})
-    capsys.readouterr()
-    answers = iter(["", "", ""])
-    choose_agent("default", lambda _prompt: next(answers), no_openai, answers_fine)
-    assert "Stack" not in capsys.readouterr().out
+    answers = iter(["2", ""])
+    other = choose_agent("default", lambda _prompt: next(answers), no_openai, answers_fine)
+    assert other.slug == "google-gemini-3.8-live"
+    no_native = {"openai_api_key": None, "gemini_api_key": None}
+    assert offered_models("s2s", Settings(_env_file=None, **{**KEYS, **no_native})) == []
 
     parser = build_parser(ALL_KEYS)
-    offered = "  s2s  openai/gpt-realtime-2.1, openai/gpt-realtime-2.1-mini, openai/gpt-live-1\n"
+    offered = "  s2s  openai/gpt-realtime-2.1, openai/gpt-realtime-2.1-mini, openai/gpt-live-1, "
     assert offered in parser.format_help()
     args = parser.parse_args(["talk", "--s2s", "openai/gpt-realtime-2.1"])
     assert flagged_agent("default", args).slug == "openai-gpt-realtime-2.1"
     assert flagged_agent("default", parser.parse_args(["talk"])).slug.startswith("deepgram-")
-    assert "--s2s" not in build_parser(no_openai).format_help()
+    assert "openai/gpt-live-1" not in build_parser(no_openai).format_help()
 
 
 def test_the_assets_flags_belong_to_benchmark_and_split_on_commas(

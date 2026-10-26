@@ -208,6 +208,12 @@ VENDORS: dict[str, Vendor] = {
         auth_header="x-goog-api-key",
         auth_prefix="",
         llm="pipecat.services.google.llm:GoogleLLMService",
+        s2s={
+            "live": S2sApi(
+                "pipecat.services.google.gemini_live.llm:GeminiLiveLLMService",
+                reports_turn_end=False,
+            )
+        },
     ),
 }
 

@@ -27,6 +27,7 @@ def test_a_native_model_is_a_stack_of_one() -> None:
         "openai/gpt-realtime-2.1",
         "openai/gpt-realtime-2.1-mini",
         "openai/gpt-live-1",
+        "google/gemini-3.8-live",
     ]
     agent = agents.load_native_agent("default", "openai/gpt-realtime-2.1")
     assert isinstance(agent.stack, models.Native)
