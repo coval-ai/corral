@@ -3,7 +3,7 @@
 
 import dataclasses
 from typing import Any, cast
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -23,6 +23,7 @@ from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 from corral import models
 from corral.agent import load_cascade_agent, load_native_agent
 from corral.config import STT_FINALIZE_FALLBACK_SECS, Settings
+from corral.models.eleven import ElevenRealtimeLLMService
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 SONIOX_GEMINI = ("soniox/stt-rt-v5", "google/gemini-2.5-flash", "soniox/tts-rt-v2")
@@ -129,6 +130,34 @@ def test_grok_voice_3_runs_on_its_coval_agents_session_settings() -> None:
     assert session.turn_detection.silence_duration_ms == 500
 
 
+def test_eleven_realtime_runs_on_its_coval_agents_session_settings() -> None:
+    settings = Settings(_env_file=None, **KEYS)
+    for name in ("eleven_realtime_v1_mini", "eleven_realtime_v1_max"):
+        agent = load_native_agent("default", f"elevenlabs/{name}")
+        eleven = models.resolve(agent.stack, "x", settings)
+        assert isinstance(eleven, models.NativeService)
+        assert isinstance(eleven.model, ElevenRealtimeLLMService)
+        assert eleven.model.base_url == f"wss://api.elevenlabs.io/v1/convai/realtime?model={name}"
+        session = vars(eleven.model._settings)["session_properties"]
+        assert session.audio.output.voice == "brian"
+        assert session.audio.input.format.rate == 24000
+        assert session.audio.input.turn_detection.eagerness == "medium"
+
+
+async def test_eleven_sends_its_key_in_xi_api_key_not_bearer() -> None:
+    agent = load_native_agent("default", "elevenlabs/eleven_realtime_v1_mini")
+    eleven = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+    assert isinstance(eleven, models.NativeService)
+    service = cast(Any, eleven.model)
+    with (
+        patch("corral.models.eleven.websocket_connect", AsyncMock()) as connect,
+        patch.object(service, "create_task"),
+        patch.object(service, "_receive_task_handler", MagicMock()),
+    ):
+        await service._connect()
+    assert connect.call_args.kwargs["additional_headers"] == {"xi-api-key": "el"}
+
+
 def test_turn_ends_and_delegation_come_from_the_vendors_api_not_its_name() -> None:
     settings = Settings(_env_file=None, **KEYS)
     delegating = models.S2sModel(provider="openai", name="x", delegation={"model": "y"})
@@ -159,7 +188,7 @@ def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> Non
     native = load_native_agent("default", "openai/gpt-realtime-2.1")
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY is unset"):
         models.resolve(native.stack, "x", no_openai)
-    assert models.supported("s2s") == ["google", "openai", "xai"]
+    assert models.supported("s2s") == ["elevenlabs", "google", "openai", "xai"]
 
 
 def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:

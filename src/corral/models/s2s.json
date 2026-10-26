@@ -28,5 +28,27 @@
       "voice": "ara",
       "turn_detection": { "type": "server_vad", "threshold": 0.5, "prefix_padding_ms": 300, "silence_duration_ms": 500 }
     }
+  },
+  {
+    "provider": "elevenlabs",
+    "name": "eleven_realtime_v1_mini",
+    "options": {
+      "output_modalities": ["audio"],
+      "audio": {
+        "input": { "format": { "type": "audio/pcm", "rate": 24000 }, "turn_detection": { "type": "semantic_vad", "eagerness": "medium" } },
+        "output": { "format": { "type": "audio/pcm", "rate": 24000 }, "voice": "brian" }
+      }
+    }
+  },
+  {
+    "provider": "elevenlabs",
+    "name": "eleven_realtime_v1_max",
+    "options": {
+      "output_modalities": ["audio"],
+      "audio": {
+        "input": { "format": { "type": "audio/pcm", "rate": 24000 }, "turn_detection": { "type": "semantic_vad", "eagerness": "medium" } },
+        "output": { "format": { "type": "audio/pcm", "rate": 24000 }, "voice": "brian" }
+      }
+    }
   }
 ]

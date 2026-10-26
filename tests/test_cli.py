@@ -210,7 +210,7 @@ def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
     answers = iter(["2", ""])
     other = choose_agent("default", lambda _prompt: next(answers), no_openai, answers_fine)
     assert other.slug == "google-gemini-3.8-live"
-    no_native = {"openai_api_key": None, "gemini_api_key": None}
+    no_native = {"openai_api_key": None, "gemini_api_key": None, "elevenlabs_api_key": None}
     assert offered_models("s2s", Settings(_env_file=None, **{**KEYS, **no_native})) == []
 
     parser = build_parser(ALL_KEYS)
