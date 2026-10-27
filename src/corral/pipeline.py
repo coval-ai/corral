@@ -288,10 +288,10 @@ async def build_call(
 
     @worker.event_handler("on_pipeline_finished")  # type: ignore[untyped-decorator]
     async def _finish(_worker: PipelineWorker, _frame: Frame) -> None:
-        if environment is not None:
-            await environment.finish()
         if transcript is not None:
             transcript.finish()
+        if environment is not None:
+            await environment.finish()
         if tracer is not None and expected:
             rates = call.character_error_rates()
             tracer.start_span(CHARACTER_ERROR_RATE, attributes={**tags, **rates}).end()

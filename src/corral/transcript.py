@@ -38,6 +38,7 @@ from pipecat.frames.frames import (
     VADUserStoppedSpeakingFrame,
 )
 from pipecat.observers.base_observer import BaseObserver, FramePushed
+from pipecat.transports.base_output import BaseOutputTransport
 
 SPAN_NAME = "stt"
 NO_TEXT = "(no transcript)"
@@ -96,11 +97,16 @@ class TranscriptRecorder(BaseObserver):
         now = self._clock()
         answer = self._answer
         match data.frame:
-            case LLMFullResponseStartFrame():
+            # A second request while the first answer still plays, as around a tool call,
+            # is the same utterance to the caller.
+            case LLMFullResponseStartFrame() if answer.speaking_since is None:
                 self._close_answer(interrupted=False)
             case TTSTextFrame(text=text):
                 answer.text += text if data.frame.includes_inter_frame_spaces else f" {text}"
-            case TTSAudioRawFrame(audio=audio, sample_rate=rate, num_channels=channels):
+            # The output transport pushes the audio on again as it plays; count it once.
+            case TTSAudioRawFrame(audio=audio, sample_rate=rate, num_channels=channels) if (
+                not isinstance(data.source, BaseOutputTransport)
+            ):
                 answer.generated_ns += int(len(audio) / (2 * channels * rate) * 1e9)
             case BotStartedSpeakingFrame():
                 if answer.start is None:
@@ -108,9 +114,12 @@ class TranscriptRecorder(BaseObserver):
                 answer.speaking_since = now
             case BotStoppedSpeakingFrame():
                 answer.stop(now)
+            # Pipecat interrupts at the start of every caller turn; the answer was only cut
+            # off if it was still playing.
             case InterruptionFrame():
+                playing = answer.speaking_since is not None
                 answer.stop(now)
-                self._close_answer(interrupted=True)
+                self._close_answer(interrupted=playing)
             case VADUserStartedSpeakingFrame(start_secs=secs):
                 self._caller_since = now - int(secs * 1e9)
             case VADUserStoppedSpeakingFrame(stop_secs=secs) if self._caller_since is not None:
@@ -123,8 +132,10 @@ class TranscriptRecorder(BaseObserver):
             case TranscriptionFrame(text=text):
                 if self._unheard:
                     self._hear(text)
+                elif self._caller_since is not None:
+                    self._early_text = f"{self._early_text or ''} {text}".strip()
                 else:
-                    self._early_text = text
+                    self._send(Utterance("caller", now, now, text.strip() or None))
 
     def _hear(self, text: str) -> None:
         """The model transcribes only what it took for a turn, so its text goes to the caller's
@@ -137,9 +148,17 @@ class TranscriptRecorder(BaseObserver):
         self._send(caller)
 
     def finish(self) -> None:
-        """At hang-up: the answer still playing and any caller line the model never transcribed."""
-        self._answer.stop(self._clock())
+        """At hang-up: the answer still playing, the caller still talking and any caller line
+        the model never transcribed."""
+        now = self._clock()
+        self._answer.stop(now)
         self._close_answer(interrupted=False)
+        if self._caller_since is not None:
+            self._unheard.append(Utterance("caller", self._caller_since, now))
+            self._caller_since = None
+        if self._early_text is not None and self._unheard:
+            self._hear(self._early_text)
+        self._early_text = None
         for caller in self._unheard:
             self._send(caller)
         self._unheard = []

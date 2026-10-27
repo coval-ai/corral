@@ -19,6 +19,8 @@ from pipecat.frames.frames import (
 )
 from pipecat.observers.base_observer import FramePushed
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.transports.base_output import BaseOutputTransport
+from pipecat.transports.base_transport import TransportParams
 from pipecat.utils.text.base_text_aggregator import TextType
 
 from corral.transcript import SPAN_NAME, TranscriptRecorder
@@ -47,9 +49,9 @@ class Call:
         self.now_ns = 0
         self.recorder = TranscriptRecorder(provider.get_tracer("test"), clock=lambda: self.now_ns)
 
-    async def at(self, ms: int, frame: Frame) -> None:
+    async def at(self, ms: int, frame: Frame, source: FrameProcessor | None = None) -> None:
         self.now_ns = ms * MS
-        source = FrameProcessor()
+        source = source or FrameProcessor()
         await self.recorder.on_push_frame(
             FramePushed(source, source, frame, FrameDirection.DOWNSTREAM, timestamp=0)
         )
@@ -156,3 +158,57 @@ async def test_text_that_arrives_before_silero_hears_the_stop_is_kept(call: Call
     await call.at(1_900, TranscriptionFrame("Where are you located?", "", ""))
     await call.at(2_300, VADUserStoppedSpeakingFrame(stop_secs=0.3))
     assert call.lines() == [(1_000, 2_000, "[caller] Where are you located?")]
+
+
+class _Output(BaseOutputTransport):
+    def __init__(self) -> None:
+        super().__init__(TransportParams())
+
+
+async def test_audio_the_output_transport_pushes_on_is_counted_once(call: Call) -> None:
+    await call.answer(1_000, "Our hours are Monday through Friday, nine to six.", 4.0)
+    await call.at(1_000, _audio(4.0), source=_Output())
+    await call.at(3_000, InterruptionFrame())
+    assert call.lines() == [(1_000, 3_000, "[agent] Our hours are Monday [cut off]")]
+
+
+async def test_an_answer_that_finished_is_not_cut_off_by_the_next_turn(call: Call) -> None:
+    await call.answer(1_000, "We're open 9 to 6.", 4.0)
+    await call.at(3_000, BotStoppedSpeakingFrame())
+    await call.at(4_000, InterruptionFrame())
+    assert call.lines() == [(1_000, 3_000, "[agent] We're open 9 to 6.")]
+
+
+async def test_a_second_request_while_the_answer_plays_stays_one_line(call: Call) -> None:
+    await call.answer(1_000, "Let me check that.", 1.0)
+    await call.at(1_500, LLMFullResponseStartFrame())
+    await call.at(1_500, _text(" You're all set."))
+    await call.at(1_500, _audio(1.0))
+    await call.at(3_000, BotStoppedSpeakingFrame())
+    call.recorder.finish()
+    assert call.lines() == [(1_000, 3_000, "[agent] Let me check that. You're all set.")]
+
+
+async def test_text_in_pieces_before_the_stop_is_kept_whole(call: Call) -> None:
+    await call.at(1_200, VADUserStartedSpeakingFrame(start_secs=0.2))
+    await call.at(1_900, TranscriptionFrame("Hi.", "", ""))
+    await call.at(2_400, TranscriptionFrame("I need to book a cleaning.", "", ""))
+    await call.at(2_800, VADUserStoppedSpeakingFrame(stop_secs=0.3))
+    assert call.lines() == [(1_000, 2_500, "[caller] Hi. I need to book a cleaning.")]
+
+
+async def test_text_with_no_line_to_go_on_is_its_own_line(call: Call) -> None:
+    await call.at(5_000, TranscriptionFrame("Hello?", "", ""))
+    await call.caller(6_000, 6_500, "Thanks, bye.")
+    assert call.lines() == [
+        (5_000, 5_000, "[caller] Hello?"),
+        (6_000, 6_500, "[caller] Thanks, bye."),
+    ]
+
+
+async def test_hang_up_while_the_caller_talks_keeps_their_line(call: Call) -> None:
+    await call.at(1_200, VADUserStartedSpeakingFrame(start_secs=0.2))
+    await call.at(1_600, TranscriptionFrame("Thanks,", "", ""))
+    await call.at(2_000, InterruptionFrame())
+    call.recorder.finish()
+    assert call.lines() == [(1_000, 2_000, "[caller] Thanks,")]
