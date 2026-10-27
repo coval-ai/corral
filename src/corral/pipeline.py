@@ -60,6 +60,7 @@ from corral.models import CascadeServices, NativeService, resolve
 from corral.observer import TurnLatencyObserver, models_by_modality
 from corral.scenarios import load_environment
 from corral.tool_checks import CHARACTER_ERROR_RATE, character_error_rates
+from corral.transcript import TranscriptRecorder
 
 OPENING_CUE = "The caller is on the line. Open the call the way your instructions say."
 
@@ -261,6 +262,7 @@ async def build_call(
                 native=True,
                 reports_turn_end=reports_turn_end,
             )
+    transcript = TranscriptRecorder(tracer) if tracer is not None else None
     worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
         params=PipelineParams(
@@ -270,7 +272,7 @@ async def build_call(
         ),
         conversation_id=conversation_id,
         enable_rtvi=False,
-        observers=[observer],
+        observers=[observer, *([transcript] if transcript else [])],
     )
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
@@ -288,6 +290,8 @@ async def build_call(
     async def _finish(_worker: PipelineWorker, _frame: Frame) -> None:
         if environment is not None:
             await environment.finish()
+        if transcript is not None:
+            transcript.finish()
         if tracer is not None and expected:
             rates = call.character_error_rates()
             tracer.start_span(CHARACTER_ERROR_RATE, attributes={**tags, **rates}).end()
