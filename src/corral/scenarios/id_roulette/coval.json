@@ -121,6 +121,23 @@
       "aggregation_method": "average",
       "value_source": "attribute"
     },
-    { "metric_name": "Tool Call Count", "metric_type": "METRIC_TOOL_CALL_RATE" }
+    { "metric_name": "Tool Call Count", "metric_type": "METRIC_TOOL_CALL_RATE" },
+    {
+      "metric_name": "Corral turn latency",
+      "description": "Milliseconds from the caller's last word to the agent's first audio, averaged over the call's answered turns.",
+      "metric_type": "METRIC_CUSTOM_TRACE",
+      "span_name": "turn_latency",
+      "metric_attribute": "s2s.turn_latency_ms",
+      "aggregation_method": "average",
+      "value_source": "attribute"
+    },
+    {
+      "metric_name": "Corral call length",
+      "description": "Seconds from the agent picking up to the call ending.",
+      "metric_type": "METRIC_CUSTOM_TRACE",
+      "span_name": "call",
+      "aggregation_method": "average",
+      "value_source": "duration"
+    }
   ]
 }

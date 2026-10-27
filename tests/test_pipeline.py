@@ -1,6 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
+import time
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
@@ -291,3 +292,29 @@ async def test_a_finished_call_sends_each_checked_arguments_character_error_rate
     (rates,) = [s for s in exporter.get_finished_spans() if s.name == "character_error_rate"]
     assert rates.attributes is not None and rates.attributes["lookup.id"] == 0.25
     assert rates.attributes["agent"] == call.observer._attributes["agent"]
+
+
+async def test_a_finished_call_sends_a_span_from_start_to_finish() -> None:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    with patch.object(pipeline, "resolve", return_value=_cascade(LLMService())):
+        call = await build_call(
+            load_cascade_agent("default", *REFERENCE),
+            _Transport(),
+            SETTINGS,
+            tracer=provider.get_tracer(__name__),
+        )
+
+    async def queue(_frame: Frame) -> None:
+        pass
+
+    with patch.object(time, "time_ns", return_value=1_000):
+        for handler in call.worker._event_handlers["on_pipeline_started"].handlers:
+            await handler(SimpleNamespace(queue_frame=queue), None)
+    await call.worker._call_event_handler("on_pipeline_finished", None)
+    await call.worker.cleanup()
+    (span,) = [s for s in exporter.get_finished_spans() if s.name == pipeline.CALL_SPAN_NAME]
+    assert span.start_time == 1_000
+    assert span.attributes is not None
+    assert span.attributes["agent"] == call.observer._attributes["agent"]
