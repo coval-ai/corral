@@ -132,6 +132,9 @@ and not in the turn's count.
 When a scenario's tools check their arguments, the call also ends with a
 `character_error_rate` span holding each checked argument's rate.
 
+Every call is also one `call` span from the moment the agent picks up to the
+hang-up, so a call that drags shows up in its length.
+
 A native model does its own turn-taking, so its turn is measured differently
 under the same headline. Silero still runs on the caller's audio, but only as a
 stopwatch for the last word; it has no say in the turn. The span has

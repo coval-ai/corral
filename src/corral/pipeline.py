@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -62,6 +63,7 @@ from corral.scenarios import load_environment
 from corral.tool_checks import CHARACTER_ERROR_RATE, character_error_rates
 
 OPENING_CUE = "The caller is on the line. Open the call the way your instructions say."
+CALL_SPAN_NAME = "call"
 
 
 def silero() -> SileroVADAnalyzer:
@@ -281,6 +283,13 @@ async def build_call(
         else:
             await started.queue_frame(LLMRunFrame())
 
+    opened_ns: int | None = None
+
+    @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
+    async def _open(_worker: PipelineWorker, _frame: Frame) -> None:
+        nonlocal opened_ns
+        opened_ns = time.time_ns()
+
     expected = {t.schema.name: t.character_error_rate for t in handlers if t.character_error_rate}
     call = Call(worker, observer, log if environment else None, expected)
 
@@ -291,5 +300,7 @@ async def build_call(
         if tracer is not None and expected:
             rates = call.character_error_rates()
             tracer.start_span(CHARACTER_ERROR_RATE, attributes={**tags, **rates}).end()
+        if tracer is not None and opened_ns is not None:
+            tracer.start_span(CALL_SPAN_NAME, start_time=opened_ns, attributes=tags).end()
 
     return call
