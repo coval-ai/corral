@@ -219,6 +219,7 @@ VENDORS: dict[str, Vendor] = {
             "live": S2sApi(
                 "pipecat.services.google.gemini_live.llm:GeminiLiveLLMService",
                 reports_turn_end=False,
+                waits_for_cue=True,
             )
         },
     ),
