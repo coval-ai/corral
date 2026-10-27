@@ -36,7 +36,7 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.5",
     "miniaudio>=1.60",
-    "livekit>=1.0",
+    "livekit>=1.1.21",
 ]
 
 [build-system]
