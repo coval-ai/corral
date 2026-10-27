@@ -11,9 +11,9 @@ COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
 FROM python:3.12-slim-bookworm AS final
-LABEL org.opencontainers.image.source="https://github.com/coval-ai/benchmark-harness" \
+LABEL org.opencontainers.image.source="https://github.com/coval-ai/corral" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.title="benchmark-harness"
+      org.opencontainers.image.title="corral"
 RUN groupadd --gid 65532 nonroot \
     && useradd --uid 65532 --gid 65532 --home-dir /app --shell /sbin/nologin nonroot
 WORKDIR /app

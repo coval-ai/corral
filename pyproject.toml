@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 [project]
-name = "benchmark-harness"
+name = "corral"
 version = "0.1.0"
 description = "Coval's own agent for the S2S benchmarks: Pipecat stacks run against Coval's simulator"
 license = { text = "Apache-2.0" }
@@ -21,9 +21,9 @@ dependencies = [
 ]
 
 [project.urls]
-Source = "https://github.com/coval-ai/benchmark-harness"
-Documentation = "https://github.com/coval-ai/benchmark-harness#readme"
-Issues = "https://github.com/coval-ai/benchmark-harness/issues"
+Source = "https://github.com/coval-ai/corral"
+Documentation = "https://github.com/coval-ai/corral#readme"
+Issues = "https://github.com/coval-ai/corral/issues"
 
 [project.scripts]
 corral = "corral.cli:main"
