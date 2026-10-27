@@ -20,6 +20,11 @@ dependencies = [
     "google-auth[requests]>=2.40",
 ]
 
+[project.urls]
+Source = "https://github.com/coval-ai/benchmark-harness"
+Documentation = "https://github.com/coval-ai/benchmark-harness#readme"
+Issues = "https://github.com/coval-ai/benchmark-harness/issues"
+
 [project.scripts]
 corral = "corral.cli:main"
 
