@@ -109,6 +109,13 @@ def test_gemini_3_8_live_runs_on_its_coval_agents_session_settings() -> None:
     assert gemini.model._resolved_thinking_config() is None
 
 
+def test_gemini_live_is_told_to_open_the_call() -> None:
+    for name in ("gemini-3.8-live", "gemini-3.8-live-extended-thinking"):
+        agent = load_native_agent("default", f"google/{name}")
+        gemini = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+        assert isinstance(gemini, models.NativeService) and gemini.waits_for_cue
+
+
 def test_gemini_3_8_live_extended_thinking_thinks_at_medium() -> None:
     agent = load_native_agent("default", "google/gemini-3.8-live-extended-thinking")
     gemini = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
