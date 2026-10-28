@@ -136,6 +136,13 @@ async def test_hang_up_sends_what_is_still_open(call: Call) -> None:
     ]
 
 
+async def test_hang_up_mid_answer_keeps_only_the_words_that_played(call: Call) -> None:
+    await call.answer(1_000, "Our hours are Monday through Friday, nine to six.", 4.0)
+    call.now_ns = 2_000 * MS
+    call.recorder.finish()
+    assert call.lines() == [(1_000, 2_000, "[agent] Our hours [cut off, words estimated]")]
+
+
 async def test_an_answer_that_never_played_is_not_a_line(call: Call) -> None:
     await call.at(1_000, LLMFullResponseStartFrame())
     await call.at(1_000, _text("Never heard."))

@@ -149,10 +149,11 @@ class TranscriptRecorder(BaseObserver):
 
     def finish(self) -> None:
         """At hang-up: the answer still playing, the caller still talking and any caller line
-        the model never transcribed."""
+        the model never transcribed. An answer still playing is cut off there."""
         now = self._clock()
+        playing = self._answer.speaking_since is not None
         self._answer.stop(now)
-        self._close_answer(interrupted=False)
+        self._close_answer(interrupted=playing)
         if self._caller_since is not None:
             self._unheard.append(Utterance("caller", self._caller_since, now))
             self._caller_since = None
