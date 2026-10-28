@@ -42,7 +42,7 @@ from pipecat.transports.base_output import BaseOutputTransport
 
 SPAN_NAME = "stt"
 NO_TEXT = "(no transcript)"
-CUT_OFF = "[cut off]"
+CUT_OFF = "[cut off, words estimated]"
 
 
 @dataclasses.dataclass
@@ -63,7 +63,7 @@ class Answer:
             self.speaking_since = None
 
     def heard(self, interrupted: bool) -> tuple[str, bool]:
-        """The words that played; when the caller cut it off, only their share of the text."""
+        """The words that played; when the caller cut it off, an estimate by share of audio."""
         words = self.text.split()
         if not interrupted or not words or self.played_ns >= self.generated_ns:
             return " ".join(words), False

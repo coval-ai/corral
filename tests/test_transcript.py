@@ -105,7 +105,7 @@ async def test_a_cut_off_answer_keeps_only_the_words_that_played(call: Call) -> 
     await call.at(8_000, BotStoppedSpeakingFrame())
     call.recorder.finish()
     assert call.lines() == [
-        (1_000, 3_000, "[agent] Our hours are Monday [cut off]"),
+        (1_000, 3_000, "[agent] Our hours are Monday [cut off, words estimated]"),
         (2_800, 3_400, "[caller] Mm-hm."),
         (5_000, 8_000, "[agent] We're open Monday through Friday from 9AM to 6PM."),
     ]
@@ -169,7 +169,9 @@ async def test_audio_the_output_transport_pushes_on_is_counted_once(call: Call) 
     await call.answer(1_000, "Our hours are Monday through Friday, nine to six.", 4.0)
     await call.at(1_000, _audio(4.0), source=_Output())
     await call.at(3_000, InterruptionFrame())
-    assert call.lines() == [(1_000, 3_000, "[agent] Our hours are Monday [cut off]")]
+    assert call.lines() == [
+        (1_000, 3_000, "[agent] Our hours are Monday [cut off, words estimated]")
+    ]
 
 
 async def test_an_answer_that_finished_is_not_cut_off_by_the_next_turn(call: Call) -> None:
