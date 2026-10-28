@@ -1,7 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""One ``turn_latency`` span per answered turn, with ``stt``, ``llm`` and ``tts`` under it.
+"""One ``turn_latency`` span per answered turn, with ``stt_latency``, ``llm`` and ``tts`` under it.
 
 We grab the time at these moments:
 
@@ -81,6 +81,8 @@ from corral.models import Model, Native
 
 SPAN_NAME = "turn_latency"
 TOOL_SPAN_NAME = "llm_tool_call"
+# Coval reads a span named ``stt`` as a line of the transcript, so the STT stage goes by another.
+STAGE_SPAN_NAMES = {"stt": "stt_latency"}
 SERVICE_NAME = "coval-bench-s2s-agent"
 EXPORT_TIMEOUT_SECS = 30
 
@@ -418,7 +420,10 @@ class TurnLatencyObserver(BaseObserver):
         inside = trace.set_span_in_context(turn)
         for stage, (stage_start, stage_end) in moment.stages().items():
             child = tracer.start_span(
-                stage, context=inside, start_time=stage_start, attributes=self._models.get(stage)
+                STAGE_SPAN_NAMES.get(stage, stage),
+                context=inside,
+                start_time=stage_start,
+                attributes=self._models.get(stage),
             )
             child.end(end_time=stage_end)
         turn.end(end_time=end)

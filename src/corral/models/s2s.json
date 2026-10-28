@@ -1,6 +1,6 @@
 [
-  { "provider": "openai", "name": "gpt-realtime-2.1", "options": { "audio": { "output": { "voice": "marin" } } } },
-  { "provider": "openai", "name": "gpt-realtime-2.1-mini", "options": { "audio": { "output": { "voice": "marin" } } } },
+  { "provider": "openai", "name": "gpt-realtime-2.1", "options": { "audio": { "input": { "transcription": { "model": "gpt-4o-mini-transcribe" } }, "output": { "voice": "marin" } } } },
+  { "provider": "openai", "name": "gpt-realtime-2.1-mini", "options": { "audio": { "input": { "transcription": { "model": "gpt-4o-mini-transcribe" } }, "output": { "voice": "marin" } } } },
   {
     "provider": "openai",
     "name": "gpt-live-1",

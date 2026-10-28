@@ -114,7 +114,7 @@ async def test_a_turn_times_each_provider_at_its_own_request(call: Call) -> None
     assert turn["s2s.turn_latency.tts_ms"] == 150.0
     assert turn["s2s.turn_latency.transport_ms"] == 20.0
     stages = call.stages()
-    assert set(stages) == {"stt", "llm", "tts"}
+    assert set(stages) == {"stt_latency", "llm", "tts"}
     assert (stages["llm"].start_time, stages["llm"].end_time) == (1_350 * MS, 1_600 * MS)
     assert dict(stages["llm"].attributes or {}) == {"provider": "openai", "model": "gpt-4.1"}
 

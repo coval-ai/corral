@@ -69,7 +69,8 @@ def test_a_native_model_resolves_to_one_service_with_the_prompt_on_it() -> None:
     assert vars(native.model._settings)["model"] == "gpt-realtime-2.1"
     assert session.instructions == agent.system_prompt
     assert session.audio.output.voice == "marin"
-    assert session.audio.input is None
+    assert session.audio.input.transcription.model == "gpt-4o-mini-transcribe"
+    assert session.audio.input.turn_detection is None
     assert isinstance(agent.stack, models.Native)
     eager = agent.stack.s2s.model_copy(
         update={"options": {"audio": {"input": {"turn_detection": {"type": "semantic_vad"}}}}}
