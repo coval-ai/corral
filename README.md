@@ -55,8 +55,10 @@ which when you have a key for a native model.
   Coval for each call through the Coval Agent SDK, so nothing on your machine
   needs a public address. Use `--smoke` to run a single test case.
 
-The Docker image runs `corral benchmark`; pass the scenario and models as
-flags or as the `S2S_*` environment variables the flags default to.
+The Docker image runs `corral benchmark` by default. Its entrypoint is `corral`,
+so arguments you pass replace `benchmark`, as in `benchmark --s2s
+openai/gpt-realtime-2.1`. The scenario and models can also come from the `S2S_*`
+environment variables the flags default to.
 
 For scripts, pass the mode and flags instead of answering prompts:
 

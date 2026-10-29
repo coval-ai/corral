@@ -1,0 +1,77 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      assets:
+        description: Scenario from the assets manifest, as SCENARIO.VERSION
+      scenario:
+        description: Scenario directory, when assets is empty
+      s2s:
+        description: Native model, in place of stt, llm and tts
+      stt:
+        description: STT model
+      llm:
+        description: LLM model
+      tts:
+        description: TTS model
+      prompt_from:
+        description: With assets, the agent whose prompt to use
+      personas:
+        description: With assets, comma-separated conditions; empty for all
+      metrics:
+        description: With assets, comma-separated metrics; empty for all
+      smoke:
+        description: One test case
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    steps:
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_RUN_SA }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+      - name: Run the corral job
+        env:
+          ASSETS: ${{ inputs.assets }}
+          SCENARIO: ${{ inputs.scenario }}
+          S2S: ${{ inputs.s2s }}
+          STT: ${{ inputs.stt }}
+          LLM: ${{ inputs.llm }}
+          TTS: ${{ inputs.tts }}
+          PROMPT_FROM: ${{ inputs.prompt_from }}
+          PERSONAS: ${{ inputs.personas }}
+          METRICS: ${{ inputs.metrics }}
+          SMOKE: ${{ inputs.smoke }}
+        run: |
+          args=(benchmark)
+          add() {
+            [ -z "$2" ] && return
+            if [[ ! "$2" =~ ^[A-Za-z0-9._/,-]+$ ]]; then
+              echo "::error::$1 has characters a model or scenario name can't have: $2"
+              exit 1
+            fi
+            args+=("$1" "$2")
+          }
+          add --assets "$ASSETS"
+          add --scenario "$SCENARIO"
+          add --s2s "$S2S"
+          add --stt "$STT"
+          add --llm "$LLM"
+          add --tts "$TTS"
+          add --prompt-from "$PROMPT_FROM"
+          add --personas "$PERSONAS"
+          add --metrics "$METRICS"
+          [ "$SMOKE" = "true" ] && args+=(--smoke)
+          joined=$(IFS=';'; echo "${args[*]}")
+          echo "corral ${args[*]}"
+          gcloud run jobs execute corral --region us-east1 --wait --args="^;^${joined}"
