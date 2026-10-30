@@ -242,6 +242,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "scenario": os.environ.get("S2S_SCENARIO"),
         "test_case": None,
         "smoke": False,
+        "sample": None,
         "assets": os.environ.get("S2S_ASSETS"),
         "personas": [],
         "metrics": [],
@@ -285,8 +286,13 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    benchmark.add_argument(
-        "--smoke", action="store_true", help="one test case, to check the wiring"
+    size = benchmark.add_mutually_exclusive_group()
+    size.add_argument("--smoke", action="store_true", help="one test case, to check the wiring")
+    size.add_argument(
+        "--sample",
+        type=positive,
+        metavar="N",
+        help="N test cases, the same ones all day; default: the suite's sample, else all",
     )
     benchmark.add_argument(
         "--assets",
@@ -320,6 +326,13 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
 def names(value: str) -> list[str]:
     """A comma-separated flag as its names."""
     return [name.strip() for name in value.split(",") if name.strip()]
+
+
+def positive(value: str) -> int:
+    """A flag that counts something: a whole number of at least one."""
+    if not value.isdigit() or int(value) < 1:
+        raise argparse.ArgumentTypeError(f"{value!r} isn't a whole number of at least 1")
+    return int(value)
 
 
 def asset_run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> AssetRun:
@@ -384,7 +397,11 @@ def main() -> None:
     request = None
     if assets:
         request = benchmark.run_request(
-            assets.suite, assets.suite.workspace, smoke=args.smoke, today=datetime.now(UTC).date()
+            assets.suite,
+            assets.suite.workspace,
+            smoke=args.smoke,
+            today=datetime.now(UTC).date(),
+            sample=args.sample,
         )
         request = replace(request, workspace_source=assets.source)
     elif mode is BENCHMARK:
@@ -395,7 +412,11 @@ def main() -> None:
             fail(parser, interactive, str(error))
         workspace_id = suite.workspace or get_settings().corral_workspace_id
         request = benchmark.run_request(
-            suite, workspace_id, smoke=args.smoke, today=datetime.now(UTC).date()
+            suite,
+            workspace_id,
+            smoke=args.smoke,
+            today=datetime.now(UTC).date(),
+            sample=args.sample,
         )
         if named.assets:
             source = f"{get_settings().corral_assets_uri} ({named.assets})"

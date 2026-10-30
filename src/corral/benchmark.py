@@ -55,13 +55,22 @@ class RunRequest:
     workspace_source: str | None = None
 
 
-def run_request(suite: Suite, workspace_id: str | None, *, smoke: bool, today: date) -> RunRequest:
-    """A smoke runs one test case at random. A suite with ``sample`` runs that many, seeded by the
-    UTC date, so every agent and persona benchmarked the same day gets the same ones."""
+def run_request(
+    suite: Suite,
+    workspace_id: str | None,
+    *,
+    smoke: bool,
+    today: date,
+    sample: int | None = None,
+) -> RunRequest:
+    """A smoke runs one test case at random. ``sample``, or failing that the suite's own, runs
+    that many seeded by the UTC date, so every agent and persona benchmarked the same day gets
+    the same ones. Otherwise every test case runs."""
     if smoke:
         return RunRequest(suite, workspace_id, sample=1)
-    if suite.sample:
-        return RunRequest(suite, workspace_id, sample=suite.sample, seed=int(f"{today:%Y%m%d}"))
+    size = sample or suite.sample
+    if size:
+        return RunRequest(suite, workspace_id, sample=size, seed=int(f"{today:%Y%m%d}"))
     return RunRequest(suite, workspace_id, sample=0)
 
 
