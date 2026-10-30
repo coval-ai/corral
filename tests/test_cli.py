@@ -1,6 +1,7 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
+import argparse
 import importlib.util
 from typing import Any
 from unittest.mock import patch
@@ -21,7 +22,7 @@ from corral.cli import (
     choose_test_case,
     flagged_agent,
     known_scenario,
-    misplaced_flag,
+    needs_assets,
     offered_models,
 )
 from corral.config import Settings
@@ -79,7 +80,7 @@ def test_only_models_with_a_key_are_offered(
         parser.parse_args(["talk", "--test-case", "already-booked"]).test_case == "already-booked"
     )
     assert parser.parse_args(["talk"]).test_case is None
-    assert "  stt  soniox/stt-rt-v5\n" in parser.format_help()
+    assert "  stt  soniox/stt-rt-v5\n" in mode_help(parser, "talk")
     with pytest.raises(SystemExit):
         parser.parse_args(["benchmark", "--stt", "deepgram/nova-3"])
     monkeypatch.setenv("S2S_STT", "deepgram/nova-3")
@@ -188,18 +189,43 @@ def test_ctrl_c_or_ctrl_d_at_a_menu_exits_without_a_traceback(key: type[BaseExce
     assert exited.value.code == 130
 
 
-def test_a_flag_for_another_mode_is_named_rather_than_ignored() -> None:
-    args = build_parser(ALL_KEYS).parse_args(["benchmark", "--test-case", "x"])
-    assert misplaced_flag(BENCHMARK, args) == "--test-case is for talk"
-    args = build_parser(ALL_KEYS).parse_args(["talk", "--smoke"])
-    assert misplaced_flag(TALK, args) == "--smoke is for benchmark"
-    args = build_parser(ALL_KEYS).parse_args(["benchmark", "--smoke"])
-    assert misplaced_flag(BENCHMARK, args) is None
-    args = build_parser(ALL_KEYS).parse_args(["check-access", "--smoke"])
-    assert misplaced_flag(CHECK_ACCESS, args) == "--smoke is for benchmark"
-    assert cli.flag_given("s2s", ["check-access", "--s2s", "openai/gpt-realtime-2.1"])
-    assert cli.flag_given("llm", ["check-access", "--llm=openai/gpt-4.1"])
-    assert not cli.flag_given("llm", ["check-access"])
+def mode_help(parser: Any, mode: str) -> str:
+    subparsers = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+    text: str = subparsers.choices[mode].format_help()
+    return text
+
+
+def test_each_mode_only_takes_its_own_flags(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = build_parser(ALL_KEYS)
+    for argv in (
+        ["benchmark", "--test-case", "x"],
+        ["talk", "--smoke"],
+        ["check-access", "--smoke"],
+        ["check-access", "--s2s", "openai/gpt-realtime-2.1"],
+    ):
+        with pytest.raises(SystemExit):
+            parser.parse_args(argv)
+        assert "unrecognized arguments" in capsys.readouterr().err
+    assert parser.parse_args(["benchmark", "--smoke"]).smoke is True
+    assert parser.parse_args(["check-access"]).mode == "check-access"
+    menu = parser.parse_args([])
+    assert menu.mode is None and menu.smoke is False and menu.stt == "deepgram/nova-3"
+
+
+def test_the_help_is_one_line_per_mode_and_the_rest_lives_under_each_mode() -> None:
+    parser = build_parser(ALL_KEYS)
+    top = parser.format_help()
+    for mode in (TALK, BENCHMARK, CHECK_ACCESS):
+        assert any(
+            line.split()[:1] == [mode.name] and mode.summary in line for line in top.splitlines()
+        )
+    assert "--smoke" not in top and "models with a key" not in top
+    assert len(top.splitlines()) < 15
+    assert "--smoke" in mode_help(parser, "benchmark") and "--test-case" not in mode_help(
+        parser, "benchmark"
+    )
+    assert "models with a key in .env" in mode_help(parser, "talk")
+    assert "--stt" not in mode_help(parser, "check-access")
 
 
 def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
@@ -222,11 +248,11 @@ def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
 
     parser = build_parser(ALL_KEYS)
     offered = "  s2s  openai/gpt-realtime-2.1, openai/gpt-realtime-2.1-mini, openai/gpt-live-1, "
-    assert offered in parser.format_help()
+    assert offered in mode_help(parser, "talk")
     args = parser.parse_args(["talk", "--s2s", "openai/gpt-realtime-2.1"])
     assert flagged_agent("default", args).slug == "openai-gpt-realtime-2.1"
     assert flagged_agent("default", parser.parse_args(["talk"])).slug.startswith("deepgram-")
-    assert "openai/gpt-live-1" not in build_parser(no_openai).format_help()
+    assert "openai/gpt-live-1" not in mode_help(build_parser(no_openai), "talk")
 
 
 def test_the_assets_flags_belong_to_benchmark_and_split_on_commas(
@@ -240,16 +266,16 @@ def test_the_assets_flags_belong_to_benchmark_and_split_on_commas(
         ["clean", "hard"],
         ["judge"],
     )
-    assert misplaced_flag(BENCHMARK, args) is None
-    args = build_parser(ALL_KEYS).parse_args(["talk", "--assets", "workflow-bank.v1"])
-    assert misplaced_flag(TALK, args) == "--assets is for benchmark"
+    assert needs_assets(args) is None
+    with pytest.raises(SystemExit):
+        build_parser(ALL_KEYS).parse_args(["talk", "--assets", "workflow-bank.v1"])
 
 
 def test_the_asset_selectors_need_assets(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("S2S_ASSETS", raising=False)
     flags = ["--scenario", "id_roulette", "--personas", "clean"]
     args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
-    assert misplaced_flag(BENCHMARK, args) == "--personas needs --assets"
+    assert needs_assets(args) == "--personas needs --assets"
     flags = ["--prompt-from", "openai/gpt-realtime-2"]
     args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
-    assert misplaced_flag(BENCHMARK, args) == "--prompt-from needs --assets"
+    assert needs_assets(args) == "--prompt-from needs --assets"
