@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import importlib.util
 import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from typing import NoReturn
 from corral import benchmark, talk
 from corral.agent import Agent, load_asset_agent, load_cascade_agent, load_native_agent
 from corral.assets import AssetRun, load_asset_run, resolve_assets
+from corral.check_access import run as run_check_access
 from corral.config import Settings, get_settings
 from corral.coval_api import CovalClient, SyncError, coval_problem
 from corral.logging import configure_logging
@@ -52,7 +54,8 @@ class Mode:
 
 TALK = Mode("talk", "to the agent")
 BENCHMARK = Mode("benchmark", "with Coval")
-MODES = (TALK, BENCHMARK)
+CHECK_ACCESS = Mode("check-access", "every key and native model")
+MODES = (TALK, BENCHMARK, CHECK_ACCESS)
 
 
 def missing_for(mode: Mode, settings: Settings) -> str | None:
@@ -226,6 +229,13 @@ def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
     return None
 
 
+def flag_given(dest: str, argv: list[str] | None = None) -> bool:
+    """Whether the flag was typed, as opposed to taking its default from the environment."""
+    argv = sys.argv[1:] if argv is None else argv
+    flag = f"--{dest.replace('_', '-')}"
+    return any(arg == flag or arg.startswith(f"{flag}=") for arg in argv)
+
+
 def has_coval_key(settings: Settings) -> bool:
     return settings.coval_api_key is not None and bool(settings.coval_api_key.get_secret_value())
 
@@ -336,6 +346,11 @@ def main() -> None:
     misplaced = misplaced_flag(mode, args)
     if misplaced:
         fail(parser, interactive, misplaced)
+    if mode is CHECK_ACCESS:
+        given = [flag for flag in ("scenario", "stt", "llm", "tts", "s2s") if flag_given(flag)]
+        if given:
+            fail(parser, interactive, f"check-access takes no flags; drop --{given[0]}")
+        raise SystemExit(asyncio.run(run_check_access(settings)))
     if mode is BENCHMARK:
         # Coval answers for its key here, the way each vendor does for a model pick.
         problem = coval_problem(settings)
