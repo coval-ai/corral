@@ -14,9 +14,11 @@ each vendor answers one cheap authenticated request before a run is started on i
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import importlib
 import importlib.resources
+import inspect
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -31,6 +33,16 @@ from corral.config import (
     OUT_SAMPLE_RATE_HZ,
     STT_FINALIZE_FALLBACK_SECS,
     Settings,
+)
+from corral.models.access_probes import (
+    GEMINI_LIVE_PROTOCOL,
+    OPENAI_LIVE_PROTOCOL,
+    OPENAI_REALTIME_PROTOCOL,
+    GetProbe,
+    SessionProtocol,
+    SocketProbe,
+    Target,
+    Transports,
 )
 
 Modality = Literal["stt", "llm", "tts", "s2s"]
@@ -136,27 +148,45 @@ def _get[M: Model](modality: Modality, offered: list[M], model_id: str) -> M:
     raise ValueError(f"no {modality} model {model_id!r}; have {', '.join(m.id for m in offered)}")
 
 
-CHECK_TIMEOUT_SECS = 10
-
-
 @dataclass(frozen=True)
 class S2sApi:
-    """One speech-to-speech service. ``waits_for_cue`` is one that only opens the call when
-    told to; ``base_url`` is for a vendor that speaks another vendor's protocol."""
+    """One speech-to-speech service: the Pipecat class that runs it and the protocol it speaks.
+    ``base_url`` is for a vendor that speaks another vendor's protocol; otherwise the socket is
+    the class's own default. ``waits_for_cue`` is a service that only opens the call when told."""
 
     path: str
+    protocol: SessionProtocol
     base_url: str | None = None
     reports_turn_end: bool = True
     waits_for_cue: bool = False
     delegates: bool = False
 
+    @property
+    def socket_base_url(self) -> str | None:
+        """Where the service connects: ``base_url`` when set, else its class's default."""
+        return self.base_url if self.base_url is not None else _default_base_url(self.path)
+
+    @property
+    def model_probe(self) -> SocketProbe:
+        return SocketProbe(self.socket_base_url, self.protocol)
+
+
+@functools.lru_cache
+def _default_base_url(path: str) -> str | None:
+    """The ``base_url`` a Pipecat service connects to unless told otherwise; None if it has none."""
+    parameter = inspect.signature(_import(path).__init__).parameters.get("base_url")
+    if parameter is None or parameter.default is inspect.Parameter.empty:
+        return None
+    default: str = parameter.default
+    return default
+
 
 @dataclass(frozen=True)
 class Vendor:
-    """Which key pays for a provider, the GET that proves the key works, and its services."""
+    """Which key pays for a provider, the probe that proves it works, and its services."""
 
     key_attr: str
-    check_url: str
+    key_probe: GetProbe
     auth_header: str = "Authorization"
     auth_prefix: str = "Bearer "
     stt: str | None = None
@@ -168,22 +198,29 @@ class Vendor:
     def key_name(self) -> str:
         return self.key_attr.upper()
 
+    def headers(self, key: str) -> dict[str, str]:
+        return {self.auth_header: self.auth_prefix + key}
+
 
 VENDORS: dict[str, Vendor] = {
     "deepgram": Vendor(
         "deepgram_api_key",
-        "https://api.deepgram.com/v1/projects",
+        GetProbe("https://api.deepgram.com/v1/projects"),
         auth_prefix="Token ",
         stt="pipecat.services.deepgram.stt:DeepgramSTTService",
     ),
     "openai": Vendor(
         "openai_api_key",
-        "https://api.openai.com/v1/models",
+        GetProbe("https://api.openai.com/v1/models"),
         llm="pipecat.services.openai.llm:OpenAILLMService",
         s2s={
-            "realtime": S2sApi("pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService"),
+            "realtime": S2sApi(
+                "pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService",
+                OPENAI_REALTIME_PROTOCOL,
+            ),
             "live": S2sApi(
                 "pipecat.services.openai.live.llm:OpenAILiveLLMService",
+                OPENAI_LIVE_PROTOCOL,
                 reports_turn_end=False,
                 waits_for_cue=True,
                 delegates=True,
@@ -192,32 +229,34 @@ VENDORS: dict[str, Vendor] = {
     ),
     "elevenlabs": Vendor(
         "elevenlabs_api_key",
-        "https://api.elevenlabs.io/v1/voices",
+        GetProbe("https://api.elevenlabs.io/v1/voices"),
         auth_header="xi-api-key",
         auth_prefix="",
         tts="pipecat.services.elevenlabs.tts:ElevenLabsTTSService",
         s2s={
             "realtime": S2sApi(
                 "corral.models.eleven:ElevenRealtimeLLMService",
+                OPENAI_REALTIME_PROTOCOL,
                 base_url="wss://api.elevenlabs.io/v1/convai/realtime",
             )
         },
     ),
     "soniox": Vendor(
         "soniox_api_key",
-        "https://api.soniox.com/v1/models",
+        GetProbe("https://api.soniox.com/v1/models"),
         stt="pipecat.services.soniox.stt:SonioxSTTService",
         tts="pipecat.services.soniox.tts:SonioxTTSService",
     ),
     "google": Vendor(
         "gemini_api_key",
-        "https://generativelanguage.googleapis.com/v1beta/models",
+        GetProbe("https://generativelanguage.googleapis.com/v1beta/models"),
         auth_header="x-goog-api-key",
         auth_prefix="",
         llm="pipecat.services.google.llm:GoogleLLMService",
         s2s={
             "live": S2sApi(
                 "pipecat.services.google.gemini_live.llm:GeminiLiveLLMService",
+                GEMINI_LIVE_PROTOCOL,
                 reports_turn_end=False,
                 waits_for_cue=True,
             )
@@ -225,8 +264,13 @@ VENDORS: dict[str, Vendor] = {
     ),
     "xai": Vendor(
         "xai_api_key",
-        "https://api.x.ai/v1/models",
-        s2s={"realtime": S2sApi("pipecat.services.xai.realtime.llm:GrokRealtimeLLMService")},
+        GetProbe("https://api.x.ai/v1/models"),
+        s2s={
+            "realtime": S2sApi(
+                "pipecat.services.xai.realtime.llm:GrokRealtimeLLMService",
+                OPENAI_REALTIME_PROTOCOL,
+            )
+        },
     ),
 }
 
@@ -245,22 +289,15 @@ def api_key(provider: str, settings: Settings) -> str | None:
 
 
 def vendor_problem(
-    provider: str, settings: Settings, transport: httpx.BaseTransport | None = None
+    provider: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
 ) -> str | None:
-    """One cheap authenticated GET to the vendor: None when it answered 200, else why not."""
+    """The vendor's key probe, run from the menu: None when the key is live, else why not."""
     vendor = VENDORS[provider]
     key = api_key(provider, settings)
     if key is None:
         return f"{vendor.key_name} is unset"
-    headers = {vendor.auth_header: vendor.auth_prefix + key}
-    try:
-        with httpx.Client(timeout=CHECK_TIMEOUT_SECS, transport=transport) as client:
-            response = client.get(vendor.check_url, headers=headers)
-    except httpx.HTTPError as error:
-        return f"{provider} is unreachable: {error}"
-    if response.status_code != 200:
-        return f"{provider} returned {response.status_code}"
-    return None
+    target = Target(provider, vendor.headers(key))
+    return asyncio.run(vendor.key_probe.problem(target, Transports(http=transport)))
 
 
 @dataclass(frozen=True)
@@ -293,7 +330,7 @@ def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tu
     return path, _key(vendor, provider, settings)
 
 
-def _resolve_s2s(model: S2sModel, settings: Settings) -> tuple[S2sApi, str]:
+def resolve_s2s(model: S2sModel, settings: Settings) -> tuple[S2sApi, str]:
     """The model's speech-to-speech service and the key that pays for it, or why not."""
     vendor = VENDORS.get(model.provider)
     if vendor is None or vendor.s2s is None:
@@ -314,12 +351,18 @@ def _key(vendor: Vendor, provider: str, settings: Settings) -> str:
     return key
 
 
+def _import(path: str) -> type[Any]:
+    """The class a ``module:Class`` path names."""
+    module_name, class_name = path.split(":")
+    cls: type[Any] = getattr(importlib.import_module(module_name), class_name)
+    return cls
+
+
 def _build(
     path: str, api_key: str, fields: dict[str, Any], sample_rate: int | None, **extra: object
 ) -> FrameProcessor:
     """Import the Pipecat class and build it with its Settings, the key and anything extra."""
-    module_name, class_name = path.split(":")
-    cls = getattr(importlib.import_module(module_name), class_name)
+    cls = _import(path)
     kwargs: dict[str, Any] = {
         "api_key": api_key,
         "settings": cls.Settings.from_mapping(fields),
@@ -335,7 +378,7 @@ def resolve(stack: Stack, system_prompt: str, settings: Settings) -> Services:
     """Every vendor and key in the stack checked first, then its services built."""
     if isinstance(stack, Native):
         s2s = stack.s2s
-        api, key = _resolve_s2s(s2s, settings)
+        api, key = resolve_s2s(s2s, settings)
         fields = {"model": s2s.name, "system_instruction": system_prompt, **s2s.options}
         extra: dict[str, object] = {} if api.base_url is None else {"base_url": api.base_url}
         if s2s.delegation is not None:

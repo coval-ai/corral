@@ -23,6 +23,7 @@ from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
 from corral import models
 from corral.agent import load_cascade_agent, load_native_agent
 from corral.config import STT_FINALIZE_FALLBACK_SECS, Settings
+from corral.models.access_probes import OPENAI_REALTIME_PROTOCOL
 from corral.models.eleven import ElevenRealtimeLLMService
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
@@ -174,7 +175,9 @@ def test_turn_ends_and_delegation_come_from_the_vendors_api_not_its_name() -> No
     odd = models.S2sModel(provider="openai", name="x", api="nope")
     with pytest.raises(ValueError, match="no 'nope' s2s for 'openai'; have realtime, live"):
         models.resolve(models.Native(odd), "x", settings)
-    plain = models.S2sApi("pipecat.services.openai.live.llm:OpenAILiveLLMService")
+    plain = models.S2sApi(
+        "pipecat.services.openai.live.llm:OpenAILiveLLMService", OPENAI_REALTIME_PROTOCOL
+    )
     vendor = dataclasses.replace(models.VENDORS["openai"], s2s={"live": plain})
     live = models.S2sModel(provider="openai", name="gpt-live-1", api="live")
     with patch.dict(models.VENDORS, {"openai": vendor}):

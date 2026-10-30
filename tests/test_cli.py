@@ -10,6 +10,7 @@ import pytest
 from corral import cli
 from corral.cli import (
     BENCHMARK,
+    CHECK_ACCESS,
     TALK,
     build_parser,
     checker,
@@ -126,10 +127,11 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
 ) -> None:
     monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
     assert choose_mode(read=lambda _prompt: "2", settings=ALL_KEYS).name == "benchmark"
-    talk, benchmark, *rest = capsys.readouterr().out.splitlines()
+    talk, benchmark, check_access, *rest = capsys.readouterr().out.splitlines()
     assert talk.startswith("1. talk") and "(needs: uv sync)" in talk
     assert benchmark.startswith("2. benchmark") and "(needs" not in benchmark
-    assert "3." not in "\n".join(rest)
+    assert check_access.startswith("3. check-access") and "(needs" not in check_access
+    assert "4." not in "\n".join(rest)
     no_coval = Settings(_env_file=None, **{**KEYS, "coval_api_key": None})
     choose_mode(read=lambda _prompt: "1", settings=no_coval)
     _, benchmark, *_ = capsys.readouterr().out.splitlines()
@@ -193,6 +195,11 @@ def test_a_flag_for_another_mode_is_named_rather_than_ignored() -> None:
     assert misplaced_flag(TALK, args) == "--smoke is for benchmark"
     args = build_parser(ALL_KEYS).parse_args(["benchmark", "--smoke"])
     assert misplaced_flag(BENCHMARK, args) is None
+    args = build_parser(ALL_KEYS).parse_args(["check-access", "--smoke"])
+    assert misplaced_flag(CHECK_ACCESS, args) == "--smoke is for benchmark"
+    assert cli.flag_given("s2s", ["check-access", "--s2s", "openai/gpt-realtime-2.1"])
+    assert cli.flag_given("llm", ["check-access", "--llm=openai/gpt-4.1"])
+    assert not cli.flag_given("llm", ["check-access"])
 
 
 def test_a_native_model_is_a_stack_of_its_own_at_the_menu_and_on_the_flags(
