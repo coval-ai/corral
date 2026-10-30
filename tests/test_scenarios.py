@@ -13,6 +13,7 @@ from corral.scenarios import (
     confirm_test_cases,
     load_environment,
     load_suite,
+    persona_name,
     require_suite,
 )
 
@@ -75,3 +76,19 @@ async def test_every_id_roulette_test_case_has_a_right_answer_to_check() -> None
     for key in keys:
         await backend.start(key)
         assert backend.tools[0].character_error_rate["value"]
+
+
+def test_a_suite_runs_its_first_persona_unless_more_are_named() -> None:
+    suite = require_suite("id_roulette")
+    names = [persona_name(p) for p in suite.personas]
+    assert len(names) == 3 and names[0] == "ID Roulette: quiet room"
+    assert [persona_name(p) for p in suite.with_personas([]).personas] == names[:1]
+    assert suite.with_personas(["all"]) == suite
+    picked = suite.with_personas([names[2], names[0]])
+    assert [persona_name(p) for p in picked.personas] == [names[2], names[0]]
+    with pytest.raises(ValueError, match="no persona nope in coval.json; it has ID Roulette"):
+        suite.with_personas(["nope"])
+    by_id = Suite(test_set="TS", personas=["P-1", "P-2"]).with_personas(["P-2"])
+    assert by_id.personas == ["P-2"]
+    assets = Suite(assets="bank.v1").with_personas(["clean"])
+    assert assets.personas == ["clean"]
