@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import sys
 from types import FrameType
 
 from loguru import logger
@@ -28,9 +29,11 @@ class _ToLoguru(logging.Handler):
 
 
 def configure_logging() -> None:
-    """Route stdlib logging into loguru.
+    """Log to stderr, and route stdlib logging into loguru.
 
     Libraries like websockets and httpcore log every frame and header at DEBUG, so
     stdlib loggers start at WARNING.
     """
+    logger.remove()
+    logger.add(sys.stderr)
     logging.basicConfig(handlers=[_ToLoguru()], level=logging.WARNING, force=True)

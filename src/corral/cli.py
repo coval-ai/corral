@@ -10,11 +10,10 @@ import asyncio
 import contextlib
 import importlib.util
 import os
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from corral import benchmark, talk
 from corral.agent import Agent, load_asset_agent, load_cascade_agent, load_native_agent
@@ -52,9 +51,9 @@ class Mode:
     summary: str
 
 
-TALK = Mode("talk", "to the agent")
-BENCHMARK = Mode("benchmark", "with Coval")
-CHECK_ACCESS = Mode("check-access", "every key and model")
+TALK = Mode("talk", "talk to the agent through your mic and speakers")
+BENCHMARK = Mode("benchmark", "run the scenario's Coval suite against the agent")
+CHECK_ACCESS = Mode("check-access", "probe every key in .env and every model it pays for")
 MODES = (TALK, BENCHMARK, CHECK_ACCESS)
 
 
@@ -208,32 +207,12 @@ def choose_model(
         print(problem)
 
 
-MODE_FLAGS = {
-    "test_case": TALK,
-    "smoke": BENCHMARK,
-    "assets": BENCHMARK,
-    "personas": BENCHMARK,
-    "metrics": BENCHMARK,
-    "prompt_from": BENCHMARK,
-}
-
-
-def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
-    """A flag that belongs to another mode, or needs --assets, so it would be silently ignored."""
-    for dest, owner in MODE_FLAGS.items():
-        if getattr(args, dest) and mode is not owner:
-            return f"--{dest.replace('_', '-')} is for {owner.name}"
+def needs_assets(args: argparse.Namespace) -> str | None:
+    """A selector that only means something with --assets, so it would be silently ignored."""
     for dest in ("personas", "metrics", "prompt_from"):
         if getattr(args, dest) and not args.assets:
             return f"--{dest.replace('_', '-')} needs --assets"
     return None
-
-
-def flag_given(dest: str, argv: list[str] | None = None) -> bool:
-    """Whether the flag was typed, as opposed to taking its default from the environment."""
-    argv = sys.argv[1:] if argv is None else argv
-    flag = f"--{dest.replace('_', '-')}"
-    return any(arg == flag or arg.startswith(f"{flag}=") for arg in argv)
 
 
 def has_coval_key(settings: Settings) -> bool:
@@ -248,61 +227,89 @@ def fail(parser: argparse.ArgumentParser, interactive: bool, message: str) -> No
 
 
 def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
+    """``corral`` alone is the menu. A mode makes it a script, and each mode has its own help."""
     settings = settings or get_settings()
     offered = {m: [model.id for model in offered_models(m, settings)] for m in MODALITIES}
     models = "\n".join(f"  {m}  {', '.join(ids)}" for m, ids in offered.items() if ids)
     parser = argparse.ArgumentParser(
         prog="corral",
-        description=__doc__,
-        epilog=f"models with a key in .env:\n{models}",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Wrangle a voice agent: talk to it, benchmark it on Coval, or check its keys."
+        " With no mode, a menu asks.",
     )
-    parser.add_argument(
-        "mode",
-        nargs="?",
-        choices=[mode.name for mode in MODES],
-        metavar="mode",
-        help="; ".join(f"{mode.name}: {mode.summary}" for mode in MODES),
-    )
+    modes = parser.add_subparsers(dest="mode", metavar="mode", title="modes")
+    defaults: dict[str, Any] = {
+        "mode": None,
+        "scenario": os.environ.get("S2S_SCENARIO"),
+        "test_case": None,
+        "smoke": False,
+        "assets": os.environ.get("S2S_ASSETS"),
+        "personas": [],
+        "metrics": [],
+        "prompt_from": None,
+    }
+    agent = argparse.ArgumentParser(add_help=False)
     for modality, ids in offered.items():
+        native = modality == "s2s"
+        default = os.environ.get(f"S2S_{modality.upper()}", None if native or not ids else ids[0])
+        defaults[modality] = default
         if not ids:
             continue
-        native = modality == "s2s"
-        parser.add_argument(
+        agent.add_argument(
             f"--{modality}",
             choices=ids,
             metavar="MODEL",
-            default=os.environ.get(f"S2S_{modality.upper()}", None if native else ids[0]),
+            default=default,
             help="one native model in place of the three" if native else "default: %(default)s",
         )
-    parser.add_argument(
+    agent.add_argument(
         "--scenario",
-        default=os.environ.get("S2S_SCENARIO"),
-        help=f"default: {TALK_SCENARIO} to talk, {BENCHMARK_SCENARIO} otherwise",
+        default=defaults["scenario"],
+        help=f"default: {TALK_SCENARIO} to talk, {BENCHMARK_SCENARIO} to benchmark",
     )
-    parser.add_argument_group("talk").add_argument(
-        "--test-case", help="seed the scenario's tools for this test case"
+    parser.set_defaults(**defaults)
+    epilog = f"models with a key in .env:\n{models}"
+    talk = modes.add_parser(
+        TALK.name,
+        help=TALK.summary,
+        description=TALK.summary.capitalize() + ".",
+        parents=[agent],
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    benchmark_flags = parser.add_argument_group("benchmark")
-    benchmark_flags.add_argument(
+    talk.add_argument("--test-case", help="seed the scenario's tools for this test case")
+    benchmark = modes.add_parser(
+        BENCHMARK.name,
+        help=BENCHMARK.summary,
+        description=BENCHMARK.summary.capitalize() + ".",
+        parents=[agent],
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    benchmark.add_argument(
         "--smoke", action="store_true", help="one test case, to check the wiring"
     )
-    benchmark_flags.add_argument(
+    benchmark.add_argument(
         "--assets",
-        default=os.environ.get("S2S_ASSETS"),
+        default=defaults["assets"],
         metavar="SCENARIO.VERSION",
         help="run a scenario from the manifest at CORRAL_ASSETS_URI instead of --scenario",
     )
-    benchmark_flags.add_argument(
+    benchmark.add_argument(
         "--personas", type=names, default=[], help="with --assets: conditions to run; default all"
     )
-    benchmark_flags.add_argument(
+    benchmark.add_argument(
         "--metrics", type=names, default=[], help="with --assets: metrics to score; default all"
     )
-    benchmark_flags.add_argument(
+    benchmark.add_argument(
         "--prompt-from",
         metavar="MODEL",
         help="with --assets: the agent whose prompt to use when the model isn't one of them",
+    )
+    modes.add_parser(
+        CHECK_ACCESS.name,
+        help=CHECK_ACCESS.summary,
+        description=CHECK_ACCESS.summary.capitalize()
+        + ". One line per vendor and model; exits 1 when anything with a key fails.",
     )
     return parser
 
@@ -343,14 +350,11 @@ def main() -> None:
     needs = missing_for(mode, settings)
     if needs:
         fail(parser, interactive, f"{mode.name} needs: {needs}")
-    misplaced = misplaced_flag(mode, args)
+    if mode is CHECK_ACCESS:
+        raise SystemExit(asyncio.run(run_check_access(settings)))
+    misplaced = needs_assets(args)
     if misplaced:
         fail(parser, interactive, misplaced)
-    if mode is CHECK_ACCESS:
-        given = [flag for flag in ("scenario", "stt", "llm", "tts", "s2s") if flag_given(flag)]
-        if given:
-            fail(parser, interactive, f"check-access takes no flags; drop --{given[0]}")
-        raise SystemExit(asyncio.run(run_check_access(settings)))
     if mode is BENCHMARK:
         # Coval answers for its key here, the way each vendor does for a model pick.
         problem = coval_problem(settings)
