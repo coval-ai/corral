@@ -54,7 +54,10 @@ which when you have a key for a native model.
   the results (you can also see them in the Coval app). The agent dials in to
   Coval for each call through the Coval Agent SDK, so nothing on your machine
   needs a public address. Use `--smoke` to run a single test case, or
-  `--sample N` to run N of them, the same N for every model that day.
+  `--sample N` to run N of them, the same N for every model that day. Coval
+  takes a minute or more to score a run after its last call; `--no-wait` exits
+  as soon as the calls are over and leaves that to Coval, which is what the
+  GitHub Actions job does since nobody reads its output.
 - **check-access** Probes every API: one authenticated request to Coval and to
   each vendor with a key in `.env`, then every model in the catalog, a GET or a
   listing lookup for cascade models and a session opened on the socket for

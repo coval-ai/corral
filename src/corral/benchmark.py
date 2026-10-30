@@ -21,6 +21,7 @@ from pipecat.workers.runner import WorkerRunner
 from corral.agent import Agent
 from corral.config import Settings, get_settings, remember
 from corral.coval_api import (
+    TERMINAL_STATUSES,
     CovalClient,
     CovalTarget,
     is_terminal,
@@ -46,13 +47,16 @@ SimulationHandler = Callable[[str], Coroutine[Any, Any, None]]
 @dataclass(frozen=True)
 class RunRequest:
     """``sample`` test cases per run, all of them at 0, picked by ``seed`` when one is given.
-    ``workspace_source`` names where the workspace came from when it wasn't coval.json or .env."""
+    ``workspace_source`` names where the workspace came from when it wasn't coval.json or .env.
+    ``wait`` keeps the process up until Coval has scored the run; off, it exits once the
+    calls are over and leaves the scoring to Coval."""
 
     suite: Suite
     workspace_id: str | None
     sample: int
     seed: int | None = None
     workspace_source: str | None = None
+    wait: bool = True
 
 
 def run_request(
@@ -62,34 +66,41 @@ def run_request(
     smoke: bool,
     today: date,
     sample: int | None = None,
+    wait: bool = True,
 ) -> RunRequest:
     """A smoke runs one test case at random. ``sample``, or failing that the suite's own, runs
     that many seeded by the UTC date, so every agent and persona benchmarked the same day gets
     the same ones. Otherwise every test case runs."""
     if smoke:
-        return RunRequest(suite, workspace_id, sample=1)
+        return RunRequest(suite, workspace_id, sample=1, wait=wait)
     size = sample or suite.sample
-    if size:
-        return RunRequest(suite, workspace_id, sample=size, seed=int(f"{today:%Y%m%d}"))
-    return RunRequest(suite, workspace_id, sample=0)
+    seed = int(f"{today:%Y%m%d}") if size else None
+    return RunRequest(suite, workspace_id, sample=size or 0, seed=seed, wait=wait)
 
 
 @dataclass(frozen=True)
 class Outcome:
-    """A finished run and the calls the relay dropped, by simulation id, with why."""
+    """A run we're done with and the calls the relay dropped, by simulation id, with why.
+    ``scored`` is whether we stayed for Coval's results or left after the last call."""
 
     run: dict[str, Any]
     failed_calls: dict[str, str]
+    scored: bool = True
 
     @property
     def succeeded(self) -> bool:
+        if not self.scored:
+            return not self.failed_calls
         return run_succeeded(self.run) and not self.failed_calls
 
     def lines(self) -> list[str]:
-        return results_lines(self.run) + [
+        failed = [
             f"  call {simulation_id} failed: {why}"
             for simulation_id, why in self.failed_calls.items()
         ]
+        if not self.scored:
+            return [f"run {run_id_of(self.run)}: calls done, Coval is scoring it", *failed]
+        return results_lines(self.run) + failed
 
 
 def _secret(settings: Settings, name: str) -> str:
@@ -181,9 +192,12 @@ async def run_until_hangup(worker: PipelineWorker, connection: AudioConnection) 
         await asyncio.gather(running, closing, return_exceptions=True)
 
 
-async def await_run(coval: CovalClient, run: dict[str, Any], handler: SimulationHandler) -> Outcome:
+async def await_run(
+    coval: CovalClient, run: dict[str, Any], handler: SimulationHandler, *, wait: bool = True
+) -> Outcome:
     """Poll the run, joining each simulation as Coval starts it, until the run is over
-    and every call has ended.
+    and every call has ended; or, not waiting, until every call has ended, since Coval
+    scores the run on its own and the results are there whether or not we watch.
 
     A call the relay drops is logged and reported, and the run goes on: Coval keeps
     going regardless, and the other calls are still worth having. Any other failure
@@ -219,12 +233,31 @@ async def await_run(coval: CovalClient, run: dict[str, Any], handler: Simulation
                 logger.info(f"Run {run_id_of(run)}: {status} {run.get('progress') or ''}".rstrip())
             if is_terminal(run) and all(task.done() for task in calls.values()):
                 return Outcome(run, failed)
+            if not wait and _calls_over(run, seen, calls):
+                logger.info(f"Run {run_id_of(run)}: every call has ended; leaving it to Coval")
+                return Outcome(run, failed, scored=False)
             await asyncio.sleep(POLL_SECS)
             run = await asyncio.to_thread(coval.get_run, run_id_of(run))
     finally:
         for task in calls.values():
             task.cancel()
         await asyncio.gather(*calls.values(), return_exceptions=True)
+
+
+def _calls_over(
+    run: dict[str, Any], seen: dict[str, Any], calls: dict[str, asyncio.Task[None]]
+) -> bool:
+    """Every test case Coval means to run has a simulation, and each is skipped, over, or a
+    call we've hung up on."""
+    total = (run.get("progress") or {}).get("total_test_cases") or 0
+    if not total or len(seen) < total:
+        return False
+    return all(
+        status == "SKIPPED"
+        or status in TERMINAL_STATUSES
+        or (simulation_id in calls and calls[simulation_id].done())
+        for simulation_id, status in seen.items()
+    )
 
 
 async def run_suite(
@@ -253,7 +286,7 @@ async def run_suite(
         )
         run = await asyncio.to_thread(coval.launch_run, body)
         logger.info(f"Run {run_id_of(run)} launched on agent {agent_id}: {run.get('status')}")
-        outcomes.append(await await_run(coval, run, handler))
+        outcomes.append(await await_run(coval, run, handler, wait=request.wait))
     return outcomes
 
 
@@ -272,6 +305,7 @@ async def run(agent: Agent, request: RunRequest) -> int:
         outcomes = await run_suite(coval, agent, request, workspace_id, handler)
     for outcome in outcomes:
         level = "INFO" if outcome.succeeded else "WARNING"
-        logger.log(level, f"Run {run_id_of(outcome.run)} finished: {outcome.run.get('status')}")
+        ending = f"finished: {outcome.run.get('status')}" if outcome.scored else "left to Coval"
+        logger.log(level, f"Run {run_id_of(outcome.run)} {ending}")
         print("\n".join(outcome.lines()), flush=True)
     return 0 if all(outcome.succeeded for outcome in outcomes) else 1
