@@ -54,7 +54,7 @@ class Mode:
 
 TALK = Mode("talk", "to the agent")
 BENCHMARK = Mode("benchmark", "with Coval")
-CHECK_ACCESS = Mode("check-access", "every key and native model")
+CHECK_ACCESS = Mode("check-access", "every key and model")
 MODES = (TALK, BENCHMARK, CHECK_ACCESS)
 
 

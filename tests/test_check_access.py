@@ -20,7 +20,7 @@ from websockets.http11 import Response
 from corral import check_access
 from corral.config import Settings
 from corral.models import VENDORS, S2sModel, access_probes, catalog
-from corral.models.access_probes import Connect, GetProbe, Socket, Target, Transports
+from corral.models.access_probes import GetProbe, ListedProbe, Socket, Target, Transports
 
 KEYS: dict[str, Any] = {
     "coval_api_key": "ck",
@@ -68,8 +68,83 @@ def refusing(error: Exception) -> Transports:
     return Transports(http=OK, connect=connect)
 
 
-def by_url(connect: Connect) -> Transports:
-    return Transports(http=OK, connect=connect)
+SONIOX_LISTING = {"models": [{"id": "stt-rt-v5"}, {"id": "stt-rt-v4"}]}
+ELEVEN_LISTING = [{"model_id": "eleven_flash_v2"}, {"model_id": "eleven_v3"}]
+
+
+def vendors_answer(request: httpx.Request) -> httpx.Response:
+    """Every key GET and model GET is fine, and the two listings hold corral's models."""
+    if request.url.host == "api.soniox.com" and request.url.path == "/v1/models":
+        return httpx.Response(200, json=SONIOX_LISTING)
+    if request.url.host == "api.elevenlabs.io" and request.url.path == "/v1/models":
+        return httpx.Response(200, json=ELEVEN_LISTING)
+    return httpx.Response(200)
+
+
+ANSWERING = httpx.MockTransport(vendors_answer)
+
+
+async def test_a_get_probe_names_the_model_when_it_has_one() -> None:
+    seen: list[str] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(404 if "gone" in str(request.url) else 200)
+
+    probe = GetProbe("https://api.openai.com/v1/models/{model}")
+    transports = Transports(http=httpx.MockTransport(record))
+    key = Target("openai", {"Authorization": "Bearer oa"})
+    assert await probe.problem(Target("openai", key.headers, "gpt-4.1"), transports) is None
+    assert seen == ["https://api.openai.com/v1/models/gpt-4.1"]
+    gone = Target("openai", key.headers, "gpt-gone")
+    assert await probe.problem(gone, transports) == "openai returned 404"
+
+
+async def test_a_listed_probe_wants_the_model_in_the_vendors_list() -> None:
+    probe = ListedProbe("https://api.soniox.com/v1/models", lambda body: {"stt-rt-v5"})
+    transports = Transports(http=httpx.MockTransport(lambda _r: httpx.Response(200, json={})))
+    headers = {"Authorization": "Bearer sx"}
+    assert await probe.problem(Target("soniox", headers, "stt-rt-v5"), transports) is None
+    problem = await probe.problem(Target("soniox", headers, "stt-rt-v9"), transports)
+    assert problem == "soniox does not list stt-rt-v9"
+
+    def broken(_body: object) -> set[str]:
+        raise KeyError("models")
+
+    odd = ListedProbe("https://api.soniox.com/v1/models", broken)
+    problem = await odd.problem(Target("soniox", headers, "stt-rt-v5"), transports)
+    assert problem == "soniox listing was unreadable: 'models'"
+
+
+async def test_deepgram_is_asked_at_the_listen_handshake_and_told_no_in_the_status() -> None:
+    model = catalog().stt[0]
+    assert model.provider == "deepgram"
+    service = VENDORS["deepgram"].stt
+    assert service is not None and service.model_probe is not None
+    seen: dict[str, Any] = {}
+    target = Target("deepgram", {"Authorization": "Token dg"}, model.name)
+    assert await service.model_probe.problem(target, connecting(FakeSocket(), seen)) is None
+    assert seen["url"] == f"wss://api.deepgram.com/v1/listen?model={model.name}"
+    forbidden = InvalidStatus(Response(403, "Forbidden", Headers()))
+    problem = await service.model_probe.problem(target, refusing(forbidden))
+    assert problem == "deepgram returned 403"
+
+
+async def test_soniox_tts_is_asked_to_say_one_character_and_judged_on_the_reply() -> None:
+    service = VENDORS["soniox"].tts
+    assert service is not None and service.model_probe is not None
+    headers = {"Authorization": "Bearer sx"}
+    target = Target("soniox", headers, "tts-rt-v2", {"voice": "Emma"})
+    socket = FakeSocket({"stream_id": "check-access", "audio": "AAAA", "audio_end": True})
+    seen: dict[str, Any] = {}
+    assert await service.model_probe.problem(target, connecting(socket, seen)) is None
+    assert seen["url"] == "wss://tts-rt.soniox.com/tts-websocket"
+    start, text = socket.sent
+    assert start["model"] == "tts-rt-v2" and start["voice"] == "Emma" and start["language"] == "en"
+    assert text == {"stream_id": "check-access", "text": ".", "text_end": True}
+    gone = FakeSocket({"error_code": 400, "error_message": "The requested model is not available."})
+    problem = await service.model_probe.problem(target, connecting(gone))
+    assert problem == "The requested model is not available."
 
 
 async def test_a_get_probe_is_the_status_or_the_network() -> None:
@@ -196,7 +271,9 @@ async def test_the_report_skips_vendors_without_a_key_and_fails_on_any_problem(
     monkeypatch.setattr(check_access, "coval_problem", lambda _settings: None)
 
     def keys(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(403 if "googleapis" in request.url.host else 200)
+        if "googleapis" in request.url.host:
+            return httpx.Response(403)
+        return vendors_answer(request)
 
     @asynccontextmanager
     async def connect(url: str, headers: Mapping[str, str]) -> AsyncIterator[Socket]:
@@ -204,6 +281,10 @@ async def test_the_report_skips_vendors_without_a_key_and_fails_on_any_problem(
             yield FakeSocket({"type": "error", "error": {"message": "retired"}})
         elif "live/sessions" in url:
             yield FakeSocket({"type": "session.started"})
+        elif "listen" in url:
+            yield FakeSocket()
+        elif "tts-websocket" in url:
+            yield FakeSocket({"audio": "AAAA", "audio_end": True})
         else:
             yield FakeSocket({"type": "session.created"})
 
@@ -222,6 +303,12 @@ async def test_the_report_skips_vendors_without_a_key_and_fails_on_any_problem(
     )
     assert any(line.split() == ["xai/grok-voice-3.0", "retired"] for line in lines)
     assert any(line.split() == ["openai/gpt-realtime-2.1", "ok"] for line in lines)
+    assert any(line.split() == ["openai/gpt-4.1", "ok"] for line in lines)
+    assert any(line.split() == ["deepgram/nova-3", "ok"] for line in lines)
+    assert any(
+        line.split() == ["google/gemini-2.5-flash", "skipped:", "its", "vendor", "failed"]
+        for line in lines
+    )
     assert lines[-1] == "2 failed"
 
 
@@ -236,10 +323,15 @@ async def test_a_clean_report_exits_zero(
             yield FakeSocket({"setupComplete": {}})
         elif "live/sessions" in url:
             yield FakeSocket({"type": "session.started"})
+        elif "listen" in url:
+            yield FakeSocket()
+        elif "tts-websocket" in url:
+            yield FakeSocket({"audio": "AAAA", "audio_end": True})
         else:
             yield FakeSocket({"type": "session.created"})
 
-    assert await check_access.run(ALL_KEYS, by_url(connect)) == 0
-    out = capsys.readouterr().out
-    assert "failed" not in out
-    assert out.count(" ok") == 1 + len(VENDORS) + len(catalog().s2s)
+    assert await check_access.run(ALL_KEYS, Transports(http=ANSWERING, connect=connect)) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert not any("failed" in line for line in lines)
+    models = sum(len(getattr(catalog(), m)) for m in ("stt", "llm", "tts", "s2s"))
+    assert sum(line.endswith(" ok") for line in lines) == 1 + len(VENDORS) + models
