@@ -53,7 +53,8 @@ which when you have a key for a native model.
 - **benchmark** Runs your eval suite on Coval against the agent and then prints
   the results (you can also see them in the Coval app). The agent dials in to
   Coval for each call through the Coval Agent SDK, so nothing on your machine
-  needs a public address. Use `--smoke` to run a single test case.
+  needs a public address. Use `--smoke` to run a single test case, or
+  `--sample N` to run N of them, the same N for every model that day.
 - **check-access** Probes every API: one authenticated request to Coval and to
   each vendor with a key in `.env`, then every model in the catalog, a GET or a
   listing lookup for cascade models and a session opened on the socket for

@@ -279,3 +279,14 @@ def test_the_asset_selectors_need_assets(monkeypatch: pytest.MonkeyPatch) -> Non
     flags = ["--prompt-from", "openai/gpt-realtime-2"]
     args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
     assert needs_assets(args) == "--prompt-from needs --assets"
+
+
+def test_sample_is_a_count_and_excludes_smoke(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = build_parser(ALL_KEYS)
+    assert parser.parse_args(["benchmark", "--sample", "5"]).sample == 5
+    assert parser.parse_args(["benchmark"]).sample is None
+    for argv in (["--sample", "0"], ["--sample", "two"], ["--sample", "2", "--smoke"]):
+        with pytest.raises(SystemExit):
+            parser.parse_args(["benchmark", *argv])
+        err = capsys.readouterr().err
+        assert "at least 1" in err or "not allowed with" in err
