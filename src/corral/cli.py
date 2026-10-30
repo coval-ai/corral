@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import importlib.util
 import os
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -215,6 +216,12 @@ def needs_assets(args: argparse.Namespace) -> str | None:
     return None
 
 
+def at_a_terminal() -> bool:
+    """Whether someone is watching: a benchmark then stays for Coval's scores and prints them.
+    In a runner nobody is, the results are in Coval, and the process shouldn't bill for the wait."""
+    return sys.stdout.isatty()
+
+
 def has_coval_key(settings: Settings) -> bool:
     return settings.coval_api_key is not None and bool(settings.coval_api_key.get_secret_value())
 
@@ -402,7 +409,7 @@ def main() -> None:
             smoke=args.smoke,
             today=datetime.now(UTC).date(),
             sample=args.sample,
-            wait=interactive,
+            wait=at_a_terminal(),
         )
         request = replace(request, workspace_source=assets.source)
     elif mode is BENCHMARK:
@@ -418,7 +425,7 @@ def main() -> None:
             smoke=args.smoke,
             today=datetime.now(UTC).date(),
             sample=args.sample,
-            wait=interactive,
+            wait=at_a_terminal(),
         )
         if named.assets:
             source = f"{get_settings().corral_assets_uri} ({named.assets})"
