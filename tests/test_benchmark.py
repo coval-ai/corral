@@ -160,6 +160,45 @@ async def test_each_persona_gets_its_own_run_and_each_simulation_is_handled_once
     assert all(outcome.succeeded for outcome in outcomes)
 
 
+class _SlowScorer(_Coval):
+    """Coval that never finishes scoring: the one simulation runs, then the run sits RUNNING."""
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        self.polls[run_id] = self.polls.get(run_id, 0) + 1
+        return {"run_id": run_id, "status": "RUNNING", "progress": {"total_test_cases": 2}}
+
+
+async def test_not_waiting_leaves_once_every_call_is_over_and_coval_is_still_scoring() -> None:
+    handled: list[str] = []
+
+    async def handler(simulation_id: str) -> None:
+        handled.append(simulation_id)
+
+    run = {"run_id": "R1", "status": "PENDING"}
+    with patch.object(benchmark, "POLL_SECS", 0):
+        outcome = await benchmark.await_run(
+            cast(CovalClient, _SlowScorer()), run, handler, wait=False
+        )
+    assert handled == ["R1-S1"]
+    assert outcome.run["status"] == "RUNNING" and not outcome.scored
+    assert outcome.succeeded
+    assert outcome.lines() == ["run R1: calls done, Coval is scoring it"]
+
+
+async def test_not_waiting_still_waits_for_calls_coval_has_not_started() -> None:
+    run = {"run_id": "R1", "status": "PENDING"}
+    seen = {"R1-S1": "PENDING", "R1-S2": "SKIPPED"}
+    assert not benchmark._calls_over({**run, "progress": {"total_test_cases": 2}}, seen, {})
+    assert not benchmark._calls_over({**run, "progress": {"total_test_cases": 3}}, seen, {})
+    assert not benchmark._calls_over(run, seen, {})
+    done: asyncio.Task[None] = asyncio.get_running_loop().create_task(asyncio.sleep(0))
+    await done
+    seen["R1-S1"] = "RUNNING"
+    assert benchmark._calls_over(
+        {**run, "progress": {"total_test_cases": 2}}, seen, {"R1-S1": done}
+    )
+
+
 async def test_a_bug_in_a_call_stops_the_run() -> None:
     async def handler(simulation_id: str) -> None:
         raise ValueError(f"{simulation_id} has no backend to seed")
@@ -215,3 +254,6 @@ def test_a_sampled_suite_runs_the_same_test_cases_all_day_and_a_smoke_runs_one_a
     unsampled = Suite(test_set="TS", personas=["P1"])
     asked = benchmark.run_request(unsampled, None, smoke=False, today=date(2026, 10, 22), sample=3)
     assert (asked.sample, asked.seed) == (3, 20261022)
+    assert asked.wait
+    quick = benchmark.run_request(sampled, "W", smoke=True, today=date(2026, 10, 22), wait=False)
+    assert not quick.wait

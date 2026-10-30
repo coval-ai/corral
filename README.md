@@ -55,7 +55,10 @@ which when you have a key for a native model.
   Coval for each call through the Coval Agent SDK, so nothing on your machine
   needs a public address. It runs the suite's first persona; `--personas` names
   more, or `all`. Use `--smoke` to run a single test case, or `--sample N` to
-  run N of them, the same N for every model that day.
+  run N of them, the same N for every model that day. At a terminal it stays
+  until Coval has scored the run and prints the metrics. With no terminal, as
+  in the Cloud Run job, it exits as soon as the calls are over: the results are
+  in Coval, and the job shouldn't pay for the minute or more scoring takes.
 - **check-access** Probes every API: one authenticated request to Coval and to
   each vendor with a key in `.env`, then every model in the catalog, a GET or a
   listing lookup for cascade models and a session opened on the socket for
