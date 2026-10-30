@@ -223,7 +223,7 @@ def misplaced_flag(mode: Mode, args: argparse.Namespace) -> str | None:
     for dest, owner in MODE_FLAGS.items():
         if getattr(args, dest) and mode is not owner:
             return f"--{dest.replace('_', '-')} is for {owner.name}"
-    for dest in ("personas", "metrics", "prompt_from"):
+    for dest in ("metrics", "prompt_from"):
         if getattr(args, dest) and not args.assets:
             return f"--{dest.replace('_', '-')} needs --assets"
     return None
@@ -294,7 +294,10 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         help="run a scenario from the manifest at CORRAL_ASSETS_URI instead of --scenario",
     )
     benchmark_flags.add_argument(
-        "--personas", type=names, default=[], help="with --assets: conditions to run; default all"
+        "--personas",
+        type=names,
+        default=[],
+        help="personas to run: names from the suite, or all; default: the first",
     )
     benchmark_flags.add_argument(
         "--metrics", type=names, default=[], help="with --assets: metrics to score; default all"
@@ -382,7 +385,7 @@ def main() -> None:
         request = replace(request, workspace_source=assets.source)
     elif mode is BENCHMARK:
         try:
-            named = require_suite(scenario)
+            named = require_suite(scenario).with_personas(args.personas)
             suite = resolve_assets(named, get_settings())
         except ValueError as error:
             fail(parser, interactive, str(error))

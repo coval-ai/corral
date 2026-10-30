@@ -32,16 +32,23 @@ COVAL_FILE = "coval.json"
 TOOLS_FILE = "tools.py"
 TALK_SCENARIO = "default"
 BENCHMARK_SCENARIO = "id_roulette"
+ALL_PERSONAS = "all"
 
 
 Entry = str | dict[str, Any]
 
 
+def persona_name(entry: Entry) -> str:
+    """What ``--personas`` calls an entry: its name when written out, else the id itself."""
+    return entry if isinstance(entry, str) else str(entry.get("name") or "")
+
+
 class Suite(JsonModel):
-    """``sample`` runs that many of the test cases per run, the same ones all day.
+    """``sample`` runs that many of the test cases per run, the same ones all day. The first
+    persona is the default; the rest are opted into.
 
     ``assets`` names a ``<scenario>.<version>`` in the manifest at CORRAL_ASSETS_URI instead of
-    ids; ``personas`` and ``metrics`` are then names from that entry, all of them when left out.
+    ids; ``personas`` and ``metrics`` are then names from that entry, all metrics when left out.
     """
 
     assets: str | None = None
@@ -66,6 +73,22 @@ class Suite(JsonModel):
         if not all(isinstance(entry, str) for entry in [*self.personas, *self.metrics]):
             raise ValueError("with assets, personas and metrics are names from the manifest")
         return self
+
+    def with_personas(self, wanted: list[str]) -> Suite:
+        """The suite on the personas named, on every one for ``all``, on the first alone when
+        none are named. An assets suite keeps the names; the manifest resolves them."""
+        if self.assets is not None:
+            return self.model_copy(update={"personas": list(wanted)})
+        if wanted == [ALL_PERSONAS]:
+            return self
+        if not wanted:
+            return self.model_copy(update={"personas": self.personas[:1]})
+        by_name = {persona_name(persona): persona for persona in self.personas}
+        missing = [name for name in wanted if name not in by_name]
+        if missing:
+            have = ", ".join(by_name)
+            raise ValueError(f"no persona {', '.join(missing)} in {COVAL_FILE}; it has {have}")
+        return self.model_copy(update={"personas": [by_name[name] for name in wanted]})
 
     def keyed_test_cases(self) -> dict[str, str]:
         """Each written-out case's ``test_case``, the seed its backend uses, with its description.
