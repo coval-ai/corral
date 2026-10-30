@@ -25,7 +25,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from corral.config import Settings
-from corral.scenarios import Suite
+from corral.scenarios import ALL_PERSONAS, Suite
 
 GCS_READ_SCOPE = "https://www.googleapis.com/auth/devstorage.read_only"
 GCS_TIMEOUT_SECS = 10
@@ -119,7 +119,11 @@ def _entry(name: str, manifest: dict[str, Any], source: str) -> _Entry:
 def resolve(suite: Suite, manifest: dict[str, Any], source: str) -> Suite:
     """The suite in id form, from the manifest entry its ``assets`` names."""
     entry = _entry(suite.assets or "", manifest, source)
-    personas = _pick("persona", suite, [str(p) for p in suite.personas], entry.personas, source)
+    wanted = [str(p) for p in suite.personas]
+    if wanted == [ALL_PERSONAS]:
+        personas = list(entry.personas.values())
+    else:
+        personas = _pick("persona", suite, wanted, entry.personas, source, default_first=True)
     metrics = _pick("metric", suite, [str(m) for m in suite.metrics], entry.metric_ids, source)
     return Suite(
         workspace=entry.workspace_id,
@@ -131,11 +135,18 @@ def resolve(suite: Suite, manifest: dict[str, Any], source: str) -> Suite:
 
 
 def _pick[T](
-    noun: str, suite: Suite, wanted: list[str], available: dict[str, T], source: str
+    noun: str,
+    suite: Suite,
+    wanted: list[str],
+    available: dict[str, T],
+    source: str,
+    default_first: bool = False,
 ) -> list[T]:
-    """The named entries in the order asked for, or every one in manifest order when none are."""
+    """The named entries in the order asked for; when none are named, the first in manifest
+    order or every one."""
     if not wanted:
-        return list(available.values())
+        entries = list(available.values())
+        return entries[:1] if default_first else entries
     missing = [name for name in wanted if name not in available]
     if missing:
         have = ", ".join(available) or "none"
