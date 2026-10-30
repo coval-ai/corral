@@ -271,11 +271,16 @@ def test_the_assets_flags_belong_to_benchmark_and_split_on_commas(
         build_parser(ALL_KEYS).parse_args(["talk", "--assets", "workflow-bank.v1"])
 
 
-def test_the_asset_selectors_need_assets(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_asset_selectors_need_assets_but_personas_do_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("S2S_ASSETS", raising=False)
-    flags = ["--scenario", "id_roulette", "--personas", "clean"]
+    flags = ["--scenario", "id_roulette", "--personas", "ID Roulette: office desk"]
     args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
-    assert needs_assets(args) == "--personas needs --assets"
+    assert needs_assets(args) is None
+    flags = ["--metrics", "judge"]
+    args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
+    assert needs_assets(args) == "--metrics needs --assets"
     flags = ["--prompt-from", "openai/gpt-realtime-2"]
     args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
     assert needs_assets(args) == "--prompt-from needs --assets"

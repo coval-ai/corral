@@ -53,8 +53,9 @@ which when you have a key for a native model.
 - **benchmark** Runs your eval suite on Coval against the agent and then prints
   the results (you can also see them in the Coval app). The agent dials in to
   Coval for each call through the Coval Agent SDK, so nothing on your machine
-  needs a public address. Use `--smoke` to run a single test case, or
-  `--sample N` to run N of them, the same N for every model that day.
+  needs a public address. It runs the suite's first persona; `--personas` names
+  more, or `all`. Use `--smoke` to run a single test case, or `--sample N` to
+  run N of them, the same N for every model that day.
 - **check-access** Probes every API: one authenticated request to Coval and to
   each vendor with a key in `.env`, then every model in the catalog, a GET or a
   listing lookup for cascade models and a session opened on the socket for
@@ -87,8 +88,8 @@ set, personas, metrics and workspace come from that entry, and the system
 prompt from the entry's agent for your model, as that agent is saved in Coval.
 When your model isn't one of the scenario's agents, `--prompt-from` names the
 one whose prompt to use. `--personas` and `--metrics` take comma-separated
-names from the entry; leave them out for all of them. The production manifest
-needs the production Coval key.
+names from the entry; left out, you get the first persona and every metric.
+The production manifest needs the production Coval key.
 
 ```bash
 CORRAL_ASSETS_URI=gs://coval-bench-asset-versions/coval-benchmarking/scenario_map.json \

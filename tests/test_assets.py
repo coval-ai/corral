@@ -47,15 +47,17 @@ def test_a_suite_names_its_assets_or_pins_ids_but_not_both() -> None:
         Suite(test_set="TS1")
 
 
-def test_assets_resolve_to_every_persona_and_metric_in_manifest_order() -> None:
+def test_assets_resolve_to_the_first_persona_and_every_metric_unless_told_all() -> None:
     resolved = resolve(Suite(assets="workflow-bank.v1", sample=2), MANIFEST, "map.json")
     assert resolved == Suite(
         workspace="W1",
         test_set="TS1",
-        personas=["P-clean", "P-low"],
+        personas=["P-clean"],
         metrics=["M-judge", "M-latency"],
         sample=2,
     )
+    every = resolve(Suite(assets="workflow-bank.v1", personas=["all"]), MANIFEST, "map.json")
+    assert every.personas == ["P-clean", "P-low"]
 
 
 def test_assets_pick_the_named_personas_and_metrics_in_the_order_asked() -> None:
