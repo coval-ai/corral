@@ -30,6 +30,14 @@
     }
   },
   {
+    "provider": "xai",
+    "name": "grok-voice-think-fast-2.0",
+    "options": {
+      "voice": "ara",
+      "turn_detection": { "type": "server_vad", "threshold": 0.5, "prefix_padding_ms": 300, "silence_duration_ms": 500 }
+    }
+  },
+  {
     "provider": "elevenlabs",
     "name": "eleven_realtime_v1_mini",
     "options": {

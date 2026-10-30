@@ -30,6 +30,7 @@ def test_a_native_model_is_a_stack_of_one() -> None:
         "google/gemini-3.8-live",
         "google/gemini-3.8-live-extended-thinking",
         "xai/grok-voice-3.0",
+        "xai/grok-voice-think-fast-2.0",
         "elevenlabs/eleven_realtime_v1_mini",
         "elevenlabs/eleven_realtime_v1_max",
     ]
