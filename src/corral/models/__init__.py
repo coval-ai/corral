@@ -192,7 +192,7 @@ VENDORS: dict[str, Vendor] = {
     ),
     "elevenlabs": Vendor(
         "elevenlabs_api_key",
-        "https://api.elevenlabs.io/v1/user",
+        "https://api.elevenlabs.io/v1/voices",
         auth_header="xi-api-key",
         auth_prefix="",
         tts="pipecat.services.elevenlabs.tts:ElevenLabsTTSService",
