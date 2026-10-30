@@ -243,7 +243,6 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "test_case": None,
         "smoke": False,
         "sample": None,
-        "no_wait": False,
         "assets": os.environ.get("S2S_ASSETS"),
         "personas": [],
         "metrics": [],
@@ -294,11 +293,6 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         type=positive,
         metavar="N",
         help="N test cases, the same ones all day; default: the suite's sample, else all",
-    )
-    benchmark.add_argument(
-        "--no-wait",
-        action="store_true",
-        help="exit once the calls are over instead of waiting for Coval to score them",
     )
     benchmark.add_argument(
         "--assets",
@@ -408,7 +402,7 @@ def main() -> None:
             smoke=args.smoke,
             today=datetime.now(UTC).date(),
             sample=args.sample,
-            wait=not args.no_wait,
+            wait=interactive,
         )
         request = replace(request, workspace_source=assets.source)
     elif mode is BENCHMARK:
@@ -424,7 +418,7 @@ def main() -> None:
             smoke=args.smoke,
             today=datetime.now(UTC).date(),
             sample=args.sample,
-            wait=not args.no_wait,
+            wait=interactive,
         )
         if named.assets:
             source = f"{get_settings().corral_assets_uri} ({named.assets})"
