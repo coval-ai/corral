@@ -1,12 +1,13 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""``corral check-access``: does every key still work, and is every native model still served?
+"""``corral check-access``: does every key still work, and is every model still served?
 
 The key probe is the same GET the menu runs before a pick. It proves the key, not the model,
-since a vendor keeps answering it for a model it has retired. So each native model also gets a
-session opened on its own socket. Vendors with no key are skipped rather than failed, so a
-machine with two keys can still check those two. Meant to run daily.
+since a vendor keeps answering it for a model it has retired. So every model in the catalog also
+gets its own probe: a GET or a listing lookup for cascade models, a session opened on the
+socket for native ones. Vendors with no key are skipped rather than failed, so a machine with
+two keys can still check those two. Vendors run concurrently. Meant to run daily.
 """
 
 from __future__ import annotations
@@ -16,8 +17,18 @@ from dataclasses import dataclass
 
 from corral.config import Settings
 from corral.coval_api import coval_problem
-from corral.models import VENDORS, S2sModel, api_key, catalog, resolve_s2s
-from corral.models.access_probes import Target, Transports
+from corral.models import (
+    CASCADE,
+    VENDORS,
+    Model,
+    S2sModel,
+    TtsModel,
+    Vendor,
+    api_key,
+    catalog,
+    resolve_s2s,
+)
+from corral.models.access_probes import AccessProbe, Target, Transports
 
 
 @dataclass(frozen=True)
@@ -39,6 +50,22 @@ class Finding:
         return f"{label:<{width}} {'ok' if self.problem is None else self.problem}"
 
 
+def probes() -> dict[str, list[tuple[Model, AccessProbe | None]]]:
+    """Every model in the catalog with its probe, by provider, cascade models first. None is a
+    model its vendor gives no way to ask about."""
+    by_provider: dict[str, list[tuple[Model, AccessProbe | None]]] = {}
+    for modality in CASCADE:
+        for model in getattr(catalog(), modality):
+            service = VENDORS[model.provider].service(modality)
+            probe = service.model_probe if service else None
+            by_provider.setdefault(model.provider, []).append((model, probe))
+    for s2s in catalog().s2s:
+        vendor = VENDORS[s2s.provider]
+        api = (vendor.s2s or {})[s2s.api]
+        by_provider.setdefault(s2s.provider, []).append((s2s, api.model_probe))
+    return by_provider
+
+
 async def model_problem(
     model: S2sModel, settings: Settings, transports: Transports | None = None
 ) -> str | None:
@@ -48,27 +75,48 @@ async def model_problem(
     return await api.model_probe.problem(target, transports or Transports())
 
 
-async def findings(settings: Settings, transports: Transports | None = None) -> list[Finding]:
-    """Coval first, then each vendor with its native models under it."""
-    transports = transports or Transports()
-    report = [Finding("coval", coval_problem(settings))]
-    by_provider: dict[str, list[S2sModel]] = {}
-    for model in catalog().s2s:
-        by_provider.setdefault(model.provider, []).append(model)
-    for provider, vendor in VENDORS.items():
-        key = api_key(provider, settings)
-        if key is None:
-            report.append(Finding(provider, f"{vendor.key_name} is unset", skipped=True))
-            continue
-        problem = await vendor.key_probe.problem(Target(provider, vendor.headers(key)), transports)
-        report.append(Finding(provider, problem))
-        models = by_provider.get(provider, [])
-        if problem is not None:
-            report.extend(Finding(m.id, "its vendor failed", skipped=True) for m in models)
-            continue
-        problems = await asyncio.gather(*(model_problem(m, settings, transports) for m in models))
-        report.extend(Finding(m.id, p) for m, p in zip(models, problems, strict=True))
+async def _vendor_findings(
+    provider: str,
+    vendor: Vendor,
+    models: list[tuple[Model, AccessProbe | None]],
+    settings: Settings,
+    transports: Transports,
+) -> list[Finding]:
+    """The vendor's line, then one per model under it."""
+    key = api_key(provider, settings)
+    if key is None:
+        return [Finding(provider, f"{vendor.key_name} is unset", skipped=True)]
+    headers = vendor.headers(key)
+    problem = await vendor.key_probe.problem(Target(provider, headers), transports)
+    report = [Finding(provider, problem)]
+    if problem is not None:
+        report.extend(Finding(m.id, "its vendor failed", skipped=True) for m, _ in models)
+        return report
+
+    async def one(model: Model, probe: AccessProbe | None) -> Finding:
+        if probe is None:
+            return Finding(model.id, f"{provider} has no way to ask", skipped=True)
+        options = {
+            **model.options,
+            **({"voice": model.voice} if isinstance(model, TtsModel) else {}),
+        }
+        target = Target(provider, headers, model.name, options)
+        return Finding(model.id, await probe.problem(target, transports))
+
+    report.extend(await asyncio.gather(*(one(m, p) for m, p in models)))
     return report
+
+
+async def findings(settings: Settings, transports: Transports | None = None) -> list[Finding]:
+    """Coval first, then each vendor with its models under it, in table order."""
+    transports = transports or Transports()
+    by_provider = probes()
+    vendors = [
+        _vendor_findings(provider, vendor, by_provider.get(provider, []), settings, transports)
+        for provider, vendor in VENDORS.items()
+    ]
+    coval = Finding("coval", await asyncio.to_thread(coval_problem, settings))
+    return [coval, *(f for report in await asyncio.gather(*vendors) for f in report)]
 
 
 async def run(settings: Settings, transports: Transports | None = None) -> int:

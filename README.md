@@ -55,11 +55,12 @@ which when you have a key for a native model.
   Coval for each call through the Coval Agent SDK, so nothing on your machine
   needs a public address. Use `--smoke` to run a single test case.
 - **check-access** Probes every API: one authenticated request to Coval and to
-  each vendor with a key in `.env`, then a session opened on each native
-  model's own socket, so a key that has died or a model its vendor has stopped
-  serving shows up here rather than on a call. Vendors without a key are
-  skipped. Exits non-zero if anything with a key fails, so it can run daily or
-  ahead of a benchmark in CI.
+  each vendor with a key in `.env`, then every model in the catalog, a GET or a
+  listing lookup for cascade models and a session opened on the socket for
+  native ones, so a key that has died or a model its vendor has stopped serving
+  shows up here rather than on a call. Vendors without a key are skipped. Exits
+  non-zero if anything with a key fails, so it can run daily or ahead of a
+  benchmark in CI.
 
 The Docker image runs `corral benchmark` by default. Its entrypoint is `corral`,
 so arguments you pass replace `benchmark`, as in `benchmark --s2s

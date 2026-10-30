@@ -35,10 +35,14 @@ from corral.config import (
     Settings,
 )
 from corral.models.access_probes import (
+    DEEPGRAM_LISTEN_PROTOCOL,
     GEMINI_LIVE_PROTOCOL,
     OPENAI_LIVE_PROTOCOL,
     OPENAI_REALTIME_PROTOCOL,
+    SONIOX_TTS_PROTOCOL,
+    AccessProbe,
     GetProbe,
+    ListedProbe,
     SessionProtocol,
     SocketProbe,
     Target,
@@ -182,6 +186,31 @@ def _default_base_url(path: str) -> str | None:
 
 
 @dataclass(frozen=True)
+class Service:
+    """A cascade service: the Pipecat class that runs it, and how check-access asks whether a
+    model is still served. None when the vendor offers no way to ask short of using it."""
+
+    path: str
+    model_probe: AccessProbe | None = None
+
+
+def _soniox_models(listing: object) -> set[str]:
+    return {model["id"] for model in _listing(listing)["models"]}
+
+
+def _eleven_models(listing: object) -> set[str]:
+    if not isinstance(listing, list):
+        raise TypeError("expected a list of models")
+    return {model["model_id"] for model in listing}
+
+
+def _listing(listing: object) -> dict[str, Any]:
+    if not isinstance(listing, dict):
+        raise TypeError("expected an object of models")
+    return listing
+
+
+@dataclass(frozen=True)
 class Vendor:
     """Which key pays for a provider, the probe that proves it works, and its services."""
 
@@ -189,10 +218,17 @@ class Vendor:
     key_probe: GetProbe
     auth_header: str = "Authorization"
     auth_prefix: str = "Bearer "
-    stt: str | None = None
-    llm: str | None = None
-    tts: str | None = None
+    stt: Service | None = None
+    llm: Service | None = None
+    tts: Service | None = None
     s2s: Mapping[str, S2sApi] | None = None
+
+    def service(self, modality: Modality) -> Service | None:
+        """The cascade service for a modality; None for s2s, which is per API."""
+        if modality == "s2s":
+            return None
+        service: Service | None = getattr(self, modality)
+        return service
 
     @property
     def key_name(self) -> str:
@@ -207,12 +243,18 @@ VENDORS: dict[str, Vendor] = {
         "deepgram_api_key",
         GetProbe("https://api.deepgram.com/v1/projects"),
         auth_prefix="Token ",
-        stt="pipecat.services.deepgram.stt:DeepgramSTTService",
+        stt=Service(
+            "pipecat.services.deepgram.stt:DeepgramSTTService",
+            SocketProbe(None, DEEPGRAM_LISTEN_PROTOCOL),
+        ),
     ),
     "openai": Vendor(
         "openai_api_key",
         GetProbe("https://api.openai.com/v1/models"),
-        llm="pipecat.services.openai.llm:OpenAILLMService",
+        llm=Service(
+            "pipecat.services.openai.llm:OpenAILLMService",
+            GetProbe("https://api.openai.com/v1/models/{model}"),
+        ),
         s2s={
             "realtime": S2sApi(
                 "pipecat.services.openai.realtime.llm:OpenAIRealtimeLLMService",
@@ -232,7 +274,10 @@ VENDORS: dict[str, Vendor] = {
         GetProbe("https://api.elevenlabs.io/v1/voices"),
         auth_header="xi-api-key",
         auth_prefix="",
-        tts="pipecat.services.elevenlabs.tts:ElevenLabsTTSService",
+        tts=Service(
+            "pipecat.services.elevenlabs.tts:ElevenLabsTTSService",
+            ListedProbe("https://api.elevenlabs.io/v1/models", _eleven_models),
+        ),
         s2s={
             "realtime": S2sApi(
                 "corral.models.eleven:ElevenRealtimeLLMService",
@@ -244,15 +289,24 @@ VENDORS: dict[str, Vendor] = {
     "soniox": Vendor(
         "soniox_api_key",
         GetProbe("https://api.soniox.com/v1/models"),
-        stt="pipecat.services.soniox.stt:SonioxSTTService",
-        tts="pipecat.services.soniox.tts:SonioxTTSService",
+        stt=Service(
+            "pipecat.services.soniox.stt:SonioxSTTService",
+            ListedProbe("https://api.soniox.com/v1/models", _soniox_models),
+        ),
+        tts=Service(
+            "pipecat.services.soniox.tts:SonioxTTSService",
+            SocketProbe(None, SONIOX_TTS_PROTOCOL),
+        ),
     ),
     "google": Vendor(
         "gemini_api_key",
         GetProbe("https://generativelanguage.googleapis.com/v1beta/models"),
         auth_header="x-goog-api-key",
         auth_prefix="",
-        llm="pipecat.services.google.llm:GoogleLLMService",
+        llm=Service(
+            "pipecat.services.google.llm:GoogleLLMService",
+            GetProbe("https://generativelanguage.googleapis.com/v1beta/models/{model}"),
+        ),
         s2s={
             "live": S2sApi(
                 "pipecat.services.google.gemini_live.llm:GeminiLiveLLMService",
@@ -324,10 +378,10 @@ def supported(modality: Modality) -> list[str]:
 def _resolve_vendor(modality: Modality, provider: str, settings: Settings) -> tuple[str, str]:
     """The class path for this modality and the key that pays for it, or why not."""
     vendor = VENDORS.get(provider)
-    path: str | None = getattr(vendor, modality) if vendor else None
-    if vendor is None or path is None:
+    service = vendor.service(modality) if vendor else None
+    if vendor is None or service is None:
         raise ValueError(f"no {modality} for {provider!r}; have {', '.join(supported(modality))}")
-    return path, _key(vendor, provider, settings)
+    return service.path, _key(vendor, provider, settings)
 
 
 def resolve_s2s(model: S2sModel, settings: Settings) -> tuple[S2sApi, str]:
