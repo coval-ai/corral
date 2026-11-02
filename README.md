@@ -1,10 +1,10 @@
 # Corral
 
-https://github.com/user-attachments/assets/94886da9-1771-45f0-8f3a-580c96a6e8e9
-
 Corral is how Coval wrangles the voice AI models we benchmark. You can use it
 to quickly spin up and talk to native or cascade voice agents on your local 
 machine or, if you have a Coval account, automatically eval them with Coval.
+
+https://github.com/user-attachments/assets/11d84436-9280-458e-a19a-1c98d0ec7659
 
 Local runs are great for hearing how the model sounds and feels, getting a 
 sense for its latency, and iterating quickly. Coval evals are great for 
