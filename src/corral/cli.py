@@ -16,6 +16,8 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, NoReturn
 
+import _colorize
+
 from corral import benchmark, talk
 from corral.agent import Agent, load_asset_agent, load_cascade_agent, load_native_agent
 from corral.assets import AssetRun, load_asset_run, resolve_assets
@@ -28,6 +30,8 @@ from corral.models import (
     MODALITIES,
     Modality,
     Model,
+    Native,
+    Stack,
     api_key,
     catalog,
     key_name,
@@ -68,20 +72,34 @@ def missing_for(mode: Mode, settings: Settings) -> str | None:
 
 
 def pick(options: list[str], prompt: str, read: Reader, default: int = 0) -> int:
-    """Print numbered options and return the index of the one chosen; Enter takes the default."""
+    """A heading, numbered options and a question; Enter takes the default. Returns the index.
+    Each option is a name, then two spaces and a summary, colored the way --help colors them.
+    At a terminal, once answered, all of it collapses to the heading and the pick."""
+    theme = _colorize.get_theme().argparse
+    print(f"{theme.heading}{prompt}{theme.reset}")
     for index, option in enumerate(options, start=1):
-        print(f"{index}. {option}")
+        name, gap, summary = option.partition("  ")
+        print(f"{index}. {theme.action}{name}{theme.reset}{gap}{summary}")
+    lines = len(options) + 1
     while True:
         try:
-            answer = read(f"{prompt} [1-{len(options)}, default {default + 1}]: ").strip()
+            answer = read(f"[1-{len(options)}, default {default + 1}]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print()
             raise SystemExit(130) from None
+        lines += 1
         if not answer:
-            return default
-        if answer.isdigit() and 1 <= int(answer) <= len(options):
-            return int(answer) - 1
-        print(f"pick a number from 1 to {len(options)}, or Enter for {default + 1}")
+            chosen = default
+        elif answer.isdigit() and 1 <= int(answer) <= len(options):
+            chosen = int(answer) - 1
+        else:
+            print(f"pick a number from 1 to {len(options)}, or Enter for {default + 1}")
+            lines += 1
+            continue
+        if sys.stdout.isatty():
+            name = options[chosen].partition("  ")[0]
+            print(f"\x1b[{lines}A\x1b[J{theme.heading}{prompt}{theme.reset}: {name}")
+        return chosen
 
 
 def choose_mode(read: Reader = input, settings: Settings | None = None) -> Mode:
@@ -174,6 +192,18 @@ def choose_agent(
     return load_cascade_agent(scenario, *picks)
 
 
+def scripted(mode: Mode, scenario: str, stack: Stack, test_case: str | None = None) -> str:
+    """The command that runs what the menu picked, without the menu."""
+    words = ["uv run corral", mode.name, "--scenario", scenario]
+    if isinstance(stack, Native):
+        words += ["--s2s", stack.s2s.id]
+    else:
+        words += ["--stt", stack.stt.id, "--llm", stack.llm.id, "--tts", stack.tts.id]
+    if test_case:
+        words += ["--test-case", test_case]
+    return " ".join(words)
+
+
 def flagged_agent(scenario: str, args: argparse.Namespace) -> Agent:
     """The stack the flags name: one native model, else the cascade."""
     if args.s2s:
@@ -233,17 +263,71 @@ def fail(parser: argparse.ArgumentParser, interactive: bool, message: str) -> No
     parser.error(message)
 
 
+class _Parser(argparse.ArgumentParser):
+    """The top-level parser. Its help also lists every mode's flags, a section per mode, laid
+    out and colored by argparse like the sections above them, without accepting them itself."""
+
+    def __init__(
+        self, shown: dict[str, list[argparse.Action]], prog: str, description: str
+    ) -> None:
+        super().__init__(prog=prog, description=description)
+        self.shown = shown
+
+    def format_help(self) -> str:
+        flags = self._get_formatter()
+        for heading, actions in self.shown.items():
+            flags.start_section(heading)
+            flags.add_arguments(actions)
+            flags.end_section()
+        return super().format_help() + "\n" + flags.format_help()
+
+
 def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     """``corral`` alone is the menu. A mode makes it a script, and each mode has its own help."""
     settings = settings or get_settings()
     offered = {m: [model.id for model in offered_models(m, settings)] for m in MODALITIES}
     models = "\n".join(f"  {m}  {', '.join(ids)}" for m, ids in offered.items() if ids)
-    parser = argparse.ArgumentParser(
+    both = argparse.ArgumentParser(add_help=False)
+    both.add_argument("--stt", metavar="MODEL", help="an STT, for a cascade")
+    both.add_argument("--llm", metavar="MODEL", help="an LLM, for a cascade")
+    both.add_argument("--tts", metavar="MODEL", help="a TTS, for a cascade")
+    both.add_argument("--s2s", metavar="MODEL", help="one native model in place of the three")
+    both.add_argument("--scenario", metavar="NAME", help="the scenario directory")
+    talk_only = argparse.ArgumentParser(add_help=False)
+    talk_only.add_argument(
+        "--test-case", metavar="ID", help="seed the scenario's tools for this test case"
+    )
+    benchmark_only = argparse.ArgumentParser(add_help=False)
+    benchmark_only.add_argument(
+        "--smoke", action="store_true", help="one test case, to check the wiring"
+    )
+    benchmark_only.add_argument("--sample", metavar="N", help="N test cases, the same ones all day")
+    benchmark_only.add_argument("--personas", metavar="NAMES", help="names from the suite, or all")
+    benchmark_only.add_argument(
+        "--assets",
+        metavar="SCENARIO.VERSION",
+        help="a scenario from the manifest at CORRAL_ASSETS_URI",
+    )
+    benchmark_only.add_argument(
+        "--metrics", metavar="NAMES", help="with --assets: metrics to score"
+    )
+    benchmark_only.add_argument(
+        "--prompt-from", metavar="MODEL", help="with --assets: whose prompt to use"
+    )
+    shown = {
+        "talk and benchmark flags": both._actions,
+        "talk flags": talk_only._actions,
+        "benchmark flags": benchmark_only._actions,
+    }
+    parser = _Parser(
+        shown,
         prog="corral",
         description="Wrangle a voice agent: talk to it, benchmark it on Coval, or check its keys."
-        " With no mode, a menu asks.",
+        " Run it with no mode for an interactive menu.",
     )
-    modes = parser.add_subparsers(dest="mode", metavar="mode", title="modes")
+    modes = parser.add_subparsers(
+        dest="mode", metavar="mode", title="modes", parser_class=argparse.ArgumentParser
+    )
     defaults: dict[str, Any] = {
         "mode": None,
         "scenario": os.environ.get("S2S_SCENARIO"),
@@ -456,19 +540,24 @@ def main() -> None:
         if problem:
             fail(parser, interactive, f"{model.id}: {problem}")
     configure_logging()
-    with contextlib.suppress(KeyboardInterrupt):
-        if mode is TALK:
-            try:
-                asyncio.run(talk.run(agent, test_case))
-            except ValueError as error:
-                raise SystemExit(f"corral: {error}") from None
-        else:
-            assert request is not None  # noqa: S101
-            try:
-                code = asyncio.run(benchmark.run(agent, request))
-            except (SyncError, ValueError) as error:
-                raise SystemExit(f"corral: {error}") from None
-            raise SystemExit(code)
+    try:
+        with contextlib.suppress(KeyboardInterrupt):
+            if mode is TALK:
+                try:
+                    asyncio.run(talk.run(agent, test_case))
+                except ValueError as error:
+                    raise SystemExit(f"corral: {error}") from None
+            else:
+                assert request is not None  # noqa: S101
+                try:
+                    code = asyncio.run(benchmark.run(agent, request))
+                except (SyncError, ValueError) as error:
+                    raise SystemExit(f"corral: {error}") from None
+                raise SystemExit(code)
+    finally:
+        if interactive:
+            rerun = scripted(mode, scenario, agent.stack, test_case)
+            print(f"\nTo rerun with the same options:\n{rerun}")
 
 
 if __name__ == "__main__":
