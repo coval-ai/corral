@@ -1,4 +1,4 @@
-FROM python:3.15-slim-bookworm AS build
+FROM python:3.14-slim-bookworm AS build
 WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
@@ -10,7 +10,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ ./src/
 RUN uv sync --frozen --no-dev
 
-FROM python:3.15-slim-bookworm AS final
+FROM python:3.14-slim-bookworm AS final
 LABEL org.opencontainers.image.source="https://github.com/coval-ai/corral" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.title="corral"

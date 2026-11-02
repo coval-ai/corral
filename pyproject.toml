@@ -6,7 +6,7 @@ name = "corral"
 version = "0.1.0"
 description = "Coval's own agent for the S2S benchmarks: Pipecat stacks run against Coval's simulator"
 license = { text = "Apache-2.0" }
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 readme = "README.md"
 dependencies = [
     "pydantic>=2.7",
@@ -58,7 +58,7 @@ extend-select = ["E", "F", "I", "B", "UP", "SIM", "S", "ANN"]
 
 [tool.mypy]
 strict = true
-python_version = "3.12"
+python_version = "3.14"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
