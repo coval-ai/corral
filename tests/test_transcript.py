@@ -23,7 +23,7 @@ from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import TransportParams
 from pipecat.utils.text.base_text_aggregator import TextType
 
-from corral.transcript import SPAN_NAME, TranscriptRecorder
+from corral.transcript import SPAN_NAME, TranscriptRecorder, Utterance
 
 MS = 1_000_000
 RATE = 24000
@@ -47,7 +47,18 @@ class Call:
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(self.exporter))
         self.now_ns = 0
-        self.recorder = TranscriptRecorder(provider.get_tracer("test"), clock=lambda: self.now_ns)
+        self.heard: list[tuple[int, str]] = []
+        self.recorder = TranscriptRecorder(
+            provider.get_tracer("test"),
+            clock=lambda: self.now_ns,
+            heard=lambda u: self.heard.append(
+                (u.start // MS, f"[{u.role}] {u.text}" + (" (cut off)" if u.cut_off else ""))
+            ),
+        )
+
+    def _hear(self, u: Utterance) -> None:
+        tail = " (cut off)" if u.cut_off else ""
+        self.heard.append((u.start // MS, f"[{u.role}] {u.text}{tail}"))
 
     async def at(self, ms: int, frame: Frame, source: FrameProcessor | None = None) -> None:
         self.now_ns = ms * MS
@@ -221,3 +232,19 @@ async def test_hang_up_while_the_caller_talks_keeps_their_line(call: Call) -> No
     await call.at(2_000, InterruptionFrame())
     call.recorder.finish()
     assert call.lines() == [(1_000, 2_000, "[caller] Thanks,")]
+
+
+async def test_a_listener_hears_each_stretch_of_an_answer_as_it_stops(call: Call) -> None:
+    await call.answer(1_000, "Hi.", 5.0)
+    await call.at(1_800, BotStoppedSpeakingFrame())
+    await call.at(2_300, _text(" Ask me anything."))
+    await call.at(2_300, BotStartedSpeakingFrame())
+    await call.at(4_200, InterruptionFrame())
+    await call.caller(4_000, 4_500, "Hours?")
+    call.recorder.finish()
+    assert call.heard == [
+        (1_000, "[agent] Hi."),
+        (2_300, "[agent] Ask me anything. (cut off)"),
+        (4_000, "[caller] Hours?"),
+    ]
+    assert call.lines()[0] == (1_000, 4_200, "[agent] Hi. Ask [cut off, words estimated]")

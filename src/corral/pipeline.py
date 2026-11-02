@@ -61,7 +61,7 @@ from corral.models import CascadeServices, NativeService, resolve
 from corral.observer import TurnLatencyObserver, models_by_modality
 from corral.scenarios import load_environment
 from corral.tool_checks import CHARACTER_ERROR_RATE, character_error_rates
-from corral.transcript import TranscriptRecorder
+from corral.transcript import Heard, TranscriptRecorder
 
 OPENING_CUE = "The caller is on the line. Open the call the way your instructions say."
 CALL_SPAN_NAME = "call"
@@ -219,6 +219,7 @@ async def build_call(
     attributes: Mapping[str, Any] | None = None,
     tracer: Tracer | None = None,
     conversation_id: str | None = None,
+    heard: Heard | None = None,
 ) -> Call:
     """One call on any transport: services, backend, pipeline, observer and the greeting.
 
@@ -264,7 +265,9 @@ async def build_call(
                 native=True,
                 reports_turn_end=reports_turn_end,
             )
-    transcript = TranscriptRecorder(tracer) if tracer is not None else None
+    transcript = (
+        TranscriptRecorder(tracer, heard=heard) if tracer is not None or heard is not None else None
+    )
     worker = PipelineWorker(
         Pipeline([transport.input(), *middle, transport.output(), aggregators.assistant()]),
         params=PipelineParams(

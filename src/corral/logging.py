@@ -7,10 +7,15 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 import sys
 from types import FrameType
+from typing import TYPE_CHECKING
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from loguru import Record
 
 
 class _ToLoguru(logging.Handler):
@@ -28,12 +33,32 @@ class _ToLoguru(logging.Handler):
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 
-def configure_logging() -> None:
-    """Log to stderr, and route stdlib logging into loguru.
+EVERY_RUN = (
+    "differs from the recommended default",
+    "interruption detected, cancelling",
+    "The live model handles being interrupted by itself",
+)
 
-    Libraries like websockets and httpcore log every frame and header at DEBUG, so
-    stdlib loggers start at WARNING.
+
+def _format(record: Record) -> str:
+    message = "{message}" if record["level"].no <= logging.INFO else "<level>{message}</level>"
+    return f"<green>{{time:HH:mm:ss}}</green> {message}\n{{exception}}"
+
+
+def _wanted(record: Record) -> bool:
+    return not any(phrase in record["message"] for phrase in EVERY_RUN)
+
+
+def configure_logging() -> None:
+    """Log to stderr at INFO, and route stdlib logging into loguru.
+
+    Pipecat narrates every link, connect and metric at DEBUG; LOGURU_LEVEL=DEBUG brings
+    that back. Two of its warnings fire on every run (our deliberate VAD stop_secs, and
+    Ctrl-C itself) and are dropped. Libraries like websockets and httpcore log every
+    frame and header at DEBUG, so stdlib loggers start at WARNING.
     """
     logger.remove()
-    logger.add(sys.stderr)
+    logger.add(
+        sys.stderr, level=os.environ.get("LOGURU_LEVEL", "INFO"), format=_format, filter=_wanted
+    )
     logging.basicConfig(handlers=[_ToLoguru()], level=logging.WARNING, force=True)

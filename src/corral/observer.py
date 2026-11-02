@@ -408,7 +408,9 @@ class TurnLatencyObserver(BaseObserver):
             attributes["s2s.turn_latency.smart_turn_timed_out"] = moment.smart_turn_timed_out
         self.turns.append(attributes)
         level = "WARNING" if moment.silero_missed or moment.stt_timed_out else "INFO"
-        logger.log(level, _describe(self._turn, moment, attributes))
+        label = f"Turn {self._turn}:"
+        detail = _describe(self._turn, moment, attributes).removeprefix(label)
+        logger.opt(colors=True).log(level, f"<magenta>{label}</magenta>{detail}")
         if self._tracer is not None:
             self._export(self._tracer, moment, attributes, start=start, end=end)
 

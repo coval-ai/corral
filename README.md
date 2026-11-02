@@ -47,7 +47,9 @@ or a single native speech-to-speech model that takes audio in and gives audio
 back.
 
 - **talk** puts the agent on your mic and speakers so you can have a
-  conversation with it. Ctrl+C hangs up.
+  conversation with it. Each answered turn logs one line with its latency, and
+  Ctrl+C hangs up and prints the table. `LOGURU_LEVEL=DEBUG` shows Pipecat's
+  full log.
 - **benchmark** runs the scenario's Coval suite against the agent and prints
   the scores when Coval is done. The agent dials in to Coval using the Coval
   Agent SDK, so you don't need to expose anything on your machine.
