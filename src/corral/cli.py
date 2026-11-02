@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import importlib.util
 import os
 import sys
@@ -515,23 +514,28 @@ def main() -> None:
             fail(parser, interactive, f"{model.id}: {problem}")
     configure_logging()
     try:
-        with contextlib.suppress(KeyboardInterrupt):
-            if mode is TALK:
-                try:
-                    asyncio.run(talk.run(agent, test_case))
-                except ValueError as error:
-                    raise SystemExit(f"corral: {error}") from None
-            else:
-                assert request is not None  # noqa: S101
-                try:
-                    code = asyncio.run(benchmark.run(agent, request))
-                except (SyncError, ValueError) as error:
-                    raise SystemExit(f"corral: {error}") from None
-                raise SystemExit(code)
+        code = run_mode(mode, agent, request, test_case)
     finally:
         if interactive:
             rerun = scripted(mode, scenario, agent.stack, test_case)
             print(f"\nTo rerun with the same options:\n{rerun}")
+    raise SystemExit(code)
+
+
+def run_mode(
+    mode: Mode, agent: Agent, request: benchmark.RunRequest | None, test_case: str | None
+) -> int:
+    """Talk or benchmark through to the exit code. Ctrl+C ends either one cleanly."""
+    try:
+        if mode is TALK:
+            asyncio.run(talk.run(agent, test_case))
+            return 0
+        assert request is not None  # noqa: S101
+        return asyncio.run(benchmark.run(agent, request))
+    except KeyboardInterrupt:
+        return 0
+    except (SyncError, ValueError) as error:
+        raise SystemExit(f"corral: {error}") from None
 
 
 if __name__ == "__main__":
