@@ -43,7 +43,7 @@ uv run corral
 
 The menu will ask you for a mode, a scenario and which models to use. You can 
 run the agent as either a cascade (an STT, an LLM and a TTS chained together) 
-or a  single native speech-to-speech model that takes audio in and gives audio 
+or a single native speech-to-speech model that takes audio in and gives audio 
 back.
 
 - **talk** puts the agent on your mic and speakers so you can have a
@@ -52,7 +52,7 @@ back.
   the scores when Coval is done. The agent dials in to Coval using the Coval
   Agent SDK, so you don't need to expose anything on your machine.
 - **check-access** makes one request to Coval, to each vendor and to each
-  model you have a key for to make sure that everythings still valid. Good 
+  model you have a key for to make sure that everything's still valid. Good 
   first step when debugging.
 
 You can also run corral as a script. Here are some examples:
