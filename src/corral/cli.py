@@ -96,7 +96,7 @@ def pick(options: list[str], prompt: str, read: Reader, default: int = 0) -> int
             print(f"pick a number from 1 to {len(options)}, or Enter for {default + 1}")
             lines += 1
             continue
-        if sys.stdout.isatty():
+        if at_a_terminal():
             name = options[chosen].partition("  ")[0]
             print(f"\x1b[{lines}A\x1b[J{theme.heading}{prompt}{theme.reset}: {name}")
         return chosen
