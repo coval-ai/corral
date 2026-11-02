@@ -42,14 +42,22 @@ async def run(agent: Agent, test_case: str | None = None) -> None:
     try:
         await runner.run()
     finally:
-        print(summary(call.observer.turns, models_by_modality(agent), agent.slug), flush=True)
+        print(
+            summary(
+                call.observer.turns,
+                models_by_modality(agent),
+                agent.slug,
+                color=sys.stdout.isatty(),
+            ),
+            flush=True,
+        )
         if call.tool_calls is not None:
             print(tool_log(call.tool_calls), flush=True)
         for argument, rate in call.character_error_rates().items():
             print(f"{argument} character error rate: {rate:.2f}", flush=True)
 
 
-GREEN, CYAN, RESET = "\x1b[32m", "\x1b[36m", "\x1b[0m"
+GREEN, CYAN, DIM, RESET = "\x1b[32m", "\x1b[36m", "\x1b[2m", "\x1b[0m"
 
 
 def line(utterance: Utterance, *, color: bool = False) -> str:
@@ -73,33 +81,52 @@ STEPS = ("stt", "llm", "endpointing", "model", "tool", "llm_second", "model_seco
 COLUMNS = {"latency": "s2s.turn_latency_ms"} | {s: f"s2s.turn_latency.{s}_ms" for s in STEPS}
 
 
-def summary(turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str) -> str:
+def _turns(count: int) -> str:
+    return f"{count} turn" if count == 1 else f"{count} turns"
+
+
+def summary(
+    turns: Sequence[dict[str, Any]], models: ModelsByModality, slug: str, *, color: bool = False
+) -> str:
     """Median and worst of each step across the call, one row per step."""
     if not turns:
         return "no answered turns"
-    rows: list[tuple[str, list[float]]] = []
+    rows: list[tuple[str, str, list[float]]] = []
     for step, key in COLUMNS.items():
         values = [t[key] for t in turns if key in t]
         model = models.get(step)
-        label = f"{step} ({model['provider']}/{model['model']})" if model else step
+        who = f"{model['provider']}/{model['model']}" if model else ""
         if values:
-            rows.append((label, values))
-    width = max(len(label) for label, _ in rows) + 2
-    lines = [f"{len(turns)} turns on {slug}", f"{'':{width}}{'median':>8}{'max':>8}"]
-    for label, values in rows:
-        lines.append(f"{label:{width}}{statistics.median(values):>7.0f} {max(values):>7.0f}")
+            rows.append((step.replace("_second", " (second)"), who, values))
+    step_width = max(len("stage"), *(len(step) for step, _, _ in rows))
+    who_width = max(len(who) for _, who, _ in rows)
+    cyan, dim, reset = (CYAN, DIM, RESET) if color else ("", "", "")
+    header = f"{'stage':<{step_width}}  {'':<{who_width}}  {'median':>9}  {'max':>9}"
+    lines = [
+        f"{_turns(len(turns))} on {slug}",
+        "",
+        f"{dim}{header}{reset}",
+        f"{dim}{'─' * len(header)}{reset}",
+    ]
+    for step, who, values in rows:
+        median = f"{statistics.median(values):,.0f} ms"
+        worst = f"{max(values):,.0f} ms"
+        lines.append(
+            f"{cyan}{step:<{step_width}}{reset}  {who:<{who_width}}  {median:>9}  {worst:>9}"
+        )
+    lines.append("")
     silero_missed = sum(bool(t.get("s2s.turn_latency.silero_missed")) for t in turns)
     if silero_missed:
-        lines.append(f"{silero_missed} turns where Silero never heard you; check the mic level")
+        lines.append(f"{_turns(silero_missed)} where Silero never heard you; check the mic level")
     stt_timed_out = sum(bool(t.get("s2s.turn_latency.stt_timed_out")) for t in turns)
     if stt_timed_out:
-        lines.append(f"{stt_timed_out} turns where the STT timed out")
+        lines.append(f"{_turns(stt_timed_out)} where the STT timed out")
     smart_turn_timed_out = sum(bool(t.get("s2s.turn_latency.smart_turn_timed_out")) for t in turns)
     if smart_turn_timed_out:
-        lines.append(f"{smart_turn_timed_out} turns where smart-turn timed out")
+        lines.append(f"{_turns(smart_turn_timed_out)} where smart-turn timed out")
     tool_turns = sum(bool(t.get("s2s.turn.tool_calls")) for t in turns)
     if tool_turns:
-        lines.append(f"{tool_turns} turns that called a tool")
+        lines.append(f"{_turns(tool_turns)} that called a tool")
     return "\n".join(lines)
 
 

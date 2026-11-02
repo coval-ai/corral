@@ -31,15 +31,16 @@ def test_hanging_up_prints_median_and_max_per_stage() -> None:
     models = {"llm": {"provider": "openai", "model": "gpt-4.1"}}
     out = summary(turns, models, "cascade-x").splitlines()
     assert out[0] == "5 turns on cascade-x"
-    assert out[2].split() == ["latency", "900", "1800"]
-    assert out[3].split() == ["stt", "75", "100"]
-    assert out[4].split() == ["llm", "(openai/gpt-4.1)", "500", "700"]
-    assert out[5].split() == ["tool", "120", "120"]
-    assert out[6].split() == ["llm_second", "400", "400"]
-    assert out[-4] == "1 turns where Silero never heard you; check the mic level"
-    assert out[-3] == "1 turns where the STT timed out"
-    assert out[-2] == "1 turns where smart-turn timed out"
-    assert out[-1] == "1 turns that called a tool"
+    assert out[2].split() == ["stage", "median", "max"]
+    assert out[4].split() == ["latency", "900", "ms", "1,800", "ms"]
+    assert out[5].split() == ["stt", "75", "ms", "100", "ms"]
+    assert out[6].split() == ["llm", "openai/gpt-4.1", "500", "ms", "700", "ms"]
+    assert out[7].split() == ["tool", "120", "ms", "120", "ms"]
+    assert out[8].split() == ["llm", "(second)", "400", "ms", "400", "ms"]
+    assert out[-4] == "1 turn where Silero never heard you; check the mic level"
+    assert out[-3] == "1 turn where the STT timed out"
+    assert out[-2] == "1 turn where smart-turn timed out"
+    assert out[-1] == "1 turn that called a tool"
     assert summary([], models, "cascade-x") == "no answered turns"
 
 
@@ -55,13 +56,21 @@ def test_a_native_call_prints_endpointing_and_model_instead() -> None:
     openai = {"provider": "openai", "model": "gpt-realtime-2.1"}
     models = {"endpointing": openai, "model": openai, "model_second": openai}
     out = summary(turns, models, "openai-gpt-realtime-2.1").splitlines()
-    assert out[2].split() == ["latency", "900", "1500"]
-    assert out[3].split() == ["endpointing", "(openai/gpt-realtime-2.1)", "45", "150"]
-    assert out[4].split() == ["model", "(openai/gpt-realtime-2.1)", "550", "960"]
-    assert out[5].split() == ["tool", "100", "100"]
-    assert out[6].split() == ["model_second", "(openai/gpt-realtime-2.1)", "500", "500"]
-    assert out[7] == "1 turns that called a tool"
-    assert len(out) == 8
+    assert out[4].split() == ["latency", "900", "ms", "1,500", "ms"]
+    assert out[5].split() == ["endpointing", "openai/gpt-realtime-2.1", "45", "ms", "150", "ms"]
+    assert out[6].split() == ["model", "openai/gpt-realtime-2.1", "550", "ms", "960", "ms"]
+    assert out[7].split() == ["tool", "100", "ms", "100", "ms"]
+    assert out[8].split() == [
+        "model",
+        "(second)",
+        "openai/gpt-realtime-2.1",
+        "500",
+        "ms",
+        "500",
+        "ms",
+    ]
+    assert out[-1] == "1 turn that called a tool"
+    assert len(out) == 11
 
 
 def test_hanging_up_lists_the_tools_called_in_order() -> None:
