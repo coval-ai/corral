@@ -62,7 +62,7 @@ python_version = "3.14"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["pipecat.*", "livekit.*", "miniaudio"]
+module = ["pipecat.*", "livekit.*", "miniaudio", "_colorize"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
