@@ -80,12 +80,23 @@ class Utterance:
     cut_off: bool = False
 
 
+Heard = Callable[[Utterance], None]
+
+
 class TranscriptRecorder(BaseObserver):
-    def __init__(self, tracer: Tracer, clock: Callable[[], int] = time.time_ns) -> None:
+    def __init__(
+        self,
+        tracer: Tracer | None = None,
+        clock: Callable[[], int] = time.time_ns,
+        heard: Heard | None = None,
+    ) -> None:
         super().__init__()
         self._tracer = tracer
         self._clock = clock
+        self._heard = heard
         self._answer = Answer()
+        self._shown = 0
+        self._fragment_since: int | None = None
         self._caller_since: int | None = None
         self._unheard: list[Utterance] = []
         self._early_text: str | None = None
@@ -112,13 +123,17 @@ class TranscriptRecorder(BaseObserver):
                 if answer.start is None:
                     answer.start = now
                 answer.speaking_since = now
+                if self._fragment_since is None:
+                    self._fragment_since = now
             case BotStoppedSpeakingFrame():
                 answer.stop(now)
+                self._show_agent(now, cut_off=False)
             # Pipecat interrupts at the start of every caller turn; the answer was only cut
             # off if it was still playing.
             case InterruptionFrame():
                 playing = answer.speaking_since is not None
                 answer.stop(now)
+                self._show_agent(now, cut_off=playing)
                 self._close_answer(interrupted=playing)
             case VADUserStartedSpeakingFrame(start_secs=secs):
                 self._caller_since = now - int(secs * 1e9)
@@ -153,6 +168,7 @@ class TranscriptRecorder(BaseObserver):
         now = self._clock()
         playing = self._answer.speaking_since is not None
         self._answer.stop(now)
+        self._show_agent(now, cut_off=playing)
         self._close_answer(interrupted=playing)
         if self._caller_since is not None:
             self._unheard.append(Utterance("caller", self._caller_since, now))
@@ -164,8 +180,19 @@ class TranscriptRecorder(BaseObserver):
             self._send(caller)
         self._unheard = []
 
+    def _show_agent(self, now: int, *, cut_off: bool) -> None:
+        """Whoever is listening live hears each stretch of the answer as it stops playing,
+        not the whole answer when the next one starts; Coval still gets one span."""
+        text = self._answer.text[self._shown :].strip()
+        self._shown = len(self._answer.text)
+        since, self._fragment_since = self._fragment_since, None
+        if self._heard is not None and since is not None and (text or cut_off):
+            self._heard(Utterance("agent", since, now, text or None, cut_off))
+
     def _close_answer(self, *, interrupted: bool) -> None:
         answer, self._answer = self._answer, Answer()
+        self._shown = 0
+        self._fragment_since = None
         if answer.start is None or answer.end is None:
             return
         text, cut_off = answer.heard(interrupted)
@@ -173,6 +200,10 @@ class TranscriptRecorder(BaseObserver):
 
     def _send(self, utterance: Utterance) -> None:
         self.utterances.append(utterance)
+        if self._heard is not None and utterance.role == "caller":
+            self._heard(utterance)
+        if self._tracer is None:
+            return
         text = utterance.text or NO_TEXT
         if utterance.cut_off:
             text = f"{text} {CUT_OFF}"

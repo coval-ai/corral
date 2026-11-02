@@ -1,8 +1,11 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import datetime
+
 from corral.pipeline import ToolCall
-from corral.talk import summary, tool_log
+from corral.talk import line, summary, tool_log
+from corral.transcript import Utterance
 
 
 def _turn(**ms: float) -> dict[str, float]:
@@ -71,3 +74,15 @@ def test_hanging_up_lists_the_tools_called_in_order() -> None:
         'book_appointment({"patient_id": 123}) -> {"ok": false, "error": "taken"}',
     ]
     assert tool_log([]) == "no tools called"
+
+
+def test_transcript_lines_carry_their_start_time_and_mark_cut_off_answers() -> None:
+    noon = int(datetime(2026, 11, 2, 12, 0, 7).timestamp() * 1e9)
+    assert line(Utterance("caller", noon, noon, "book a table")) == "12:00:07 user: book a table"
+    assert line(Utterance("agent", noon, noon, "Sure, for", cut_off=True)) == (
+        "12:00:07 agent: Sure, for [cut off, words estimated]"
+    )
+    assert line(Utterance("caller", noon, noon, None)) == "12:00:07 user: (no transcript)"
+    assert line(Utterance("agent", noon, noon, "Hi"), color=True) == (
+        "\x1b[32m12:00:07\x1b[0m \x1b[36magent:\x1b[0m Hi"
+    )

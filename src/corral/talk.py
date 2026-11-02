@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import statistics
+import sys
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 from pipecat.workers.runner import WorkerRunner
@@ -17,6 +19,7 @@ from corral.agent import Agent
 from corral.config import IN_SAMPLE_RATE_HZ, OUT_SAMPLE_RATE_HZ, get_settings
 from corral.observer import ModelsByModality, models_by_modality
 from corral.pipeline import ToolCall, build_call
+from corral.transcript import CUT_OFF, NO_TEXT, Utterance
 
 
 async def run(agent: Agent, test_case: str | None = None) -> None:
@@ -32,9 +35,10 @@ async def run(agent: Agent, test_case: str | None = None) -> None:
             audio_out_sample_rate=OUT_SAMPLE_RATE_HZ,
         )
     )
-    call = await build_call(agent, transport, get_settings(), test_case=test_case)
+    call = await build_call(agent, transport, get_settings(), test_case=test_case, heard=say)
     runner = WorkerRunner()
     await runner.add_workers(call.worker)
+    print(f"Talking to {agent.slug}. Speak when it greets you; Ctrl-C hangs up.", flush=True)
     try:
         await runner.run()
     finally:
@@ -43,6 +47,26 @@ async def run(agent: Agent, test_case: str | None = None) -> None:
             print(tool_log(call.tool_calls), flush=True)
         for argument, rate in call.character_error_rates().items():
             print(f"{argument} character error rate: {rate:.2f}", flush=True)
+
+
+GREEN, CYAN, RESET = "\x1b[32m", "\x1b[36m", "\x1b[0m"
+
+
+def line(utterance: Utterance, *, color: bool = False) -> str:
+    """One transcript line as the agent said or heard it, stamped with when it started:
+    ``14:31:02 agent: …`` or ``14:31:05 user: …``."""
+    when = datetime.fromtimestamp(utterance.start / 1e9).strftime("%H:%M:%S")
+    role = "user" if utterance.role == "caller" else utterance.role
+    text = utterance.text or NO_TEXT
+    if utterance.cut_off:
+        text = f"{text} {CUT_OFF}"
+    if color:
+        return f"{GREEN}{when}{RESET} {CYAN}{role}:{RESET} {text}"
+    return f"{when} {role}: {text}"
+
+
+def say(utterance: Utterance) -> None:
+    print(line(utterance, color=sys.stdout.isatty()), flush=True)
 
 
 STEPS = ("stt", "llm", "endpointing", "model", "tool", "llm_second", "model_second", "tts")
