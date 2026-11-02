@@ -13,6 +13,8 @@ two keys can still check those two. Vendors run concurrently. Meant to run daily
 from __future__ import annotations
 
 import asyncio
+import sys
+from collections.abc import Awaitable
 from dataclasses import dataclass
 
 from corral.config import Settings
@@ -107,16 +109,46 @@ async def _vendor_findings(
     return report
 
 
+class _Progress:
+    """A counter on stderr, rewritten in place, shown only on a terminal."""
+
+    def __init__(self, total: int) -> None:
+        self.total = total
+        self.done = 0
+        self.live = sys.stderr.isatty()
+        self._show()
+
+    def _show(self) -> None:
+        if self.live:
+            print(f"\rchecking {self.done}/{self.total}", end="", file=sys.stderr, flush=True)
+
+    async def track[T](self, task: Awaitable[T]) -> T:
+        try:
+            return await task
+        finally:
+            self.done += 1
+            self._show()
+
+    def finish(self) -> None:
+        if self.live:
+            print("\r\033[K", end="", file=sys.stderr, flush=True)
+
+
 async def findings(settings: Settings, transports: Transports | None = None) -> list[Finding]:
     """Coval first, then each vendor with its models under it, in table order."""
     transports = transports or Transports()
     by_provider = probes()
+    progress = _Progress(len(VENDORS) + 1)
     vendors = [
-        _vendor_findings(provider, vendor, by_provider.get(provider, []), settings, transports)
+        progress.track(
+            _vendor_findings(provider, vendor, by_provider.get(provider, []), settings, transports)
+        )
         for provider, vendor in VENDORS.items()
     ]
-    coval = Finding("coval", await asyncio.to_thread(coval_problem, settings))
-    return [coval, *(f for report in await asyncio.gather(*vendors) for f in report)]
+    coval = Finding("coval", await progress.track(asyncio.to_thread(coval_problem, settings)))
+    reports = await asyncio.gather(*vendors)
+    progress.finish()
+    return [coval, *(f for report in reports for f in report)]
 
 
 async def run(settings: Settings, transports: Transports | None = None) -> int:
