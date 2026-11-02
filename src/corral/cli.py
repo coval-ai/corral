@@ -267,11 +267,7 @@ class _Parser(argparse.ArgumentParser):
     """The top-level parser. Its help also lists every mode's flags, a section per mode, laid
     out and colored by argparse like the sections above them, without accepting them itself."""
 
-    def __init__(
-        self, shown: dict[str, list[argparse.Action]], prog: str, description: str
-    ) -> None:
-        super().__init__(prog=prog, description=description)
-        self.shown = shown
+    shown: dict[str, list[argparse.Action]]
 
     def format_help(self) -> str:
         flags = self._get_formatter()
@@ -287,40 +283,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     settings = settings or get_settings()
     offered = {m: [model.id for model in offered_models(m, settings)] for m in MODALITIES}
     models = "\n".join(f"  {m}  {', '.join(ids)}" for m, ids in offered.items() if ids)
-    both = argparse.ArgumentParser(add_help=False)
-    both.add_argument("--stt", metavar="MODEL", help="an STT, for a cascade")
-    both.add_argument("--llm", metavar="MODEL", help="an LLM, for a cascade")
-    both.add_argument("--tts", metavar="MODEL", help="a TTS, for a cascade")
-    both.add_argument("--s2s", metavar="MODEL", help="one native model in place of the three")
-    both.add_argument("--scenario", metavar="NAME", help="the scenario directory")
-    talk_only = argparse.ArgumentParser(add_help=False)
-    talk_only.add_argument(
-        "--test-case", metavar="ID", help="seed the scenario's tools for this test case"
-    )
-    benchmark_only = argparse.ArgumentParser(add_help=False)
-    benchmark_only.add_argument(
-        "--smoke", action="store_true", help="one test case, to check the wiring"
-    )
-    benchmark_only.add_argument("--sample", metavar="N", help="N test cases, the same ones all day")
-    benchmark_only.add_argument("--personas", metavar="NAMES", help="names from the suite, or all")
-    benchmark_only.add_argument(
-        "--assets",
-        metavar="SCENARIO.VERSION",
-        help="a scenario from the manifest at CORRAL_ASSETS_URI",
-    )
-    benchmark_only.add_argument(
-        "--metrics", metavar="NAMES", help="with --assets: metrics to score"
-    )
-    benchmark_only.add_argument(
-        "--prompt-from", metavar="MODEL", help="with --assets: whose prompt to use"
-    )
-    shown = {
-        "talk and benchmark flags": both._actions,
-        "talk flags": talk_only._actions,
-        "benchmark flags": benchmark_only._actions,
-    }
     parser = _Parser(
-        shown,
         prog="corral",
         description="Wrangle a voice agent: talk to it, benchmark it on Coval, or check its keys."
         " Run it with no mode for an interactive menu.",
@@ -351,12 +314,14 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
             choices=ids,
             metavar="MODEL",
             default=default,
-            help="one native model in place of the three" if native else "default: %(default)s",
+            help="one native model in place of the three"
+            if native
+            else f"the cascade's {modality.upper()}",
         )
     agent.add_argument(
         "--scenario",
         default=defaults["scenario"],
-        help=f"default: {TALK_SCENARIO} to talk, {BENCHMARK_SCENARIO} to benchmark",
+        help="the scenario directory",
     )
     parser.set_defaults(**defaults)
     epilog = f"models with a key in .env:\n{models}"
@@ -383,7 +348,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "--sample",
         type=positive,
         metavar="N",
-        help="N test cases, the same ones all day; default: the suite's sample, else all",
+        help="N test cases, the same ones all day",
     )
     benchmark.add_argument(
         "--assets",
@@ -395,16 +360,25 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "--personas",
         type=names,
         default=[],
-        help="personas to run: names from the suite, or all; default: the first",
+        help="personas to run: names from the suite, or all",
     )
     benchmark.add_argument(
-        "--metrics", type=names, default=[], help="with --assets: metrics to score; default all"
+        "--metrics", type=names, default=[], help="with --assets: metrics to score"
     )
     benchmark.add_argument(
         "--prompt-from",
         metavar="MODEL",
         help="with --assets: the agent whose prompt to use when the model isn't one of them",
     )
+
+    def own(mode: argparse.ArgumentParser) -> list[argparse.Action]:
+        return [a for a in mode._actions if a not in agent._actions and a.dest != "help"]
+
+    parser.shown = {
+        "talk and benchmark flags": agent._actions,
+        "talk flags": own(talk),
+        "benchmark flags": own(benchmark),
+    }
     modes.add_parser(
         CHECK_ACCESS.name,
         help=CHECK_ACCESS.summary,
