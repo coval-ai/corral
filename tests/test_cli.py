@@ -24,6 +24,7 @@ from corral.cli import (
     known_scenario,
     needs_assets,
     offered_models,
+    scripted,
 )
 from corral.config import Settings
 from corral.scenarios import Suite
@@ -71,7 +72,7 @@ def test_only_models_with_a_key_are_offered(
     assert choose_model("stt", read, no_deepgram, answers_fine) == "soniox/stt-rt-v5"
     out = capsys.readouterr().out
     assert "1. soniox/stt-rt-v5\n" in out and "deepgram" not in out
-    assert prompts == ["STT [1-1, default 1]: "]
+    assert prompts == ["[1-1, default 1]: "]
     assert [m.id for m in offered_models("stt", no_deepgram)] == ["soniox/stt-rt-v5"]
     monkeypatch.delenv("S2S_STT", raising=False)
     parser = build_parser(no_deepgram)
@@ -106,7 +107,10 @@ def test_a_vendor_that_does_not_answer_is_asked_again(capsys: pytest.CaptureFixt
     chosen = choose_model("llm", read=lambda _prompt: next(answers), settings=ALL_KEYS, check=check)
     assert chosen == "google/gemini-2.5-flash"
     out = capsys.readouterr().out
-    assert "openai returned 401\n1. openai/gpt-4.1  (openai returned 401)\n2. google/gemini" in out
+    assert (
+        "openai returned 401\nLLM\n1. openai/gpt-4.1  (openai returned 401)\n2. google/gemini"
+        in out
+    )
     assert asked == ["openai", "google"]
 
 
@@ -128,14 +132,15 @@ def test_the_mode_menu_says_what_each_mode_still_needs(
 ) -> None:
     monkeypatch.setattr(importlib.util, "find_spec", lambda _name: None)
     assert choose_mode(read=lambda _prompt: "2", settings=ALL_KEYS).name == "benchmark"
-    talk, benchmark, check_access, *rest = capsys.readouterr().out.splitlines()
+    heading, talk, benchmark, check_access, *rest = capsys.readouterr().out.splitlines()
+    assert heading == "Mode"
     assert talk.startswith("1. talk") and "(needs: uv sync)" in talk
     assert benchmark.startswith("2. benchmark") and "(needs" not in benchmark
     assert check_access.startswith("3. check-access") and "(needs" not in check_access
     assert "4." not in "\n".join(rest)
     no_coval = Settings(_env_file=None, **{**KEYS, "coval_api_key": None})
     choose_mode(read=lambda _prompt: "1", settings=no_coval)
-    _, benchmark, *_ = capsys.readouterr().out.splitlines()
+    _, _, benchmark, *_ = capsys.readouterr().out.splitlines()
     assert benchmark.endswith("(needs: COVAL_API_KEY in .env)")
 
 
@@ -150,8 +155,9 @@ def test_talk_asks_which_seed_when_the_suite_names_test_cases(
     with patch.object(cli, "load_suite", return_value=suite):
         assert choose_test_case("dental", read=lambda _prompt: "2") == "already-booked"
         out = capsys.readouterr().out.splitlines()
-        assert out[0].startswith("1. book-cleaning   The slot is free")
-        assert out[1].startswith("2. already-booked  The patient already has one")
+        assert out[0] == "Test case"
+        assert out[1].startswith("1. book-cleaning   The slot is free")
+        assert out[2].startswith("2. already-booked  The patient already has one")
         assert choose_test_case("dental", read=lambda _prompt: "") == "book-cleaning"
 
 
@@ -176,7 +182,7 @@ def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFi
     assert "2. id_roulette  does the agent hear spelled-out details right the first time\n" in out
     assert choose_scenario(BENCHMARK, read=lambda _prompt: "1") == "id_roulette"
     out = capsys.readouterr().out
-    assert "default" not in out and out.startswith("1. id_roulette")
+    assert "default" not in out and out.startswith("Scenario\n1. id_roulette")
 
 
 @pytest.mark.parametrize("key", [KeyboardInterrupt, EOFError])
@@ -212,15 +218,15 @@ def test_each_mode_only_takes_its_own_flags(capsys: pytest.CaptureFixture[str]) 
     assert menu.mode is None and menu.smoke is False and menu.stt == "deepgram/nova-3"
 
 
-def test_the_help_is_one_line_per_mode_and_the_rest_lives_under_each_mode() -> None:
+def test_the_help_lists_the_modes_then_every_flag_and_model() -> None:
     parser = build_parser(ALL_KEYS)
     top = parser.format_help()
     for mode in (TALK, BENCHMARK, CHECK_ACCESS):
         assert any(
             line.split()[:1] == [mode.name] and mode.summary in line for line in top.splitlines()
         )
-    assert "--smoke" not in top and "models with a key" not in top
-    assert len(top.splitlines()) < 15
+    assert "--smoke" in top and "--prompt-from" in top
+    assert "models with a key" not in top and "soniox/stt-rt-v5" not in top
     assert "--smoke" in mode_help(parser, "benchmark") and "--test-case" not in mode_help(
         parser, "benchmark"
     )
@@ -295,3 +301,16 @@ def test_sample_is_a_count_and_excludes_smoke(capsys: pytest.CaptureFixture[str]
             parser.parse_args(["benchmark", *argv])
         err = capsys.readouterr().err
         assert "at least 1" in err or "not allowed with" in err
+
+
+def test_the_menu_ends_with_the_command_that_skips_it() -> None:
+    cascade = choose_agent("default", lambda _prompt: "", ALL_KEYS, answers_fine)
+    assert scripted(TALK, "default", cascade.stack, "book-cleaning") == (
+        "uv run corral talk --scenario default --stt deepgram/nova-3 --llm openai/gpt-4.1"
+        " --tts elevenlabs/eleven_flash_v2 --test-case book-cleaning"
+    )
+    answers = iter(["2", "1"])
+    native = choose_agent("default", lambda _prompt: next(answers), ALL_KEYS, answers_fine)
+    assert scripted(BENCHMARK, "id_roulette", native.stack) == (
+        "uv run corral benchmark --scenario id_roulette --s2s openai/gpt-realtime-2.1"
+    )

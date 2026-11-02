@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import importlib.util
 import os
 import sys
@@ -15,6 +14,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, NoReturn
+
+import _colorize
 
 from corral import benchmark, talk
 from corral.agent import Agent, load_asset_agent, load_cascade_agent, load_native_agent
@@ -28,6 +29,8 @@ from corral.models import (
     MODALITIES,
     Modality,
     Model,
+    Native,
+    Stack,
     api_key,
     catalog,
     key_name,
@@ -68,20 +71,34 @@ def missing_for(mode: Mode, settings: Settings) -> str | None:
 
 
 def pick(options: list[str], prompt: str, read: Reader, default: int = 0) -> int:
-    """Print numbered options and return the index of the one chosen; Enter takes the default."""
+    """A heading, numbered options and a question; Enter takes the default. Returns the index.
+    Each option is a name, then two spaces and a summary, colored the way --help colors them.
+    At a terminal, once answered, all of it collapses to the heading and the pick."""
+    theme = _colorize.get_theme().argparse
+    print(f"{theme.heading}{prompt}{theme.reset}")
     for index, option in enumerate(options, start=1):
-        print(f"{index}. {option}")
+        name, gap, summary = option.partition("  ")
+        print(f"{index}. {theme.action}{name}{theme.reset}{gap}{summary}")
+    lines = len(options) + 1
     while True:
         try:
-            answer = read(f"{prompt} [1-{len(options)}, default {default + 1}]: ").strip()
+            answer = read(f"[1-{len(options)}, default {default + 1}]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print()
             raise SystemExit(130) from None
+        lines += 1
         if not answer:
-            return default
-        if answer.isdigit() and 1 <= int(answer) <= len(options):
-            return int(answer) - 1
-        print(f"pick a number from 1 to {len(options)}, or Enter for {default + 1}")
+            chosen = default
+        elif answer.isdigit() and 1 <= int(answer) <= len(options):
+            chosen = int(answer) - 1
+        else:
+            print(f"pick a number from 1 to {len(options)}, or Enter for {default + 1}")
+            lines += 1
+            continue
+        if at_a_terminal():
+            name = options[chosen].partition("  ")[0]
+            print(f"\x1b[{lines}A\x1b[J{theme.heading}{prompt}{theme.reset}: {name}")
+        return chosen
 
 
 def choose_mode(read: Reader = input, settings: Settings | None = None) -> Mode:
@@ -174,6 +191,18 @@ def choose_agent(
     return load_cascade_agent(scenario, *picks)
 
 
+def scripted(mode: Mode, scenario: str, stack: Stack, test_case: str | None = None) -> str:
+    """The command that runs what the menu picked, without the menu."""
+    words = ["uv run corral", mode.name, "--scenario", scenario]
+    if isinstance(stack, Native):
+        words += ["--s2s", stack.s2s.id]
+    else:
+        words += ["--stt", stack.stt.id, "--llm", stack.llm.id, "--tts", stack.tts.id]
+    if test_case:
+        words += ["--test-case", test_case]
+    return " ".join(words)
+
+
 def flagged_agent(scenario: str, args: argparse.Namespace) -> Agent:
     """The stack the flags name: one native model, else the cascade."""
     if args.s2s:
@@ -233,17 +262,34 @@ def fail(parser: argparse.ArgumentParser, interactive: bool, message: str) -> No
     parser.error(message)
 
 
+class _Parser(argparse.ArgumentParser):
+    """The top-level parser. Its help also lists every mode's flags, a section per mode, laid
+    out and colored by argparse like the sections above them, without accepting them itself."""
+
+    shown: dict[str, list[argparse.Action]]
+
+    def format_help(self) -> str:
+        flags = self._get_formatter()
+        for heading, actions in self.shown.items():
+            flags.start_section(heading)
+            flags.add_arguments(actions)
+            flags.end_section()
+        return super().format_help() + "\n" + flags.format_help()
+
+
 def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     """``corral`` alone is the menu. A mode makes it a script, and each mode has its own help."""
     settings = settings or get_settings()
     offered = {m: [model.id for model in offered_models(m, settings)] for m in MODALITIES}
     models = "\n".join(f"  {m}  {', '.join(ids)}" for m, ids in offered.items() if ids)
-    parser = argparse.ArgumentParser(
+    parser = _Parser(
         prog="corral",
         description="Wrangle a voice agent: talk to it, benchmark it on Coval, or check its keys."
-        " With no mode, a menu asks.",
+        " Run it with no mode for an interactive menu.",
     )
-    modes = parser.add_subparsers(dest="mode", metavar="mode", title="modes")
+    modes = parser.add_subparsers(
+        dest="mode", metavar="mode", title="modes", parser_class=argparse.ArgumentParser
+    )
     defaults: dict[str, Any] = {
         "mode": None,
         "scenario": os.environ.get("S2S_SCENARIO"),
@@ -267,12 +313,14 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
             choices=ids,
             metavar="MODEL",
             default=default,
-            help="one native model in place of the three" if native else "default: %(default)s",
+            help="one native model in place of the three"
+            if native
+            else f"the cascade's {modality.upper()}",
         )
     agent.add_argument(
         "--scenario",
         default=defaults["scenario"],
-        help=f"default: {TALK_SCENARIO} to talk, {BENCHMARK_SCENARIO} to benchmark",
+        help="the scenario directory",
     )
     parser.set_defaults(**defaults)
     epilog = f"models with a key in .env:\n{models}"
@@ -299,7 +347,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "--sample",
         type=positive,
         metavar="N",
-        help="N test cases, the same ones all day; default: the suite's sample, else all",
+        help="N test cases, the same ones all day",
     )
     benchmark.add_argument(
         "--assets",
@@ -311,16 +359,25 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "--personas",
         type=names,
         default=[],
-        help="personas to run: names from the suite, or all; default: the first",
+        help="personas to run: names from the suite, or all",
     )
     benchmark.add_argument(
-        "--metrics", type=names, default=[], help="with --assets: metrics to score; default all"
+        "--metrics", type=names, default=[], help="with --assets: metrics to score"
     )
     benchmark.add_argument(
         "--prompt-from",
         metavar="MODEL",
         help="with --assets: the agent whose prompt to use when the model isn't one of them",
     )
+
+    def own(mode: argparse.ArgumentParser) -> list[argparse.Action]:
+        return [a for a in mode._actions if a not in agent._actions and a.dest != "help"]
+
+    parser.shown = {
+        "talk and benchmark flags": agent._actions,
+        "talk flags": own(talk),
+        "benchmark flags": own(benchmark),
+    }
     modes.add_parser(
         CHECK_ACCESS.name,
         help=CHECK_ACCESS.summary,
@@ -456,19 +513,29 @@ def main() -> None:
         if problem:
             fail(parser, interactive, f"{model.id}: {problem}")
     configure_logging()
-    with contextlib.suppress(KeyboardInterrupt):
+    try:
+        code = run_mode(mode, agent, request, test_case)
+    finally:
+        if interactive:
+            rerun = scripted(mode, scenario, agent.stack, test_case)
+            print(f"\nTo rerun with the same options:\n{rerun}")
+    raise SystemExit(code)
+
+
+def run_mode(
+    mode: Mode, agent: Agent, request: benchmark.RunRequest | None, test_case: str | None
+) -> int:
+    """Talk or benchmark through to the exit code. Ctrl+C ends either one cleanly."""
+    try:
         if mode is TALK:
-            try:
-                asyncio.run(talk.run(agent, test_case))
-            except ValueError as error:
-                raise SystemExit(f"corral: {error}") from None
-        else:
-            assert request is not None  # noqa: S101
-            try:
-                code = asyncio.run(benchmark.run(agent, request))
-            except (SyncError, ValueError) as error:
-                raise SystemExit(f"corral: {error}") from None
-            raise SystemExit(code)
+            asyncio.run(talk.run(agent, test_case))
+            return 0
+        assert request is not None  # noqa: S101
+        return asyncio.run(benchmark.run(agent, request))
+    except KeyboardInterrupt:
+        return 0
+    except (SyncError, ValueError) as error:
+        raise SystemExit(f"corral: {error}") from None
 
 
 if __name__ == "__main__":
