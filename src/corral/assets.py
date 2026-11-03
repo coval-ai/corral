@@ -195,15 +195,15 @@ def load_asset_run(
     settings: Settings,
     client: AgentReader,
 ) -> AssetRun:
-    """The suite for ``name`` and the prompt of its agent for ``model_id``, or ``prompt_from``'s
-    when that model isn't one of the scenario's agents."""
+    """The suite for ``name`` and the prompt of its agent for ``model_id``. A model with its own
+    agent keeps that prompt; ``prompt_from`` names whose to borrow when it hasn't one."""
     uri = settings.corral_assets_uri
     if not uri:
         raise AssetsError(f"--assets {name} needs CORRAL_ASSETS_URI set to a manifest")
     manifest = load_manifest(uri)
     suite = resolve(Suite(assets=name, personas=personas, metrics=metrics), manifest, uri)
     entry = _entry(name, manifest, uri)
-    wanted = prompt_from or model_id
+    wanted = model_id if model_id in entry.agents else prompt_from or model_id
     agent = entry.agents.get(wanted)
     if agent is None:
         have = ", ".join(sorted(entry.agents)) or "none"

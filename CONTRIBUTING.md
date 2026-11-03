@@ -10,4 +10,4 @@ Automated dependency updates from Dependabot are the only outside pull requests 
 
 ## Working on Corral at Coval
 
-The [README](README.md) covers setup, running Corral and the checks CI runs. Start a branch from `main`, run those checks before you push, and keep the tests offline: they block the network outside localhost, so no test calls Coval or a model provider.
+The [README](README.md) covers setup, running Corral and the checks CI runs. Start a branch from `main`, run `uv run pre-commit install` once so the generated workflow keeps up with the catalogs, run those checks before you push, and keep the tests offline: they block the network outside localhost, so no test calls Coval or a model provider.

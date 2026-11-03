@@ -296,6 +296,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "test_case": None,
         "smoke": False,
         "sample": None,
+        "full": False,
         "assets": os.environ.get("S2S_ASSETS"),
         "personas": [],
         "metrics": [],
@@ -343,6 +344,9 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     )
     size = benchmark.add_mutually_exclusive_group()
     size.add_argument("--smoke", action="store_true", help="one test case, to check the wiring")
+    size.add_argument(
+        "--full", action="store_true", help="every test case, even when the suite samples"
+    )
     size.add_argument(
         "--sample",
         type=positive,
@@ -466,6 +470,7 @@ def main() -> None:
             smoke=args.smoke,
             today=datetime.now(UTC).date(),
             sample=args.sample,
+            full=args.full,
             wait=at_a_terminal(),
         )
         request = replace(request, workspace_source=assets.source)
@@ -482,6 +487,7 @@ def main() -> None:
             smoke=args.smoke,
             today=datetime.now(UTC).date(),
             sample=args.sample,
+            full=args.full,
             wait=at_a_terminal(),
         )
         if named.assets:

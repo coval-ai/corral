@@ -73,6 +73,8 @@ uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v5 --llm goog
 - `--scenario` picks the scenario directory.
 - `--test-case` (talk) seeds the scenario's tools for one test case.
 - `--smoke` (benchmark) runs a single test case, handy for checking the wiring.
+- `--full` (benchmark) runs every test case even when the suite's `coval.json`
+  samples by default.
 - `--sample N` (benchmark) runs N test cases, the same N for the rest of the
   day so different models get the same ones.
 - `--personas` (benchmark) names which of the suite's personas to run, or
@@ -84,6 +86,14 @@ uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v5 --llm goog
 
 The Docker image runs `corral benchmark` by default, and any arguments you
 pass replace that.
+
+On GitHub, the Benchmark action runs the same thing on Cloud Run: pick a
+scenario, a stack and a size from the dropdowns under Actions. The dropdowns
+come from the model catalogs, the scenario directories and
+`.github/benchmarks.json`. A pre-commit hook regenerates the workflow when you
+commit a change to any of those and stops the commit so you can stage it; set
+it up once per clone with `uv run pre-commit install`. CI checks the committed
+workflow is current.
 
 ## Adding things
 
@@ -104,6 +114,6 @@ These are the same checks CI runs:
 
 ```bash
 uv run ruff check . && uv run ruff format --check .
-uv run mypy --strict src tests
+uv run mypy --strict src tests scripts
 uv run pytest
 ```
