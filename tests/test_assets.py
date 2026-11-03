@@ -224,6 +224,8 @@ def test_a_model_the_scenario_has_no_agent_for_borrows_one_named_by_prompt_from(
         _asset_run(tmp_path, "openai/gpt-realtime-2.1")
     run, _ = _asset_run(tmp_path, "openai/gpt-realtime-2.1", "google/gemini-3.8-live")
     assert run.system_prompt == "Gemini prompt."
+    run, _ = _asset_run(tmp_path, "openai/gpt-realtime-2", "google/gemini-3.8-live")
+    assert run.system_prompt == "RT2 prompt."
 
 
 def test_an_agent_without_a_saved_prompt_or_a_missing_manifest_stops_the_run(

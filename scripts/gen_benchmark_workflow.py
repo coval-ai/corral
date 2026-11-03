@@ -179,8 +179,11 @@ jobs:
           set -e
           execution=$(grep -oE 'Execution \\[[^]]+\\]' execute.log | head -1 | tr -d '[]' \\
             | cut -d' ' -f2 || true)
-          image=$(gcloud run jobs describe corral --region us-east1 \\
-            --format='value(spec.template.spec.template.spec.containers[0].image)' || true)
+          image=""
+          if [ -n "$execution" ]; then
+            image=$(gcloud run jobs executions describe "$execution" --region us-east1 \\
+              --format='value(spec.template.spec.containers[0].image)' || true)
+          fi
           console=https://console.cloud.google.com/run/jobs/executions/details/us-east1
           logs="$console/${{execution}}/logs?project=${{project}}"
           {{
