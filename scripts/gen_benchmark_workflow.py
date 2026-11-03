@@ -116,6 +116,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    environment: gcp
     timeout-minutes: 130
     steps:
       - name: Turn the picks into corral flags
