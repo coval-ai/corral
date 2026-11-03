@@ -2,7 +2,7 @@ repos:
   - repo: local
     hooks:
       - id: benchmark-workflow
-        name: regenerate benchmark.yml
+        name: regenerate the benchmark workflows
         entry: uv run python scripts/gen_benchmark_workflow.py
         language: system
         pass_filenames: false
