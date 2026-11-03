@@ -89,15 +89,6 @@
       "conversation_initiation": "wait_for_user"
     },
     {
-      "name": "ID Roulette: office desk",
-      "persona_prompt": "You are calling to give your account id. Answer plainly and cooperatively.",
-      "voice_name": "angela",
-      "language_code": "en",
-      "conversation_initiation": "wait_for_user",
-      "background_sound": "office",
-      "background_sound_volume": 0.4
-    },
-    {
       "name": "ID Roulette: landline with air conditioner",
       "persona_prompt": "You are calling to give your account id. Answer plainly and cooperatively.",
       "voice_name": "angela",

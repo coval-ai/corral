@@ -22,16 +22,16 @@ jobs:
       max-parallel: 2
       matrix:
         include:
-          - {"scenario": "id-roulette.v1", "stack": "openai/gpt-realtime-2.1", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "openai/gpt-realtime-2.1-mini", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "openai/gpt-live-1", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "google/gemini-3.8-live", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "google/gemini-3.8-live-extended-thinking", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "xai/grok-voice-3.0", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "elevenlabs/eleven_realtime_v1_mini", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "elevenlabs/eleven_realtime_v1_max", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "deepgram/nova-3 + openai/gpt-4.1 + elevenlabs/eleven_flash_v2", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
-          - {"scenario": "id-roulette.v1", "stack": "soniox/stt-rt-v5 + google/gemini-2.5-flash + elevenlabs/eleven_flash_v2", "size": "sample 1", "personas": "quiet-room,landline-with-air-conditioner"}
+          - {"scenario": "id_roulette (repo)", "stack": "openai/gpt-realtime-2.1", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "openai/gpt-realtime-2.1-mini", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "openai/gpt-live-1", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "google/gemini-3.8-live", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "google/gemini-3.8-live-extended-thinking", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "xai/grok-voice-3.0", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "elevenlabs/eleven_realtime_v1_mini", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "elevenlabs/eleven_realtime_v1_max", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "deepgram/nova-3 + openai/gpt-4.1 + elevenlabs/eleven_flash_v2", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "soniox/stt-rt-v5 + google/gemini-2.5-flash + elevenlabs/eleven_flash_v2", "size": "sample 1", "personas": "all"}
     uses: ./.github/workflows/benchmark.yml
     with:
       scenario: ${{ matrix.scenario }}

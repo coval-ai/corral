@@ -31,7 +31,7 @@ def _booking() -> JsonEnvironment:
 def test_a_scenario_carries_its_coval_suite_or_is_for_talking_only() -> None:
     id_roulette = require_suite("id_roulette")
     assert id_roulette.workspace is None
-    assert len(id_roulette.personas) == 3
+    assert len(id_roulette.personas) == 2
     assert load_suite("default") is None
     with pytest.raises(ValueError, match="'default' has no coval.json"):
         require_suite("default")
@@ -81,11 +81,11 @@ async def test_every_id_roulette_test_case_has_a_right_answer_to_check() -> None
 def test_a_suite_runs_its_first_persona_unless_more_are_named() -> None:
     suite = require_suite("id_roulette")
     names = [persona_name(p) for p in suite.personas]
-    assert len(names) == 3 and names[0] == "ID Roulette: quiet room"
+    assert len(names) == 2 and names[0] == "ID Roulette: quiet room"
     assert [persona_name(p) for p in suite.with_personas([]).personas] == names[:1]
     assert suite.with_personas(["all"]) == suite
-    picked = suite.with_personas([names[2], names[0]])
-    assert [persona_name(p) for p in picked.personas] == [names[2], names[0]]
+    picked = suite.with_personas([names[1], names[0]])
+    assert [persona_name(p) for p in picked.personas] == [names[1], names[0]]
     with pytest.raises(ValueError, match="no persona nope in coval.json; it has ID Roulette"):
         suite.with_personas(["nope"])
     by_id = Suite(test_set="TS", personas=["P-1", "P-2"]).with_personas(["P-2"])

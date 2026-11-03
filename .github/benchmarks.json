@@ -10,10 +10,10 @@
   ],
   "daily": [
     {
-      "scenario": "id-roulette.v1",
+      "scenario": "id_roulette (repo)",
       "stacks": ["s2s", "cascades"],
       "size": "sample 1",
-      "personas": "quiet-room,landline-with-air-conditioner"
+      "personas": "all"
     }
   ]
 }
