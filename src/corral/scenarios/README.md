@@ -12,9 +12,9 @@ A scenario is a directory here with:
 `default` is a plain assistant for trying models by voice.
 `id_roulette` is one short call: the caller reads out a detail once and the
 agent looks it up as it heard it. The details are account ids, emails, card
-numbers, postal codes and spelled surnames, three of each. Its personas run
-from a quiet room to an office to a landline with an air conditioner, so it
-shows which details and which caller conditions make agents mishear.
+numbers, postal codes and spelled surnames, three of each. Its personas are a
+quiet room and a landline with an air conditioner, so it shows which details
+and which caller conditions make agents mishear.
 
 ## tools.py
 

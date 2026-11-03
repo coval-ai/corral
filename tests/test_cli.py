@@ -281,7 +281,7 @@ def test_the_asset_selectors_need_assets_but_personas_do_not(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("S2S_ASSETS", raising=False)
-    flags = ["--scenario", "id_roulette", "--personas", "ID Roulette: office desk"]
+    flags = ["--scenario", "id_roulette", "--personas", "ID Roulette: quiet room"]
     args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
     assert needs_assets(args) is None
     flags = ["--metrics", "judge"]
