@@ -217,13 +217,15 @@ def test_an_asset_run_takes_the_prompt_of_the_agent_for_its_model(tmp_path: Path
     assert run.source.endswith("map.json (workflow-bank.v1)")
 
 
-def test_a_model_the_scenario_has_no_agent_for_borrows_one_named_by_prompt_from(
+def test_a_model_the_scenario_has_no_agent_for_borrows_the_first_or_prompt_from(
     tmp_path: Path,
 ) -> None:
-    with pytest.raises(AssetsError, match="no agent openai/gpt-realtime-2.1 .*--prompt-from"):
-        _asset_run(tmp_path, "openai/gpt-realtime-2.1")
+    run, _ = _asset_run(tmp_path, "openai/gpt-realtime-2.1")
+    assert run.system_prompt == "RT2 prompt."
     run, _ = _asset_run(tmp_path, "openai/gpt-realtime-2.1", "google/gemini-3.8-live")
     assert run.system_prompt == "Gemini prompt."
+    with pytest.raises(AssetsError, match="no agent xai/grok-voice-3.0 in"):
+        _asset_run(tmp_path, "openai/gpt-realtime-2.1", "xai/grok-voice-3.0")
 
 
 def test_an_agent_without_a_saved_prompt_or_a_missing_manifest_stops_the_run(

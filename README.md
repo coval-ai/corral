@@ -85,6 +85,13 @@ uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v5 --llm goog
 The Docker image runs `corral benchmark` by default, and any arguments you
 pass replace that.
 
+On GitHub, the Benchmark action runs the same thing on Cloud Run: pick a
+scenario, a stack and a size from the dropdowns under Actions. The dropdowns
+come from the model catalogs, the scenario directories and
+`.github/benchmarks.json`, so after changing any of those run
+`uv run python scripts/gen_benchmark_workflow.py` and commit the workflow it
+writes.
+
 ## Adding things
 
 To add a model, add a row to `src/corral/models/stt.json`, `llm.json`,
@@ -104,6 +111,6 @@ These are the same checks CI runs:
 
 ```bash
 uv run ruff check . && uv run ruff format --check .
-uv run mypy --strict src tests
+uv run mypy --strict src tests scripts
 uv run pytest
 ```

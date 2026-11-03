@@ -1,0 +1,7 @@
+{
+  "assets": ["bank.v1", "workflow-bank.v1", "id-roulette.v1"],
+  "cascades": [
+    ["deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2"],
+    ["soniox/stt-rt-v5", "google/gemini-2.5-flash", "elevenlabs/eleven_flash_v2"]
+  ]
+}

@@ -22,6 +22,7 @@ import google.auth
 import google.auth.exceptions
 import google.auth.transport.requests
 import httpx
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from corral.config import Settings
@@ -195,8 +196,8 @@ def load_asset_run(
     settings: Settings,
     client: AgentReader,
 ) -> AssetRun:
-    """The suite for ``name`` and the prompt of its agent for ``model_id``, or ``prompt_from``'s
-    when that model isn't one of the scenario's agents."""
+    """The suite for ``name`` and the prompt of its agent for ``model_id``. When that model isn't
+    one of the scenario's agents, ``prompt_from`` names whose prompt to use, else the first."""
     uri = settings.corral_assets_uri
     if not uri:
         raise AssetsError(f"--assets {name} needs CORRAL_ASSETS_URI set to a manifest")
@@ -204,11 +205,13 @@ def load_asset_run(
     suite = resolve(Suite(assets=name, personas=personas, metrics=metrics), manifest, uri)
     entry = _entry(name, manifest, uri)
     wanted = prompt_from or model_id
+    if not prompt_from and wanted not in entry.agents and entry.agents:
+        wanted = next(iter(entry.agents))
+        logger.info(f"{model_id} isn't an agent of {name}; using the prompt of {wanted}")
     agent = entry.agents.get(wanted)
     if agent is None:
         have = ", ".join(sorted(entry.agents)) or "none"
-        hint = "" if prompt_from else "; pass --prompt-from with one of them"
-        raise AssetsError(f"assets {name} has no agent {wanted} in {uri}{hint}. It has {have}")
+        raise AssetsError(f"assets {name} has no agent {wanted} in {uri}. It has {have}")
     client.use_workspace(entry.workspace_id)
     prompt = agent_prompt(client.get_agent(agent.id))
     if not prompt:
