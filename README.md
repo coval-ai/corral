@@ -90,10 +90,12 @@ pass replace that.
 On GitHub, the Benchmark action runs the same thing on Cloud Run: pick a
 scenario, a stack and a size from the dropdowns under Actions. The dropdowns
 come from the model catalogs, the scenario directories and
-`.github/benchmarks.json`. A pre-commit hook regenerates the workflow when you
-commit a change to any of those and stops the commit so you can stage it; set
-it up once per clone with `uv run pre-commit install`. CI checks the committed
-workflow is current.
+`.github/benchmarks.json`. The Daily action runs every row of the `daily` list
+in that file each night at 09:00 UTC, one Benchmark run per model and scenario,
+and you can run it by hand for a rerun. A pre-commit hook regenerates both
+workflows when you commit a change to any of those and stops the commit so you
+can stage it; set it up once per clone with `uv run pre-commit install`. CI
+checks the committed workflows are current.
 
 ## Adding things
 

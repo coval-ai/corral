@@ -24,7 +24,7 @@ jobs:
           python-version: "3.14"
       - name: Install
         run: uv sync --frozen --dev
-      - name: benchmark.yml is current
+      - name: benchmark.yml and daily.yml are current
         run: uv run python scripts/gen_benchmark_workflow.py --check
       - name: ruff check
         run: uv run ruff check .
