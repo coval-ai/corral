@@ -48,6 +48,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: ci
     runs-on: ubuntu-latest
+    environment: gcp
     concurrency:
       group: corral-publish
       cancel-in-progress: false
