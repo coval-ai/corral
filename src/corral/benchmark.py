@@ -66,14 +66,16 @@ def run_request(
     smoke: bool,
     today: date,
     sample: int | None = None,
+    full: bool = False,
     wait: bool = True,
 ) -> RunRequest:
     """A smoke runs one test case at random. ``sample``, or failing that the suite's own, runs
     that many seeded by the UTC date, so every agent and persona benchmarked the same day gets
-    the same ones. Otherwise every test case runs."""
+    the same ones. ``full`` ignores the suite's own and runs every test case, as a suite
+    without one does."""
     if smoke:
         return RunRequest(suite, workspace_id, sample=1, wait=wait)
-    size = sample or suite.sample
+    size = None if full else sample or suite.sample
     seed = int(f"{today:%Y%m%d}") if size else None
     return RunRequest(suite, workspace_id, sample=size or 0, seed=seed, wait=wait)
 

@@ -73,6 +73,8 @@ uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v5 --llm goog
 - `--scenario` picks the scenario directory.
 - `--test-case` (talk) seeds the scenario's tools for one test case.
 - `--smoke` (benchmark) runs a single test case, handy for checking the wiring.
+- `--full` (benchmark) runs every test case even when the suite's `coval.json`
+  samples by default.
 - `--sample N` (benchmark) runs N test cases, the same N for the rest of the
   day so different models get the same ones.
 - `--personas` (benchmark) names which of the suite's personas to run, or

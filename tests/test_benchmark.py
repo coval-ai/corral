@@ -249,6 +249,8 @@ def test_a_sampled_suite_runs_the_same_test_cases_all_day_and_a_smoke_runs_one_a
         Suite(test_set="TS", personas=["P1"]), None, smoke=False, today=date(2026, 10, 22)
     )
     assert (every.sample, every.seed) == (0, None)
+    full = benchmark.run_request(sampled, "W", smoke=False, today=date(2026, 10, 22), full=True)
+    assert (full.sample, full.seed) == (0, None)
     asked = benchmark.run_request(sampled, "W", smoke=False, today=date(2026, 10, 22), sample=5)
     assert (asked.sample, asked.seed) == (5, 20261022)
     unsampled = Suite(test_set="TS", personas=["P1"])
