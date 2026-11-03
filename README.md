@@ -88,9 +88,9 @@ pass replace that.
 On GitHub, the Benchmark action runs the same thing on Cloud Run: pick a
 scenario, a stack and a size from the dropdowns under Actions. The dropdowns
 come from the model catalogs, the scenario directories and
-`.github/benchmarks.json`, so after changing any of those run
-`uv run python scripts/gen_benchmark_workflow.py` and commit the workflow it
-writes.
+`.github/benchmarks.json`. A pre-commit hook regenerates the workflow when you
+commit a change to any of those; set it up once per clone with
+`uv run pre-commit install`. CI checks the committed workflow is current.
 
 ## Adding things
 

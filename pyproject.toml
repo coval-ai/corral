@@ -37,6 +37,7 @@ dev = [
     "ruff>=0.5",
     "miniaudio>=1.60",
     "livekit>=1.1.21",
+    "pre-commit>=4.7.0",
 ]
 
 [build-system]

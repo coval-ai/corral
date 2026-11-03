@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: benchmark-workflow
+        name: regenerate benchmark.yml
+        entry: uv run python scripts/gen_benchmark_workflow.py
+        language: system
+        pass_filenames: false
+        files: ^(src/corral/models/.*\.json|src/corral/scenarios/.*|\.github/benchmarks\.json|scripts/gen_benchmark_workflow\.py)$
