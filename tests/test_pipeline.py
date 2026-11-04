@@ -320,7 +320,7 @@ async def test_a_finished_call_sends_a_span_from_start_to_finish() -> None:
     assert span.attributes["agent"] == call.observer._attributes["agent"]
 
 
-async def test_a_model_that_can_no_longer_do_its_job_ends_the_call() -> None:
+async def test_a_model_that_can_no_longer_do_its_job_or_goes_quiet_ends_the_call() -> None:
     from pipecat.pipeline.worker import ProcessorUnusablePolicy
 
     llm = LLMService()
@@ -331,3 +331,4 @@ async def test_a_model_that_can_no_longer_do_its_job_ends_the_call() -> None:
         agent = load_cascade_agent("default", *REFERENCE)
         call = await build_call(agent, _Transport(), SETTINGS, test_case="already-booked")
     assert call.worker._processor_unusable_policy is ProcessorUnusablePolicy.CANCEL
+    assert call.worker._idle_timeout_secs == 120
