@@ -27,7 +27,7 @@ from pipecat.frames.frames import (
     VADUserStoppedSpeakingFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -50,6 +50,7 @@ from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies, UserT
 
 from corral.agent import Agent
 from corral.config import (
+    IDLE_TIMEOUT_SECS,
     IN_SAMPLE_RATE_HZ,
     INTERRUPT_MIN_WORDS,
     OUT_SAMPLE_RATE_HZ,
@@ -278,6 +279,8 @@ async def build_call(
         conversation_id=conversation_id,
         enable_rtvi=False,
         observers=[observer, *([transcript] if transcript else [])],
+        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
+        idle_timeout_secs=IDLE_TIMEOUT_SECS,
     )
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]

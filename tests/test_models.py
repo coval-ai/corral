@@ -233,3 +233,80 @@ def test_a_vendor_problem_is_the_status_the_unset_key_or_the_network() -> None:
     assert unreachable == "openai is unreachable: no route"
     unpaid = Settings(_env_file=None, **{**KEYS, "gemini_api_key": ""})
     assert models.vendor_problem("google", unpaid, denied) == "GEMINI_API_KEY is unset"
+
+
+async def test_eleven_leaves_model_out_of_session_updates() -> None:
+    from pipecat.services.openai.realtime import events
+
+    agent = load_native_agent("default", "elevenlabs/eleven_realtime_v1_mini")
+    eleven = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+    assert isinstance(eleven, models.NativeService)
+    service = cast(Any, eleven.model)
+    sent: list[dict[str, Any]] = []
+    with patch.object(service, "_ws_send", AsyncMock(side_effect=sent.append)):
+        for _ in range(2):
+            session = events.SessionProperties(model="eleven_realtime_v1_mini")
+            await service.send_client_event(events.SessionUpdateEvent(session=session))
+    assert len(sent) == 2 and all("model" not in message["session"] for message in sent)
+
+
+async def test_eleven_response_done_without_usage_still_ends_the_turn() -> None:
+    from pipecat.services.openai.realtime import events
+
+    agent = load_native_agent("default", "elevenlabs/eleven_realtime_v1_mini")
+    eleven = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+    assert isinstance(eleven, models.NativeService)
+    service = cast(Any, eleven.model)
+    response: dict[str, Any] = {"id": "r1", "object": "realtime.response", "status": "completed"}
+    response |= {"status_details": None, "output": []}
+    evt = events.ResponseDone.model_validate(
+        {"type": "response.done", "event_id": "e1", "response": response}
+    )
+    usage = AsyncMock()
+    with (
+        patch.object(service, "start_llm_usage_metrics", usage),
+        patch.object(service, "stop_processing_metrics", AsyncMock()),
+        patch.object(service, "push_frame", AsyncMock()) as pushed,
+    ):
+        await service._handle_evt_response_done(evt)
+    assert usage.call_args.args[0].prompt_tokens == 0
+    assert pushed.called
+
+
+async def test_eleven_dropping_the_socket_makes_the_service_unusable() -> None:
+    class Dead:
+        def __init__(self, error: Exception | None = None) -> None:
+            self.error = error
+
+        def __aiter__(self) -> "Dead":
+            return self
+
+        async def __anext__(self) -> str:
+            if self.error:
+                raise self.error
+            raise StopAsyncIteration
+
+    agent = load_native_agent("default", "elevenlabs/eleven_realtime_v1_mini")
+    eleven = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+    assert isinstance(eleven, models.NativeService)
+    service = cast(Any, eleven.model)
+    for socket in (Dead(), Dead(ConnectionError("gone"))):
+        service._websocket = socket
+        service._disconnecting = False
+        with patch.object(service, "push_error", AsyncMock()) as error:
+            await service._receive_task_handler()
+        assert error.call_args.kwargs["force_treat_as_permanent"] is True
+        service._disconnecting = True
+        with patch.object(service, "push_error", AsyncMock()) as error:
+            await service._receive_task_handler()
+        error.assert_not_called()
+
+
+def test_eleven_webrtc_only_events_parse_as_plain_server_events() -> None:
+    import json
+
+    from pipecat.services.openai.realtime import events
+
+    message = {"type": "output_audio_buffer.cleared", "event_id": "e1", "response_id": "r1"}
+    evt = cast(Any, events).parse_server_event(json.dumps(message))
+    assert type(evt) is events.ServerEvent and evt.type == "output_audio_buffer.cleared"
