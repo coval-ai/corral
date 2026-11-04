@@ -27,7 +27,7 @@ from pipecat.frames.frames import (
     VADUserStoppedSpeakingFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -278,6 +278,7 @@ async def build_call(
         conversation_id=conversation_id,
         enable_rtvi=False,
         observers=[observer, *([transcript] if transcript else [])],
+        processor_unusable_policy=ProcessorUnusablePolicy.CANCEL,
     )
 
     @worker.event_handler("on_pipeline_started")  # type: ignore[untyped-decorator]
