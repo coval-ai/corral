@@ -18,7 +18,10 @@ from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
 from pipecat.services.openai.responses.llm import OpenAIResponsesReasoningConfig
 from pipecat.services.soniox.stt import SonioxSTTService
 from pipecat.services.soniox.tts import SonioxTTSService
+from pipecat.services.xai.llm import GrokLLMService
 from pipecat.services.xai.realtime.llm import GrokRealtimeLLMService
+from pipecat.services.xai.stt import XAISTTService
+from pipecat.services.xai.tts import XAITTSService
 
 from corral import models
 from corral.agent import load_cascade_agent, load_native_agent
@@ -28,6 +31,7 @@ from corral.models.eleven import ElevenRealtimeLLMService
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 SONIOX_GEMINI = ("soniox/stt-rt-v5", "google/gemini-2.5-flash", "soniox/tts-rt-v2")
+XAI = ("xai/grok-voice-transcribe-2.0", "xai/grok-4.20-non-reasoning", "xai/grok-tts")
 KEYS: dict[str, Any] = {
     "deepgram_api_key": "dg",
     "openai_api_key": "oa",
@@ -57,6 +61,19 @@ def test_each_stack_resolves_to_its_vendors_with_our_endpointing() -> None:
     assert isinstance(soniox.tts, SonioxTTSService)
     assert soniox.stt._vad_force_turn_endpoint is True
     assert vars(soniox.llm._settings)["thinking"].thinking_budget == 0
+
+
+def test_the_xai_cascade_runs_on_xai_alone_with_our_silence_window() -> None:
+    agent = load_cascade_agent("default", *XAI)
+    services = models.resolve(agent.stack, agent.system_prompt, Settings(_env_file=None, **KEYS))
+    assert isinstance(services, models.CascadeServices)
+    assert isinstance(services.stt, XAISTTService)
+    assert isinstance(services.llm, GrokLLMService)
+    assert isinstance(services.tts, XAITTSService)
+    assert vars(services.stt._settings)["model"] == "grok-voice-transcribe-2.0"
+    assert vars(services.stt._settings)["endpointing"] == 300
+    assert vars(services.llm._settings)["model"] == "grok-4.20-non-reasoning"
+    assert vars(services.tts._settings)["voice"] == "ara"
 
 
 def test_a_native_model_resolves_to_one_service_with_the_prompt_on_it() -> None:
@@ -190,7 +207,7 @@ def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> Non
     assert isinstance(agent.stack, models.Cascade)
     nope = agent.stack.tts.model_copy(update={"provider": "nope"})
     bad = dataclasses.replace(agent.stack, tts=nope)
-    with pytest.raises(ValueError, match="no tts for 'nope'; have elevenlabs, soniox"):
+    with pytest.raises(ValueError, match="no tts for 'nope'; have elevenlabs, soniox, xai"):
         models.resolve(bad, agent.system_prompt, Settings(_env_file=None, **KEYS))
     unpaid = Settings(_env_file=None, **{**KEYS, "soniox_api_key": None})
     with pytest.raises(RuntimeError, match="SONIOX_API_KEY is unset"):

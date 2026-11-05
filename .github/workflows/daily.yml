@@ -32,6 +32,7 @@ jobs:
           - {"scenario": "id_roulette (repo)", "stack": "elevenlabs/eleven_realtime_v1_max", "size": "sample 1", "personas": "all"}
           - {"scenario": "id_roulette (repo)", "stack": "deepgram/nova-3 + openai/gpt-4.1 + elevenlabs/eleven_flash_v2", "size": "sample 1", "personas": "all"}
           - {"scenario": "id_roulette (repo)", "stack": "soniox/stt-rt-v5 + google/gemini-2.5-flash + elevenlabs/eleven_flash_v2", "size": "sample 1", "personas": "all"}
+          - {"scenario": "id_roulette (repo)", "stack": "xai/grok-voice-transcribe-2.0 + xai/grok-4.20-non-reasoning + xai/grok-tts", "size": "sample 1", "personas": "all"}
     uses: ./.github/workflows/benchmark.yml
     with:
       scenario: ${{ matrix.scenario }}

@@ -40,6 +40,8 @@ from corral.models.access_probes import (
     OPENAI_LIVE_PROTOCOL,
     OPENAI_REALTIME_PROTOCOL,
     SONIOX_TTS_PROTOCOL,
+    XAI_STT_PROTOCOL,
+    XAI_TTS_PROTOCOL,
     AccessProbe,
     GetProbe,
     ListedProbe,
@@ -319,6 +321,12 @@ VENDORS: dict[str, Vendor] = {
     "xai": Vendor(
         "xai_api_key",
         GetProbe("https://api.x.ai/v1/models"),
+        stt=Service("pipecat.services.xai.stt:XAISTTService", SocketProbe(None, XAI_STT_PROTOCOL)),
+        llm=Service(
+            "pipecat.services.xai.llm:GrokLLMService",
+            GetProbe("https://api.x.ai/v1/models/{model}"),
+        ),
+        tts=Service("pipecat.services.xai.tts:XAITTSService", SocketProbe(None, XAI_TTS_PROTOCOL)),
         s2s={
             "realtime": S2sApi(
                 "pipecat.services.xai.realtime.llm:GrokRealtimeLLMService",

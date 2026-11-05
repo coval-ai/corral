@@ -16,7 +16,7 @@ on:
       stack:
         description: One native model, or a cascade as STT + LLM + TTS
         type: choice
-        options: ["openai/gpt-realtime-2.1", "openai/gpt-realtime-2.1-mini", "openai/gpt-live-1", "google/gemini-3.8-live", "google/gemini-3.8-live-extended-thinking", "xai/grok-voice-3.0", "elevenlabs/eleven_realtime_v1_mini", "elevenlabs/eleven_realtime_v1_max", "deepgram/nova-3 + openai/gpt-4.1 + elevenlabs/eleven_flash_v2", "soniox/stt-rt-v5 + google/gemini-2.5-flash + elevenlabs/eleven_flash_v2"]
+        options: ["openai/gpt-realtime-2.1", "openai/gpt-realtime-2.1-mini", "openai/gpt-live-1", "google/gemini-3.8-live", "google/gemini-3.8-live-extended-thinking", "xai/grok-voice-3.0", "elevenlabs/eleven_realtime_v1_mini", "elevenlabs/eleven_realtime_v1_max", "deepgram/nova-3 + openai/gpt-4.1 + elevenlabs/eleven_flash_v2", "soniox/stt-rt-v5 + google/gemini-2.5-flash + elevenlabs/eleven_flash_v2", "xai/grok-voice-transcribe-2.0 + xai/grok-4.20-non-reasoning + xai/grok-tts"]
         default: "openai/gpt-realtime-2.1"
       size:
         description: How much of the suite to run

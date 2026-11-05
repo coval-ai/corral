@@ -1,4 +1,5 @@
 [
   { "provider": "elevenlabs", "name": "eleven_flash_v2", "voice": "EXAVITQu4vr4xnSDxMaL" },
-  { "provider": "soniox", "name": "tts-rt-v2", "voice": "Emma" }
+  { "provider": "soniox", "name": "tts-rt-v2", "voice": "Emma" },
+  { "provider": "xai", "name": "grok-tts", "voice": "ara" }
 ]

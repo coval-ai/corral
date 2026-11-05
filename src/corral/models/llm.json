@@ -1,4 +1,5 @@
 [
   { "provider": "openai", "name": "gpt-4.1", "temperature": 0 },
-  { "provider": "google", "name": "gemini-2.5-flash", "temperature": 0, "options": { "thinking": { "thinking_budget": 0 } } }
+  { "provider": "google", "name": "gemini-2.5-flash", "temperature": 0, "options": { "thinking": { "thinking_budget": 0 } } },
+  { "provider": "xai", "name": "grok-4.20-non-reasoning", "temperature": 0 }
 ]

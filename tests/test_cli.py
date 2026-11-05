@@ -89,8 +89,9 @@ def test_only_models_with_a_key_are_offered(
 
 
 def test_no_key_for_a_modality_says_which_to_set() -> None:
-    none = Settings(_env_file=None, **{**KEYS, "openai_api_key": None, "gemini_api_key": None})
-    with pytest.raises(SystemExit, match="set one of GEMINI_API_KEY, OPENAI_API_KEY in .env"):
+    unset = {"openai_api_key": None, "gemini_api_key": None, "xai_api_key": None}
+    none = Settings(_env_file=None, **{**KEYS, **unset})
+    with pytest.raises(SystemExit, match="set one of GEMINI_API_KEY, OPENAI_API_KEY, XAI_API_KEY"):
         choose_model("llm", read=lambda _prompt: "", settings=none, check=answers_fine)
     with pytest.raises(SystemExit, match="no llm model has a key"):
         build_parser(none)
