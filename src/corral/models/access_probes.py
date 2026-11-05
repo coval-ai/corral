@@ -204,7 +204,7 @@ def _xai_stt_socket(_base_url: str | None, model: str) -> str:
 
 
 def _xai_tts_socket(_base_url: str | None, _model: str) -> str:
-    return "wss://api.x.ai/v1/tts"
+    return "wss://api.x.ai/v1/tts?language=en&codec=pcm&sample_rate=24000"
 
 
 def _xai_one_character(_model: str, _options: Mapping[str, Any]) -> list[dict[str, Any]]:

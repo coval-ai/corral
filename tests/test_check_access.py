@@ -169,7 +169,7 @@ async def test_xai_tts_is_asked_to_say_one_character_and_judged_on_the_reply() -
     seen: dict[str, Any] = {}
     socket = FakeSocket({"type": "audio.delta", "delta": "AAAA"})
     assert await service.model_probe.problem(target, connecting(socket, seen)) is None
-    assert seen["url"] == "wss://api.x.ai/v1/tts"
+    assert seen["url"] == "wss://api.x.ai/v1/tts?language=en&codec=pcm&sample_rate=24000"
     assert socket.sent == [{"type": "text.delta", "delta": "."}, {"type": "text.done"}]
     refused = FakeSocket({"type": "error", "message": "bad request"})
     assert await service.model_probe.problem(target, connecting(refused)) == "bad request"
