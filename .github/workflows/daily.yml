@@ -33,6 +33,18 @@ jobs:
           - {"scenario": "id_roulette (repo)", "stack": "deepgram/nova-3 + openai/gpt-4.1 + elevenlabs/eleven_flash_v2", "size": "sample 1", "personas": "all"}
           - {"scenario": "id_roulette (repo)", "stack": "soniox/stt-rt-v5 + google/gemini-2.5-flash + elevenlabs/eleven_flash_v2", "size": "sample 1", "personas": "all"}
           - {"scenario": "id_roulette (repo)", "stack": "xai/grok-voice-transcribe-2.0 + xai/grok-4.20-non-reasoning + xai/grok-tts", "size": "sample 1", "personas": "all"}
+          - {"scenario": "interruption-backchannel.v1", "stack": "openai/gpt-live-1", "size": "sample 1", "personas": "default"}
+          - {"scenario": "interruption-backchannel.v1", "stack": "google/gemini-3.8-live", "size": "sample 1", "personas": "default"}
+          - {"scenario": "interruption-backchannel.v1", "stack": "google/gemini-3.8-live-extended-thinking", "size": "sample 1", "personas": "default"}
+          - {"scenario": "interruption-backchannel.v1", "stack": "xai/grok-voice-3.0", "size": "sample 1", "personas": "default"}
+          - {"scenario": "interruption-yield.v1", "stack": "openai/gpt-live-1", "size": "sample 1", "personas": "default"}
+          - {"scenario": "interruption-yield.v1", "stack": "google/gemini-3.8-live", "size": "sample 1", "personas": "default"}
+          - {"scenario": "interruption-yield.v1", "stack": "google/gemini-3.8-live-extended-thinking", "size": "sample 1", "personas": "default"}
+          - {"scenario": "interruption-yield.v1", "stack": "xai/grok-voice-3.0", "size": "sample 1", "personas": "default"}
+          - {"scenario": "baseline-interruption.v1", "stack": "openai/gpt-live-1", "size": "sample 1", "personas": "default"}
+          - {"scenario": "baseline-interruption.v1", "stack": "google/gemini-3.8-live", "size": "sample 1", "personas": "default"}
+          - {"scenario": "baseline-interruption.v1", "stack": "google/gemini-3.8-live-extended-thinking", "size": "sample 1", "personas": "default"}
+          - {"scenario": "baseline-interruption.v1", "stack": "xai/grok-voice-3.0", "size": "sample 1", "personas": "default"}
     uses: ./.github/workflows/benchmark.yml
     with:
       scenario: ${{ matrix.scenario }}

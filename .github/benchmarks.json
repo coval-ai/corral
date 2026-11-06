@@ -2,7 +2,10 @@
   "assets": {
     "bank.v1": { "prompt_from": "openai/gpt-realtime-2" },
     "workflow-bank.v1": { "prompt_from": "openai/gpt-realtime-2" },
-    "id-roulette.v1": { "prompt_from": "livekit/pinned" }
+    "id-roulette.v1": { "prompt_from": "livekit/pinned" },
+    "interruption-backchannel.v1": { "prompt_from": "openai/gpt-realtime-2" },
+    "interruption-yield.v1": { "prompt_from": "openai/gpt-realtime-2" },
+    "baseline-interruption.v1": { "prompt_from": "openai/gpt-realtime-2" }
   },
   "cascades": [
     ["deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2"],
@@ -15,6 +18,24 @@
       "stacks": ["s2s", "cascades"],
       "size": "sample 1",
       "personas": "all"
+    },
+    {
+      "scenario": "interruption-backchannel.v1",
+      "stacks": ["openai/gpt-live-1", "google/gemini-3.8-live", "google/gemini-3.8-live-extended-thinking", "xai/grok-voice-3.0"],
+      "size": "sample 1",
+      "personas": "default"
+    },
+    {
+      "scenario": "interruption-yield.v1",
+      "stacks": ["openai/gpt-live-1", "google/gemini-3.8-live", "google/gemini-3.8-live-extended-thinking", "xai/grok-voice-3.0"],
+      "size": "sample 1",
+      "personas": "default"
+    },
+    {
+      "scenario": "baseline-interruption.v1",
+      "stacks": ["openai/gpt-live-1", "google/gemini-3.8-live", "google/gemini-3.8-live-extended-thinking", "xai/grok-voice-3.0"],
+      "size": "sample 1",
+      "personas": "default"
     }
   ]
 }

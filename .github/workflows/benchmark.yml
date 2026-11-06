@@ -11,7 +11,7 @@ on:
       scenario:
         description: Coval scenario, or a scenario directory in the repo
         type: choice
-        options: ["bank.v1", "workflow-bank.v1", "id-roulette.v1", "id_roulette (repo)"]
+        options: ["bank.v1", "workflow-bank.v1", "id-roulette.v1", "interruption-backchannel.v1", "interruption-yield.v1", "baseline-interruption.v1", "id_roulette (repo)"]
         default: "bank.v1"
       stack:
         description: One native model, or a cascade as STT + LLM + TTS
@@ -81,6 +81,9 @@ jobs:
             "bank.v1") add --prompt-from "openai/gpt-realtime-2" ;;
             "workflow-bank.v1") add --prompt-from "openai/gpt-realtime-2" ;;
             "id-roulette.v1") add --prompt-from "livekit/pinned" ;;
+            "interruption-backchannel.v1") add --prompt-from "openai/gpt-realtime-2" ;;
+            "interruption-yield.v1") add --prompt-from "openai/gpt-realtime-2" ;;
+            "baseline-interruption.v1") add --prompt-from "openai/gpt-realtime-2" ;;
             esac
           fi
           if [[ "$STACK" == *" + "* ]]; then
