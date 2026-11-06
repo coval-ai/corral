@@ -199,6 +199,31 @@ def _soniox_tts_socket(_base_url: str | None, _model: str) -> str:
     return "wss://tts-rt.soniox.com/tts-websocket"
 
 
+def _xai_stt_socket(_base_url: str | None, model: str) -> str:
+    return f"wss://api.x.ai/v1/stt?model={quote(model, safe='')}&encoding=pcm&sample_rate=16000"
+
+
+def _xai_tts_socket(_base_url: str | None, _model: str) -> str:
+    return "wss://api.x.ai/v1/tts?language=en&codec=pcm&sample_rate=24000"
+
+
+def _xai_one_character(_model: str, _options: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """xAI TTS answers only once asked to speak, so ask for a full stop."""
+    return [{"type": "text.delta", "delta": "."}, {"type": "text.done"}]
+
+
+def _xai_spoke(event: object) -> str | None:
+    if not isinstance(event, dict):
+        return f"unexpected first event: {event!r}"
+    kind = event.get("type")
+    if kind in ("audio.delta", "audio.done"):
+        return None
+    if kind == "error":
+        message: str = event.get("message") or json.dumps(event)
+        return message
+    return f"unexpected first event: {kind!r}"
+
+
 def _nothing(_model: str, _options: Mapping[str, Any]) -> list[dict[str, Any]]:
     return []
 
@@ -270,3 +295,5 @@ OPENAI_LIVE_PROTOCOL = SessionProtocol(_base_only, _session_start, _typed("sessi
 GEMINI_LIVE_PROTOCOL = SessionProtocol(_gemini_socket, _gemini_setup, _setup_complete)
 DEEPGRAM_LISTEN_PROTOCOL = SessionProtocol(_deepgram_listen, _nothing, None)
 SONIOX_TTS_PROTOCOL = SessionProtocol(_soniox_tts_socket, _soniox_one_character, _soniox_spoke)
+XAI_STT_PROTOCOL = SessionProtocol(_xai_stt_socket, _nothing, _typed("transcript.created"))
+XAI_TTS_PROTOCOL = SessionProtocol(_xai_tts_socket, _xai_one_character, _xai_spoke)

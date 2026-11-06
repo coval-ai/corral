@@ -147,6 +147,34 @@ async def test_soniox_tts_is_asked_to_say_one_character_and_judged_on_the_reply(
     assert problem == "The requested model is not available."
 
 
+async def test_xai_stt_is_asked_to_open_a_transcript_on_the_model() -> None:
+    service = VENDORS["xai"].stt
+    assert service is not None and service.model_probe is not None
+    target = Target("xai", {"Authorization": "Bearer xa"}, "grok-voice-transcribe-2.0")
+    seen: dict[str, Any] = {}
+    socket = FakeSocket({"type": "transcript.created"})
+    assert await service.model_probe.problem(target, connecting(socket, seen)) is None
+    assert seen["url"] == (
+        "wss://api.x.ai/v1/stt?model=grok-voice-transcribe-2.0&encoding=pcm&sample_rate=16000"
+    )
+    assert socket.sent == []
+    refused = FakeSocket({"type": "error", "error": {"message": "unknown model"}})
+    assert await service.model_probe.problem(target, connecting(refused)) == "unknown model"
+
+
+async def test_xai_tts_is_asked_to_say_one_character_and_judged_on_the_reply() -> None:
+    service = VENDORS["xai"].tts
+    assert service is not None and service.model_probe is not None
+    target = Target("xai", {"Authorization": "Bearer xa"}, "grok-tts", {"voice": "ara"})
+    seen: dict[str, Any] = {}
+    socket = FakeSocket({"type": "audio.delta", "delta": "AAAA"})
+    assert await service.model_probe.problem(target, connecting(socket, seen)) is None
+    assert seen["url"] == "wss://api.x.ai/v1/tts?language=en&codec=pcm&sample_rate=24000"
+    assert socket.sent == [{"type": "text.delta", "delta": "."}, {"type": "text.done"}]
+    refused = FakeSocket({"type": "error", "message": "bad request"})
+    assert await service.model_probe.problem(target, connecting(refused)) == "bad request"
+
+
 async def test_a_get_probe_is_the_status_or_the_network() -> None:
     target = Target("soniox", {"Authorization": "Bearer sx"})
     seen: list[httpx.Request] = []
@@ -277,7 +305,11 @@ async def test_the_report_skips_vendors_without_a_key_and_fails_on_any_problem(
 
     @asynccontextmanager
     async def connect(url: str, headers: Mapping[str, str]) -> AsyncIterator[Socket]:
-        if "grok" in url:
+        if "x.ai/v1/stt" in url:
+            yield FakeSocket({"type": "transcript.created"})
+        elif "x.ai/v1/tts" in url:
+            yield FakeSocket({"type": "audio.delta", "delta": "AAAA"})
+        elif "grok" in url:
             yield FakeSocket({"type": "error", "error": {"message": "retired"}})
         elif "live/sessions" in url:
             yield FakeSocket({"type": "session.started"})
@@ -321,6 +353,10 @@ async def test_a_clean_report_exits_zero(
     async def connect(url: str, headers: Mapping[str, str]) -> AsyncIterator[Socket]:
         if "generativelanguage" in url:
             yield FakeSocket({"setupComplete": {}})
+        elif "x.ai/v1/stt" in url:
+            yield FakeSocket({"type": "transcript.created"})
+        elif "x.ai/v1/tts" in url:
+            yield FakeSocket({"type": "audio.delta", "delta": "AAAA"})
         elif "live/sessions" in url:
             yield FakeSocket({"type": "session.started"})
         elif "listen" in url:
