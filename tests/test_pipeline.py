@@ -291,6 +291,7 @@ async def test_a_finished_call_sends_each_checked_arguments_character_error_rate
     await call.worker.cleanup()
     (rates,) = [s for s in exporter.get_finished_spans() if s.name == "character_error_rate"]
     assert rates.attributes is not None and rates.attributes["lookup.id"] == 0.25
+    assert rates.attributes["lookup.id.expected"] != rates.attributes["lookup.id.heard"] == "ab-1"
     assert rates.attributes["agent"] == call.observer._attributes["agent"]
 
 

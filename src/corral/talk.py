@@ -53,8 +53,13 @@ async def run(agent: Agent, test_case: str | None = None) -> None:
         )
         if call.tool_calls is not None:
             print(tool_log(call.tool_calls), flush=True)
+        shown = call.shown_values()
         for argument, rate in call.character_error_rates().items():
-            print(f"{argument} character error rate: {rate:.2f}", flush=True)
+            print(
+                f"{argument} character error rate: {rate:.2f}"
+                f" (expected {shown[f'{argument}.expected']}, heard {shown[f'{argument}.heard']})",
+                flush=True,
+            )
 
 
 GREEN, CYAN, DIM, RESET = "\x1b[32m", "\x1b[36m", "\x1b[2m", "\x1b[0m"
