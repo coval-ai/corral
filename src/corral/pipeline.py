@@ -61,7 +61,7 @@ from corral.environment import Tool
 from corral.models import CascadeServices, NativeService, resolve
 from corral.observer import TurnLatencyObserver, models_by_modality
 from corral.scenarios import load_environment
-from corral.tool_checks import CHARACTER_ERROR_RATE, character_error_rates
+from corral.tool_checks import CHARACTER_ERROR_RATE, character_error_rates, shown_values
 from corral.transcript import Heard, TranscriptRecorder
 
 OPENING_CUE = "The caller is on the line. Open the call the way your instructions say."
@@ -177,6 +177,10 @@ class Call:
     def character_error_rates(self) -> dict[str, float]:
         """``<tool>.<argument>`` to its character error rate so far; empty with no checks."""
         return character_error_rates(self.expected, self.tool_calls or [])
+
+    def shown_values(self) -> dict[str, str]:
+        """``<tool>.<argument>.expected`` and ``.heard`` for each rate; empty with no checks."""
+        return shown_values(self.expected, self.tool_calls or [])
 
 
 def tool_handler(
@@ -308,8 +312,8 @@ async def build_call(
         if environment is not None:
             await environment.finish()
         if tracer is not None and expected:
-            rates = call.character_error_rates()
-            tracer.start_span(CHARACTER_ERROR_RATE, attributes={**tags, **rates}).end()
+            values: dict[str, float | str] = {**call.character_error_rates(), **call.shown_values()}
+            tracer.start_span(CHARACTER_ERROR_RATE, attributes={**tags, **values}).end()
         if tracer is not None and opened_ns is not None:
             tracer.start_span(CALL_SPAN_NAME, start_time=opened_ns, attributes=tags).end()
 
