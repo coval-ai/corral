@@ -223,6 +223,35 @@ async def test_a_call_the_relay_drops_is_reported_and_the_run_goes_on() -> None:
     ]
 
 
+class _FailsEarly(_SlowScorer):
+    """Coval that fails the one simulation before it's ever live."""
+
+    def list_simulations(self, run_id: str) -> list[dict[str, Any]]:
+        return [
+            {"simulation_id": f"{run_id}-S1", "status": "FAILED"},
+            {"simulation_id": f"{run_id}-S2", "status": "SKIPPED"},
+        ]
+
+
+async def test_a_call_coval_fails_before_we_join_is_reported() -> None:
+    handled: list[str] = []
+
+    async def handler(simulation_id: str) -> None:
+        handled.append(simulation_id)
+
+    run = {"run_id": "R1", "status": "PENDING"}
+    with patch.object(benchmark, "POLL_SECS", 0):
+        outcome = await benchmark.await_run(
+            cast(CovalClient, _FailsEarly()), run, handler, wait=False
+        )
+    assert handled == []
+    assert not outcome.succeeded
+    assert outcome.lines() == [
+        "run R1: calls done, Coval is scoring it",
+        f"  call R1-S1 failed: {benchmark.NEVER_STARTED}",
+    ]
+
+
 async def test_a_workspace_found_by_name_is_pinned_for_next_time() -> None:
     class _Client:
         def use_workspace(self, workspace_id: str) -> None:

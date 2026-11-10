@@ -39,6 +39,7 @@ from corral.suite import choose_workspace, sync_suite
 
 POLL_SECS = 2
 NOT_LIVE = frozenset({"PENDING", "IN QUEUE", "SKIPPED"})
+NEVER_STARTED = "Coval failed the simulation before we could join it"
 
 SimulationHandler = Callable[[str], Coroutine[Any, Any, None]]
 """Handles one simulation, by id, until Coval hangs up."""
@@ -82,7 +83,7 @@ def run_request(
 
 @dataclass(frozen=True)
 class Outcome:
-    """A run we're done with and the calls the relay dropped, by simulation id, with why.
+    """A run we're done with and the calls that failed, by simulation id, with why.
     ``scored`` is whether we stayed for Coval's results or left after the last call."""
 
     run: dict[str, Any]
@@ -201,9 +202,9 @@ async def await_run(
     and every call has ended; or, not waiting, until every call has ended, since Coval
     scores the run on its own and the results are there whether or not we watch.
 
-    A call the relay drops is logged and reported, and the run goes on: Coval keeps
-    going regardless, and the other calls are still worth having. Any other failure
-    in a call is a bug here, and stops the run.
+    A call the relay drops, or one Coval fails before we can join it, is logged and
+    reported, and the run goes on: Coval keeps going regardless, and the other calls are
+    still worth having. Any other failure in a call is a bug here, and stops the run.
     """
     calls: dict[str, asyncio.Task[None]] = {}
     failed: dict[str, str] = {}
@@ -219,6 +220,9 @@ async def await_run(
                 if simulation_id in calls or simulation.get("status") in NOT_LIVE:
                     continue
                 if is_terminal(simulation):
+                    if simulation.get("status") == "FAILED" and simulation_id not in failed:
+                        failed[simulation_id] = NEVER_STARTED
+                        logger.error(f"Call {simulation_id} failed: {NEVER_STARTED}")
                     continue
                 calls[simulation_id] = asyncio.create_task(handler(simulation_id))
             for simulation_id, task in calls.items():
