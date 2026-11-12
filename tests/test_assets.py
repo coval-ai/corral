@@ -243,3 +243,30 @@ def test_an_agent_without_a_saved_prompt_or_a_missing_manifest_stops_the_run(
             settings=Settings(corral_assets_uri=None),
             client=FakeCoval({}),
         )
+
+
+def test_an_asset_run_takes_the_prompt_and_tools_files_its_entry_lists(tmp_path: Path) -> None:
+    prompt = tmp_path / "system-prompt.txt"
+    prompt.write_text(" Look it up. \n")
+    tools = tmp_path / "tools.json"
+    tools.write_bytes(b'{"tools": []}')
+    manifest = json.loads(json.dumps(MANIFEST))
+    manifest["workflow-bank"]["v1"].update(system_prompt_uri=str(prompt), tools_uri=str(tools))
+    path = tmp_path / "map.json"
+    path.write_text(json.dumps(manifest))
+    run = load_asset_run(
+        "workflow-bank.v1",
+        personas=["clean"],
+        metrics=[],
+        model_id="openai/gpt-realtime-2.1",
+        prompt_from=None,
+        settings=Settings(corral_assets_uri=str(path)),
+        client=FakeCoval({}),
+    )
+    assert run.system_prompt == "Look it up."
+    assert run.tools_file == b'{"tools": []}'
+
+
+def test_an_asset_run_without_files_borrows_a_prompt_and_has_no_tools(tmp_path: Path) -> None:
+    run, _ = _asset_run(tmp_path, "openai/gpt-realtime-2")
+    assert run.tools_file is None

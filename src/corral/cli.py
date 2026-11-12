@@ -501,7 +501,13 @@ def main() -> None:
     if assets:
         try:
             agent = load_asset_agent(
-                args.assets, assets.system_prompt, args.s2s, args.stt, args.llm, args.tts
+                args.assets,
+                assets.system_prompt,
+                args.s2s,
+                args.stt,
+                args.llm,
+                args.tts,
+                tools_file=assets.tools_file,
             )
         except ValueError as error:
             fail(parser, interactive, str(error))

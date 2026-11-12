@@ -6,8 +6,9 @@
 ``benchmark-infra/assets`` publishes that map for every scenario and version it manages; a
 staging manifest is the same shape with the staging org's ids. CORRAL_ASSETS_URI points at one,
 as ``gs://bucket/object`` or a local path. The workspace, test set, personas and metric ids make
-the suite. A run from ``--assets`` also takes its system prompt from one of the entry's agents, as
-that agent is saved in Coval; Corral still makes its own agent record to run it.
+the suite. A run from ``--assets`` takes its system prompt and tools from the files the entry
+lists, or else borrows the prompt of one of its agents as saved in Coval, with no tools; Corral
+still makes its own agent record to run it.
 """
 
 from __future__ import annotations
@@ -52,6 +53,8 @@ class _Entry(BaseModel):
     personas: dict[str, _Persona]
     metric_ids: dict[str, str] = {}
     agents: dict[str, _Agent] = {}
+    system_prompt_uri: str | None = None
+    tools_uri: str | None = None
 
 
 def load_manifest(uri: str, transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
@@ -65,17 +68,23 @@ def load_manifest(uri: str, transport: httpx.BaseTransport | None = None) -> dic
     return manifest
 
 
-def _read_file(uri: str) -> bytes:
+def read_asset_file(
+    uri: str, transport: httpx.BaseTransport | None = None, what: str = "file"
+) -> bytes:
+    return _read_gcs(uri, transport, what) if uri.startswith("gs://") else _read_file(uri, what)
+
+
+def _read_file(uri: str, what: str = "manifest") -> bytes:
     path = Path(uri).expanduser()
     if not path.is_file():
-        raise AssetsError(f"manifest {uri} doesn't exist")
+        raise AssetsError(f"{what} {uri} doesn't exist")
     return path.read_bytes()
 
 
-def _read_gcs(uri: str, transport: httpx.BaseTransport | None) -> bytes:
+def _read_gcs(uri: str, transport: httpx.BaseTransport | None, what: str = "manifest") -> bytes:
     bucket, _, name = uri.removeprefix("gs://").partition("/")
     if not bucket or not name:
-        raise AssetsError(f"manifest {uri} isn't a gs://bucket/object URI")
+        raise AssetsError(f"{what} {uri} isn't a gs://bucket/object URI")
     try:
         credentials, _ = google.auth.default(scopes=[GCS_READ_SCOPE])
         credentials.refresh(google.auth.transport.requests.Request())  # type: ignore[no-untyped-call]
@@ -178,11 +187,13 @@ class AgentReader(Protocol):
 
 @dataclass(frozen=True)
 class AssetRun:
-    """A run straight from the assets: the suite in id form and the agent's system prompt."""
+    """A run straight from the assets: the suite in id form, the system prompt and, when the
+    entry lists them, the tools."""
 
     suite: Suite
     system_prompt: str
     source: str
+    tools_file: bytes | None = None
 
 
 def load_asset_run(
@@ -195,14 +206,22 @@ def load_asset_run(
     settings: Settings,
     client: AgentReader,
 ) -> AssetRun:
-    """The suite for ``name`` and the prompt of its agent for ``model_id``. A model with its own
-    agent keeps that prompt; ``prompt_from`` names whose to borrow when it hasn't one."""
+    """The suite for ``name``, with the prompt and tools files its entry lists. Without a
+    prompt file, the prompt of its agent for ``model_id``: a model with its own agent keeps
+    that prompt; ``prompt_from`` names whose to borrow when it hasn't one."""
     uri = settings.corral_assets_uri
     if not uri:
         raise AssetsError(f"--assets {name} needs CORRAL_ASSETS_URI set to a manifest")
     manifest = load_manifest(uri)
     suite = resolve(Suite(assets=name, personas=personas, metrics=metrics), manifest, uri)
     entry = _entry(name, manifest, uri)
+    source = f"{uri} ({name})"
+    tools = read_asset_file(entry.tools_uri, what="tools") if entry.tools_uri else None
+    if entry.system_prompt_uri:
+        text = read_asset_file(entry.system_prompt_uri, what="prompt").decode().strip()
+        if not text:
+            raise AssetsError(f"prompt {entry.system_prompt_uri} is empty")
+        return AssetRun(suite, text, source, tools)
     wanted = model_id if model_id in entry.agents else prompt_from or model_id
     agent = entry.agents.get(wanted)
     if agent is None:
@@ -213,7 +232,7 @@ def load_asset_run(
     prompt = agent_prompt(client.get_agent(agent.id))
     if not prompt:
         raise AssetsError(f"agent {wanted} ({agent.id}) has no system prompt saved in Coval")
-    return AssetRun(suite, prompt, f"{uri} ({name})")
+    return AssetRun(suite, prompt, source, tools)
 
 
 def agent_prompt(agent: dict[str, Any]) -> str | None:

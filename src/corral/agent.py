@@ -26,6 +26,7 @@ class Agent:
     system_prompt: str
     slug: str
     digest: str
+    tools_file: bytes | None = None
 
 
 def load_cascade_agent(scenario: str, stt_id: str, llm_id: str, tts_id: str) -> Agent:
@@ -47,9 +48,10 @@ def load_asset_agent(
     stt_id: str | None = None,
     llm_id: str | None = None,
     tts_id: str | None = None,
+    tools_file: bytes | None = None,
 ) -> Agent:
-    """One native model, or the cascade's three, on a prompt taken from the assets. ``asset``
-    names the agent in place of a scenario; it has no tools."""
+    """One native model, or the cascade's three, on a prompt and tools taken from the assets.
+    ``asset`` names the agent in place of a scenario; without a tools file it has no tools."""
     offered = catalog()
     stack: Stack
     if s2s_id:
@@ -58,7 +60,10 @@ def load_asset_agent(
         stack = Cascade(offered.get_stt(stt_id), offered.get_llm(llm_id), offered.get_tts(tts_id))
     else:
         raise ValueError("an asset agent needs --s2s, or --stt, --llm and --tts")
-    return _build(asset, stack, system_prompt.strip(), {PROMPT_FILE: system_prompt.encode()})
+    files = {PROMPT_FILE: system_prompt.encode()}
+    if tools_file is not None:
+        files["tools.json"] = tools_file
+    return _build(asset, stack, system_prompt.strip(), files, tools_file)
 
 
 def _agent(scenario: str, stack: Stack) -> Agent:
@@ -66,7 +71,13 @@ def _agent(scenario: str, stack: Stack) -> Agent:
     return _build(scenario, stack, system_prompt, behavior_files(scenario))
 
 
-def _build(scenario: str, stack: Stack, system_prompt: str, files: dict[str, bytes]) -> Agent:
+def _build(
+    scenario: str,
+    stack: Stack,
+    system_prompt: str,
+    files: dict[str, bytes],
+    tools_file: bytes | None = None,
+) -> Agent:
     if not system_prompt:
         raise ValueError(f"{scenario}'s prompt is empty")
     hasher = hashlib.sha256(json.dumps(_config(stack), sort_keys=True).encode())
@@ -78,7 +89,7 @@ def _build(scenario: str, stack: Stack, system_prompt: str, files: dict[str, byt
         re.sub(r"[^a-z0-9.]+", "-", f"{model.provider}-{model.name}".lower())
         for model in stack.rows
     )
-    return Agent(scenario, stack, system_prompt, slug, digest)
+    return Agent(scenario, stack, system_prompt, slug, digest, tools_file)
 
 
 def _config(stack: Stack) -> dict[str, Any]:

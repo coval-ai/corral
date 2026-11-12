@@ -128,7 +128,11 @@ class JsonEnvironment:
 
     @classmethod
     def load(cls, path: Path) -> JsonEnvironment:
-        return cls(ToolsFile.model_validate(json.loads(path.read_bytes())))
+        return cls.parse(path.read_bytes())
+
+    @classmethod
+    def parse(cls, raw: bytes) -> JsonEnvironment:
+        return cls(ToolsFile.model_validate(json.loads(raw)))
 
     async def start(self, test_case: str | None) -> None:
         """The default answers with the test case's own laid over them, or just the defaults."""
