@@ -78,3 +78,14 @@ def test_an_asset_agent_runs_the_prompt_it_is_given_and_its_digest_follows_it() 
     assert isinstance(cascade.stack, models.Cascade)
     with pytest.raises(ValueError, match="prompt is empty"):
         agents.load_asset_agent("workflow-bank.v1", "  ", "openai/gpt-realtime-2.1")
+
+
+def test_an_asset_agent_carries_its_tools_and_they_change_its_digest() -> None:
+    bare = agents.load_asset_agent("id-roulette.v1", "Look it up.", "openai/gpt-realtime-2.1")
+    tools = b'{"tools": []}'
+    armed = agents.load_asset_agent(
+        "id-roulette.v1", "Look it up.", "openai/gpt-realtime-2.1", tools_file=tools
+    )
+    assert bare.tools_file is None and armed.tools_file == tools
+    assert armed.digest != bare.digest
+    assert "tools_file" not in repr(armed)

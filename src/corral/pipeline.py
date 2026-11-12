@@ -57,7 +57,7 @@ from corral.config import (
     VAD_STOP_SECS,
     Settings,
 )
-from corral.environment import Tool
+from corral.environment import JsonEnvironment, Tool
 from corral.models import CascadeServices, NativeService, resolve
 from corral.observer import TurnLatencyObserver, models_by_modality
 from corral.scenarios import load_environment
@@ -235,7 +235,11 @@ async def build_call(
     pipeline finishes.
     """
     services = resolve(agent.stack, agent.system_prompt, settings)
-    environment = load_environment(agent.scenario)
+    environment = (
+        JsonEnvironment.parse(agent.tools_file)
+        if agent.tools_file is not None
+        else load_environment(agent.scenario)
+    )
     log: list[ToolCall] = []
     if environment is None:
         if test_case is not None:

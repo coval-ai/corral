@@ -41,15 +41,18 @@ def model_ids(modality: str) -> list[str]:
     return [f"{row['provider']}/{row['name']}" for row in rows]
 
 
-def scenario_options(assets: dict[str, str]) -> list[str]:
+def scenario_options(assets: dict[str, str | None]) -> list[str]:
     dirs = sorted(p.name for p in SCENARIOS.iterdir() if (p / "coval.json").is_file())
     return list(assets) + [name + REPO_SUFFIX for name in dirs]
 
 
-def prompt_cases(assets: dict[str, str]) -> str:
+def prompt_cases(assets: dict[str, str | None]) -> str:
+    """A scenario whose assets carry their own prompt file borrows no agent's prompt."""
     indent = " " * 12
     return "\n".join(
-        f'{indent}"{name}") add --prompt-from "{agent}" ;;' for name, agent in assets.items()
+        f'{indent}"{name}") add --prompt-from "{agent}" ;;'
+        for name, agent in assets.items()
+        if agent
     )
 
 
@@ -127,7 +130,7 @@ def matrix_block(indent: str, units: list[dict[str, str]]) -> str:
 
 def render() -> dict[Path, str]:
     tracked: dict[str, Any] = json.loads(TRACKED.read_text())
-    assets = {str(name): str(entry["prompt_from"]) for name, entry in tracked["assets"].items()}
+    assets = {str(name): entry.get("prompt_from") for name, entry in tracked["assets"].items()}
     scenarios = scenario_options(assets)
     stacks = stack_options([[str(part) for part in cascade] for cascade in tracked["cascades"]])
     dispatch = inputs_block("      ", scenarios, stacks, choice=True)

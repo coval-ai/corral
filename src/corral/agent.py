@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from corral.config import IN_SAMPLE_RATE_HZ, INTERRUPT_MIN_WORDS, OUT_SAMPLE_RATE_HZ, VAD_STOP_SECS
@@ -26,6 +26,7 @@ class Agent:
     system_prompt: str
     slug: str
     digest: str
+    tools_file: bytes | None = field(default=None, repr=False)
 
 
 def load_cascade_agent(scenario: str, stt_id: str, llm_id: str, tts_id: str) -> Agent:
@@ -47,9 +48,10 @@ def load_asset_agent(
     stt_id: str | None = None,
     llm_id: str | None = None,
     tts_id: str | None = None,
+    tools_file: bytes | None = None,
 ) -> Agent:
-    """One native model, or the cascade's three, on a prompt taken from the assets. ``asset``
-    names the agent in place of a scenario; it has no tools."""
+    """One native model, or the cascade's three, on a prompt and tools taken from the assets.
+    ``asset`` names the agent in place of a scenario; without a tools file it has no tools."""
     offered = catalog()
     stack: Stack
     if s2s_id:
@@ -58,7 +60,10 @@ def load_asset_agent(
         stack = Cascade(offered.get_stt(stt_id), offered.get_llm(llm_id), offered.get_tts(tts_id))
     else:
         raise ValueError("an asset agent needs --s2s, or --stt, --llm and --tts")
-    return _build(asset, stack, system_prompt.strip(), {PROMPT_FILE: system_prompt.encode()})
+    files = {PROMPT_FILE: system_prompt.encode()}
+    if tools_file is not None:
+        files["tools.json"] = tools_file
+    return replace(_build(asset, stack, system_prompt.strip(), files), tools_file=tools_file)
 
 
 def _agent(scenario: str, stack: Stack) -> Agent:

@@ -2,7 +2,7 @@
   "assets": {
     "bank.v1": { "prompt_from": "openai/gpt-realtime-2" },
     "workflow-bank.v1": { "prompt_from": "openai/gpt-realtime-2" },
-    "id-roulette.v1": { "prompt_from": "livekit/pinned" },
+    "id-roulette.v1": {},
     "interruption-backchannel.v1": { "prompt_from": "openai/gpt-realtime-2" },
     "interruption-yield.v1": { "prompt_from": "openai/gpt-realtime-2" },
     "baseline-interruption.v1": { "prompt_from": "openai/gpt-realtime-2" }

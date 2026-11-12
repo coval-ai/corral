@@ -6,14 +6,15 @@
 ``benchmark-infra/assets`` publishes that map for every scenario and version it manages; a
 staging manifest is the same shape with the staging org's ids. CORRAL_ASSETS_URI points at one,
 as ``gs://bucket/object`` or a local path. The workspace, test set, personas and metric ids make
-the suite. A run from ``--assets`` also takes its system prompt from one of the entry's agents, as
-that agent is saved in Coval; Corral still makes its own agent record to run it.
+the suite. A run from ``--assets`` takes its system prompt and tools from the files the entry
+lists, or else borrows the prompt of one of its agents as saved in Coval, with no tools; Corral
+still makes its own agent record to run it.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -25,6 +26,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from corral.config import Settings
+from corral.environment import ToolsFile
 from corral.scenarios import ALL_PERSONAS, Suite
 
 GCS_READ_SCOPE = "https://www.googleapis.com/auth/devstorage.read_only"
@@ -52,10 +54,14 @@ class _Entry(BaseModel):
     personas: dict[str, _Persona]
     metric_ids: dict[str, str] = {}
     agents: dict[str, _Agent] = {}
+    system_prompt_uri: str | None = None
+    tools_uri: str | None = None
 
 
-def load_manifest(uri: str, transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
-    raw = _read_gcs(uri, transport) if uri.startswith("gs://") else _read_file(uri)
+def load_manifest(
+    uri: str, transport: httpx.BaseTransport | None = None, reader: AssetReader | None = None
+) -> dict[str, Any]:
+    raw = (reader or AssetReader(transport)).read(uri, "manifest")
     try:
         manifest = json.loads(raw)
     except json.JSONDecodeError as error:
@@ -65,40 +71,54 @@ def load_manifest(uri: str, transport: httpx.BaseTransport | None = None) -> dic
     return manifest
 
 
-def _read_file(uri: str) -> bytes:
+class AssetReader:
+    """Reads a manifest and the files it lists, local or gs://, signing in to Google once."""
+
+    def __init__(self, transport: httpx.BaseTransport | None = None) -> None:
+        self._transport = transport
+        self._token: str | None = None
+
+    def read(self, uri: str, what: str) -> bytes:
+        return self._read_gcs(uri, what) if uri.startswith("gs://") else _read_file(uri, what)
+
+    def _bearer(self, uri: str) -> str:
+        if self._token is None:
+            try:
+                credentials, _ = google.auth.default(scopes=[GCS_READ_SCOPE])
+                credentials.refresh(google.auth.transport.requests.Request())  # type: ignore[no-untyped-call]
+            except google.auth.exceptions.GoogleAuthError as error:
+                raise AssetsError(f"can't sign in to Google to read {uri}: {error}") from None
+            self._token = str(credentials.token)
+        return self._token
+
+    def _read_gcs(self, uri: str, what: str) -> bytes:
+        bucket, _, name = uri.removeprefix("gs://").partition("/")
+        if not bucket or not name:
+            raise AssetsError(f"{what} {uri} isn't a gs://bucket/object URI")
+        token = self._bearer(uri)
+        url = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quote(name, safe='')}"
+        try:
+            with httpx.Client(timeout=GCS_TIMEOUT_SECS, transport=self._transport) as client:
+                response = client.get(
+                    url, params={"alt": "media"}, headers={"Authorization": f"Bearer {token}"}
+                )
+        except httpx.HTTPError as error:
+            raise AssetsError(f"can't reach {uri}: {error}") from None
+        if response.status_code in (401, 403):
+            raise AssetsError(
+                f"can't read {uri} (HTTP {response.status_code}); your Google account needs "
+                f"roles/storage.objectViewer on {bucket}"
+            )
+        if response.status_code != 200:
+            raise AssetsError(f"can't read {uri} (HTTP {response.status_code})")
+        return response.content
+
+
+def _read_file(uri: str, what: str) -> bytes:
     path = Path(uri).expanduser()
     if not path.is_file():
-        raise AssetsError(f"manifest {uri} doesn't exist")
+        raise AssetsError(f"{what} {uri} doesn't exist")
     return path.read_bytes()
-
-
-def _read_gcs(uri: str, transport: httpx.BaseTransport | None) -> bytes:
-    bucket, _, name = uri.removeprefix("gs://").partition("/")
-    if not bucket or not name:
-        raise AssetsError(f"manifest {uri} isn't a gs://bucket/object URI")
-    try:
-        credentials, _ = google.auth.default(scopes=[GCS_READ_SCOPE])
-        credentials.refresh(google.auth.transport.requests.Request())  # type: ignore[no-untyped-call]
-    except google.auth.exceptions.GoogleAuthError as error:
-        raise AssetsError(f"can't sign in to Google to read {uri}: {error}") from None
-    url = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quote(name, safe='')}"
-    try:
-        with httpx.Client(timeout=GCS_TIMEOUT_SECS, transport=transport) as client:
-            response = client.get(
-                url,
-                params={"alt": "media"},
-                headers={"Authorization": f"Bearer {credentials.token}"},
-            )
-    except httpx.HTTPError as error:
-        raise AssetsError(f"can't reach {uri}: {error}") from None
-    if response.status_code in (401, 403):
-        raise AssetsError(
-            f"can't read {uri} (HTTP {response.status_code}); your Google account needs "
-            f"roles/storage.objectViewer on {bucket}"
-        )
-    if response.status_code != 200:
-        raise AssetsError(f"can't read {uri} (HTTP {response.status_code})")
-    return response.content
 
 
 def _entry(name: str, manifest: dict[str, Any], source: str) -> _Entry:
@@ -178,11 +198,13 @@ class AgentReader(Protocol):
 
 @dataclass(frozen=True)
 class AssetRun:
-    """A run straight from the assets: the suite in id form and the agent's system prompt."""
+    """A run straight from the assets: the suite in id form, the system prompt and, when the
+    entry lists them, the tools."""
 
     suite: Suite
     system_prompt: str
     source: str
+    tools_file: bytes | None = field(default=None, repr=False)
 
 
 def load_asset_run(
@@ -195,14 +217,27 @@ def load_asset_run(
     settings: Settings,
     client: AgentReader,
 ) -> AssetRun:
-    """The suite for ``name`` and the prompt of its agent for ``model_id``. A model with its own
-    agent keeps that prompt; ``prompt_from`` names whose to borrow when it hasn't one."""
+    """The suite for ``name``, with the prompt and tools files its entry lists. Without a
+    prompt file, the prompt of its agent for ``model_id``: a model with its own agent keeps
+    that prompt; ``prompt_from`` names whose to borrow when it hasn't one."""
     uri = settings.corral_assets_uri
     if not uri:
         raise AssetsError(f"--assets {name} needs CORRAL_ASSETS_URI set to a manifest")
-    manifest = load_manifest(uri)
+    reader = AssetReader()
+    manifest = load_manifest(uri, reader=reader)
     suite = resolve(Suite(assets=name, personas=personas, metrics=metrics), manifest, uri)
     entry = _entry(name, manifest, uri)
+    source = f"{uri} ({name})"
+    if entry.system_prompt_uri and entry.tools_uri:
+        if prompt_from:
+            raise AssetsError(f"assets {name} has its own prompt file; drop --prompt-from")
+        system_prompt = _prompt_file(reader, entry.system_prompt_uri)
+        return AssetRun(suite, system_prompt, source, _tools_file(reader, entry.tools_uri))
+    if entry.system_prompt_uri or entry.tools_uri:
+        raise AssetsError(
+            f"assets {name} in {uri} lists only one of system_prompt_uri and tools_uri; "
+            "a prompt and its tools go together"
+        )
     wanted = model_id if model_id in entry.agents else prompt_from or model_id
     agent = entry.agents.get(wanted)
     if agent is None:
@@ -213,7 +248,27 @@ def load_asset_run(
     prompt = agent_prompt(client.get_agent(agent.id))
     if not prompt:
         raise AssetsError(f"agent {wanted} ({agent.id}) has no system prompt saved in Coval")
-    return AssetRun(suite, prompt, f"{uri} ({name})")
+    return AssetRun(suite, prompt, source)
+
+
+def _prompt_file(reader: AssetReader, uri: str) -> str:
+    try:
+        prompt = reader.read(uri, "prompt").decode().strip()
+    except UnicodeDecodeError:
+        raise AssetsError(f"prompt {uri} isn't UTF-8 text") from None
+    if not prompt:
+        raise AssetsError(f"prompt {uri} is empty")
+    return prompt
+
+
+def _tools_file(reader: AssetReader, uri: str) -> bytes:
+    """The tools file's bytes, checked here so a bad one stops the run before any call."""
+    raw = reader.read(uri, "tools")
+    try:
+        ToolsFile.model_validate(json.loads(raw))
+    except (ValueError, ValidationError) as error:
+        raise AssetsError(f"tools {uri} isn't a valid tools.json: {error}") from None
+    return raw
 
 
 def agent_prompt(agent: dict[str, Any]) -> str | None:

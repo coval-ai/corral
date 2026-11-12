@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import patch
@@ -28,7 +29,7 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.turns.user_turn_strategies import ExternalUserTurnStrategies
 
 from corral import pipeline
-from corral.agent import load_cascade_agent, load_native_agent
+from corral.agent import load_asset_agent, load_cascade_agent, load_native_agent
 from corral.config import Settings
 from corral.environment import JsonEnvironment, Tool, ToolsFile
 from corral.models import CascadeServices, NativeService
@@ -333,3 +334,15 @@ async def test_a_model_that_can_no_longer_do_its_job_or_goes_quiet_ends_the_call
         call = await build_call(agent, _Transport(), SETTINGS, test_case="already-booked")
     assert call.worker._processor_unusable_policy is ProcessorUnusablePolicy.CANCEL
     assert call.worker._idle_timeout_secs == 120
+
+
+async def test_an_asset_agent_gets_its_tools_from_the_assets_and_scores_the_lookup() -> None:
+    tools = (Path(__file__).parents[1] / "src/corral/scenarios/id_roulette/tools.json").read_bytes()
+    llm = LLMService()
+    agent = load_asset_agent("id-roulette.v1", "Look it up.", None, *REFERENCE, tools_file=tools)
+    with patch.object(pipeline, "resolve", return_value=_cascade(llm)):
+        call = await build_call(agent, _Transport(), SETTINGS, test_case="postcode-1")
+    results: list[Any] = []
+    await cast(Any, llm._functions["lookup"]).handler(_params({"value": "K1A 0B1"}, results))
+    assert results == [{"received": True}]
+    assert call.character_error_rates() == {"lookup.value": 0.0}
