@@ -88,3 +88,4 @@ def test_an_asset_agent_carries_its_tools_and_they_change_its_digest() -> None:
     )
     assert bare.tools_file is None and armed.tools_file == tools
     assert armed.digest != bare.digest
+    assert "tools_file" not in repr(armed)

@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import google.auth
 import httpx
@@ -11,6 +12,7 @@ import pytest
 from pydantic import ValidationError
 
 from corral.assets import (
+    AssetReader,
     AssetRun,
     AssetsError,
     agent_prompt,
@@ -245,28 +247,74 @@ def test_an_agent_without_a_saved_prompt_or_a_missing_manifest_stops_the_run(
         )
 
 
-def test_an_asset_run_takes_the_prompt_and_tools_files_its_entry_lists(tmp_path: Path) -> None:
-    prompt = tmp_path / "system-prompt.txt"
-    prompt.write_text(" Look it up. \n")
-    tools = tmp_path / "tools.json"
-    tools.write_bytes(b'{"tools": []}')
+ROULETTE_TOOLS = Path(__file__).parents[1] / "src/corral/scenarios/id_roulette/tools.json"
+
+
+def _file_run(
+    tmp_path: Path,
+    prompt: bytes = b" Look it up. \n",
+    tools: bytes | None = None,
+    listed: tuple[str, ...] = ("system_prompt_uri", "tools_uri"),
+    prompt_from: str | None = None,
+) -> AssetRun:
+    files = {"system_prompt_uri": tmp_path / "system-prompt.txt", "tools_uri": tmp_path / "t.json"}
+    files["system_prompt_uri"].write_bytes(prompt)
+    files["tools_uri"].write_bytes(ROULETTE_TOOLS.read_bytes() if tools is None else tools)
     manifest = json.loads(json.dumps(MANIFEST))
-    manifest["workflow-bank"]["v1"].update(system_prompt_uri=str(prompt), tools_uri=str(tools))
+    manifest["workflow-bank"]["v1"].update({key: str(files[key]) for key in listed})
     path = tmp_path / "map.json"
     path.write_text(json.dumps(manifest))
-    run = load_asset_run(
+    return load_asset_run(
         "workflow-bank.v1",
         personas=["clean"],
         metrics=[],
         model_id="openai/gpt-realtime-2.1",
-        prompt_from=None,
+        prompt_from=prompt_from,
         settings=Settings(corral_assets_uri=str(path)),
         client=FakeCoval({}),
     )
+
+
+def test_an_asset_run_takes_the_prompt_and_tools_files_its_entry_lists(tmp_path: Path) -> None:
+    run = _file_run(tmp_path)
     assert run.system_prompt == "Look it up."
-    assert run.tools_file == b'{"tools": []}'
+    assert run.tools_file == ROULETTE_TOOLS.read_bytes()
+    assert "tools_file" not in repr(run)
 
 
 def test_an_asset_run_without_files_borrows_a_prompt_and_has_no_tools(tmp_path: Path) -> None:
     run, _ = _asset_run(tmp_path, "openai/gpt-realtime-2")
     assert run.tools_file is None
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"listed": ("tools_uri",)}, "lists only one of"),
+        ({"listed": ("system_prompt_uri",)}, "lists only one of"),
+        ({"prompt_from": "openai/gpt-realtime-2"}, "drop --prompt-from"),
+        ({"prompt": b"\xff\xfe"}, "isn't UTF-8"),
+        ({"prompt": b"  "}, "is empty"),
+        ({"tools": b"{not json"}, "isn't a valid tools.json"),
+        ({"tools": b'{"tools": []}'}, "isn't a valid tools.json"),
+    ],
+)
+def test_asset_files_that_dont_fit_stop_the_run_before_any_call(
+    tmp_path: Path, kwargs: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(AssetsError, match=message):
+        _file_run(tmp_path, **kwargs)
+
+
+def test_a_run_signs_in_to_google_once_for_all_its_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    sign_ins: list[None] = []
+
+    def default(scopes: list[str]) -> tuple[SimpleNamespace, str]:
+        sign_ins.append(None)
+        return SimpleNamespace(token="t0k", refresh=lambda _request: None), "project"  # noqa: S106
+
+    monkeypatch.setattr(google.auth, "default", default)
+    reader = AssetReader(httpx.MockTransport(lambda _request: httpx.Response(200, json={})))
+    load_manifest("gs://bucket/map.json", reader=reader)
+    reader.read("gs://bucket/scenarios/id_roulette/tools.json", "tools")
+    assert len(sign_ins) == 1

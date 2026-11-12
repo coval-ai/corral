@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from corral.config import IN_SAMPLE_RATE_HZ, INTERRUPT_MIN_WORDS, OUT_SAMPLE_RATE_HZ, VAD_STOP_SECS
@@ -26,7 +26,7 @@ class Agent:
     system_prompt: str
     slug: str
     digest: str
-    tools_file: bytes | None = None
+    tools_file: bytes | None = field(default=None, repr=False)
 
 
 def load_cascade_agent(scenario: str, stt_id: str, llm_id: str, tts_id: str) -> Agent:
@@ -63,7 +63,7 @@ def load_asset_agent(
     files = {PROMPT_FILE: system_prompt.encode()}
     if tools_file is not None:
         files["tools.json"] = tools_file
-    return _build(asset, stack, system_prompt.strip(), files, tools_file)
+    return replace(_build(asset, stack, system_prompt.strip(), files), tools_file=tools_file)
 
 
 def _agent(scenario: str, stack: Stack) -> Agent:
@@ -71,13 +71,7 @@ def _agent(scenario: str, stack: Stack) -> Agent:
     return _build(scenario, stack, system_prompt, behavior_files(scenario))
 
 
-def _build(
-    scenario: str,
-    stack: Stack,
-    system_prompt: str,
-    files: dict[str, bytes],
-    tools_file: bytes | None = None,
-) -> Agent:
+def _build(scenario: str, stack: Stack, system_prompt: str, files: dict[str, bytes]) -> Agent:
     if not system_prompt:
         raise ValueError(f"{scenario}'s prompt is empty")
     hasher = hashlib.sha256(json.dumps(_config(stack), sort_keys=True).encode())
@@ -89,7 +83,7 @@ def _build(
         re.sub(r"[^a-z0-9.]+", "-", f"{model.provider}-{model.name}".lower())
         for model in stack.rows
     )
-    return Agent(scenario, stack, system_prompt, slug, digest, tools_file)
+    return Agent(scenario, stack, system_prompt, slug, digest)
 
 
 def _config(stack: Stack) -> dict[str, Any]:
