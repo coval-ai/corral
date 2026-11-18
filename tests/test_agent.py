@@ -12,7 +12,7 @@ REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 def test_the_catalog_offers_models_per_role_and_any_mix_loads() -> None:
     assert models.model_ids("stt") == [
         "deepgram/nova-3",
-        "soniox/stt-rt-v5",
+        "soniox/stt-rt-v6",
         "xai/grok-voice-transcribe-2.0",
     ]
     assert models.model_ids("llm") == [
@@ -28,7 +28,7 @@ def test_the_catalog_offers_models_per_role_and_any_mix_loads() -> None:
     agent = agents.load_cascade_agent("default", *REFERENCE)
     assert agent.slug == "deepgram-nova-3--openai-gpt-4.1--elevenlabs-eleven-flash-v2"
     assert agent.system_prompt.startswith("You are a helpful assistant")
-    mixed = agents.load_cascade_agent("default", "soniox/stt-rt-v5", *REFERENCE[1:])
+    mixed = agents.load_cascade_agent("default", "soniox/stt-rt-v6", *REFERENCE[1:])
     assert len(mixed.digest) == 64 and mixed.digest != agent.digest
     assert agents.load_cascade_agent("id_roulette", *REFERENCE).digest != agent.digest
     assert isinstance(agent.stack, models.Cascade)

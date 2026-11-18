@@ -63,7 +63,7 @@ You can also run corral as a script. Here are some examples:
 
 ```bash
 uv run corral talk --s2s openai/gpt-realtime-2.1
-uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v5 --llm google/gemini-2.5-flash --smoke
+uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v6 --llm google/gemini-2.5-flash --smoke
 ```
 
 - `--stt`, `--llm`, `--tts` pick the cascade models. Each defaults to the

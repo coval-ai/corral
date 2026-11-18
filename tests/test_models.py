@@ -30,7 +30,7 @@ from corral.models.access_probes import OPENAI_REALTIME_PROTOCOL
 from corral.models.eleven import ElevenRealtimeLLMService
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
-SONIOX_GEMINI = ("soniox/stt-rt-v5", "google/gemini-2.5-flash", "soniox/tts-rt-v2")
+SONIOX_GEMINI = ("soniox/stt-rt-v6", "google/gemini-2.5-flash", "soniox/tts-rt-v2")
 XAI = ("xai/grok-voice-transcribe-2.0", "xai/grok-4.20-non-reasoning", "xai/grok-tts")
 KEYS: dict[str, Any] = {
     "deepgram_api_key": "dg",

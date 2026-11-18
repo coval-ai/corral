@@ -68,7 +68,7 @@ def refusing(error: Exception) -> Transports:
     return Transports(http=OK, connect=connect)
 
 
-SONIOX_LISTING = {"models": [{"id": "stt-rt-v5"}, {"id": "stt-rt-v4"}]}
+SONIOX_LISTING = {"models": [{"id": "stt-rt-v6"}, {"id": "stt-rt-v5"}]}
 ELEVEN_LISTING = [{"model_id": "eleven_flash_v2"}, {"model_id": "eleven_v3"}]
 
 
@@ -101,10 +101,10 @@ async def test_a_get_probe_names_the_model_when_it_has_one() -> None:
 
 
 async def test_a_listed_probe_wants_the_model_in_the_vendors_list() -> None:
-    probe = ListedProbe("https://api.soniox.com/v1/models", lambda body: {"stt-rt-v5"})
+    probe = ListedProbe("https://api.soniox.com/v1/models", lambda body: {"stt-rt-v6"})
     transports = Transports(http=httpx.MockTransport(lambda _r: httpx.Response(200, json={})))
     headers = {"Authorization": "Bearer sx"}
-    assert await probe.problem(Target("soniox", headers, "stt-rt-v5"), transports) is None
+    assert await probe.problem(Target("soniox", headers, "stt-rt-v6"), transports) is None
     problem = await probe.problem(Target("soniox", headers, "stt-rt-v9"), transports)
     assert problem == "soniox does not list stt-rt-v9"
 
@@ -112,7 +112,7 @@ async def test_a_listed_probe_wants_the_model_in_the_vendors_list() -> None:
         raise KeyError("models")
 
     odd = ListedProbe("https://api.soniox.com/v1/models", broken)
-    problem = await odd.problem(Target("soniox", headers, "stt-rt-v5"), transports)
+    problem = await odd.problem(Target("soniox", headers, "stt-rt-v6"), transports)
     assert problem == "soniox listing was unreadable: 'models'"
 
 

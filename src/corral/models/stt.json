@@ -1,5 +1,5 @@
 [
   { "provider": "deepgram", "name": "nova-3", "options": { "endpointing": false } },
-  { "provider": "soniox", "name": "stt-rt-v5" },
+  { "provider": "soniox", "name": "stt-rt-v6" },
   { "provider": "xai", "name": "grok-voice-transcribe-2.0", "options": { "endpointing": 300 } }
 ]
