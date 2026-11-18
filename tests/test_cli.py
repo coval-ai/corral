@@ -69,19 +69,19 @@ def test_only_models_with_a_key_are_offered(
         prompts.append(prompt)
         return ""
 
-    assert choose_model("stt", read, no_deepgram, answers_fine) == "soniox/stt-rt-v5"
+    assert choose_model("stt", read, no_deepgram, answers_fine) == "soniox/stt-rt-v6"
     out = capsys.readouterr().out
-    assert "1. soniox/stt-rt-v5\n" in out and "deepgram" not in out
+    assert "1. soniox/stt-rt-v6\n" in out and "deepgram" not in out
     assert prompts == ["[1-1, default 1]: "]
-    assert [m.id for m in offered_models("stt", no_deepgram)] == ["soniox/stt-rt-v5"]
+    assert [m.id for m in offered_models("stt", no_deepgram)] == ["soniox/stt-rt-v6"]
     monkeypatch.delenv("S2S_STT", raising=False)
     parser = build_parser(no_deepgram)
-    assert parser.parse_args(["benchmark"]).stt == "soniox/stt-rt-v5"
+    assert parser.parse_args(["benchmark"]).stt == "soniox/stt-rt-v6"
     assert (
         parser.parse_args(["talk", "--test-case", "already-booked"]).test_case == "already-booked"
     )
     assert parser.parse_args(["talk"]).test_case is None
-    assert "  stt  soniox/stt-rt-v5\n" in mode_help(parser, "talk")
+    assert "  stt  soniox/stt-rt-v6\n" in mode_help(parser, "talk")
     with pytest.raises(SystemExit):
         parser.parse_args(["benchmark", "--stt", "deepgram/nova-3"])
     monkeypatch.setenv("S2S_STT", "deepgram/nova-3")
@@ -227,7 +227,7 @@ def test_the_help_lists_the_modes_then_every_flag_and_model() -> None:
             line.split()[:1] == [mode.name] and mode.summary in line for line in top.splitlines()
         )
     assert "--smoke" in top and "--prompt-from" in top
-    assert "models with a key" not in top and "soniox/stt-rt-v5" not in top
+    assert "models with a key" not in top and "soniox/stt-rt-v6" not in top
     assert "--smoke" in mode_help(parser, "benchmark") and "--test-case" not in mode_help(
         parser, "benchmark"
     )
