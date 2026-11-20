@@ -334,6 +334,7 @@ async def test_the_report_skips_vendors_without_a_key_and_fails_on_any_problem(
         for line in lines
     )
     assert any(line.split() == ["xai/grok-voice-3.0", "retired"] for line in lines)
+    assert any(line.split() == ["xai/grok-voice-think-fast-2.0", "retired"] for line in lines)
     assert any(line.split() == ["openai/gpt-realtime-2.1", "ok"] for line in lines)
     assert any(line.split() == ["openai/gpt-4.1", "ok"] for line in lines)
     assert any(line.split() == ["deepgram/nova-3", "ok"] for line in lines)
@@ -341,7 +342,7 @@ async def test_the_report_skips_vendors_without_a_key_and_fails_on_any_problem(
         line.split() == ["google/gemini-2.5-flash", "skipped:", "its", "vendor", "failed"]
         for line in lines
     )
-    assert lines[-1] == "2 failed"
+    assert lines[-1] == "3 failed"
 
 
 async def test_a_clean_report_exits_zero(

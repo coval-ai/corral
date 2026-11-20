@@ -20,20 +20,26 @@
       "personas": "all"
     },
     {
+      "scenario": "workflow-bank.v1",
+      "stacks": ["s2s"],
+      "size": "full",
+      "personas": "all"
+    },
+    {
       "scenario": "interruption-backchannel.v1",
-      "stacks": ["openai/gpt-live-1", "google/gemini-3.8-live", "google/gemini-3.8-live-extended-thinking", "xai/grok-voice-3.0"],
+      "stacks": ["s2s"],
       "size": "sample 1",
       "personas": "default"
     },
     {
       "scenario": "interruption-yield.v1",
-      "stacks": ["openai/gpt-live-1", "google/gemini-3.8-live", "google/gemini-3.8-live-extended-thinking", "xai/grok-voice-3.0"],
+      "stacks": ["s2s"],
       "size": "sample 1",
       "personas": "default"
     },
     {
       "scenario": "baseline-interruption.v1",
-      "stacks": ["openai/gpt-live-1", "google/gemini-3.8-live", "google/gemini-3.8-live-extended-thinking", "xai/grok-voice-3.0"],
+      "stacks": ["s2s"],
       "size": "sample 1",
       "personas": "default"
     }
