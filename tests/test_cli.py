@@ -298,6 +298,15 @@ def test_the_assets_flags_belong_to_benchmark_and_split_on_commas(
         build_parser(ALL_KEYS).parse_args(["talk", "--assets", "workflow-bank.v1"])
 
 
+def test_collected_in_is_a_benchmark_flag_that_names_a_roster_scenario() -> None:
+    flags = ["--assets", "workflow-bank.v1", "--collected-in", "workflow-bank.v1"]
+    args = build_parser(ALL_KEYS).parse_args(["benchmark", *flags])
+    assert args.collected_in == "workflow-bank.v1"
+    assert build_parser(ALL_KEYS).parse_args(["benchmark"]).collected_in is None
+    with pytest.raises(SystemExit):
+        build_parser(ALL_KEYS).parse_args(["talk", "--collected-in", "workflow-bank.v1"])
+
+
 def test_the_asset_selectors_need_assets_but_personas_do_not(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

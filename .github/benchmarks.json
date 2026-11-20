@@ -23,25 +23,29 @@
       "scenario": "workflow-bank.v1",
       "stacks": ["s2s"],
       "size": "full",
-      "personas": "all"
+      "personas": "all",
+      "collected_in": "workflow-bank.v1"
     },
     {
       "scenario": "interruption-backchannel.v1",
       "stacks": ["s2s"],
       "size": "sample 1",
-      "personas": "default"
+      "personas": "default",
+      "collected_in": "workflow-bank.v1"
     },
     {
       "scenario": "interruption-yield.v1",
       "stacks": ["s2s"],
       "size": "sample 1",
-      "personas": "default"
+      "personas": "default",
+      "collected_in": "workflow-bank.v1"
     },
     {
       "scenario": "baseline-interruption.v1",
       "stacks": ["s2s"],
       "size": "sample 1",
-      "personas": "default"
+      "personas": "default",
+      "collected_in": "workflow-bank.v1"
     }
   ]
 }

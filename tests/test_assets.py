@@ -16,6 +16,7 @@ from corral.assets import (
     AssetRun,
     AssetsError,
     agent_prompt,
+    collected,
     load_asset_run,
     load_manifest,
     resolve,
@@ -209,6 +210,44 @@ def _asset_run(
         client=coval,
     )
     return run, coval
+
+
+class FakeRoster:
+    def __init__(self, templates: dict[str, list[str]]) -> None:
+        self.templates = templates
+        self.workspace: str | None = None
+
+    def use_workspace(self, workspace_id: str) -> None:
+        self.workspace = workspace_id
+
+    def get_run_template(self, template_id: str) -> dict[str, object]:
+        return {"agent_ids": self.templates[template_id]}
+
+
+def test_a_model_is_collected_when_its_agent_is_on_a_roster_template(tmp_path: Path) -> None:
+    manifest = json.loads(json.dumps(MANIFEST))
+    entry = manifest["workflow-bank"]["v1"]
+    entry["agents"] = AGENTS
+    path = tmp_path / "map.json"
+    path.write_text(json.dumps(manifest))
+    settings = Settings(corral_assets_uri=str(path))
+    roster = FakeRoster({"T-clean": ["A-gem"], "T-low": []})
+
+    with pytest.raises(AssetsError, match="lists no run templates"):
+        collected("workflow-bank.v1", "google/gemini-3.8-live", settings=settings, client=roster)
+
+    entry["run_template_ids"] = {"clean": "T-clean", "low": "T-low"}
+    path.write_text(json.dumps(manifest))
+    assert collected("workflow-bank.v1", "google/gemini-3.8-live", settings=settings, client=roster)
+    assert roster.workspace == "W1"
+    # Switched off in the registry: its agent exists but is on no template.
+    assert not collected(
+        "workflow-bank.v1", "openai/gpt-realtime-2", settings=settings, client=roster
+    )
+    # No agent in the scenario at all.
+    assert not collected("workflow-bank.v1", "xai/grok-new", settings=settings, client=roster)
+    with pytest.raises(AssetsError, match="needs CORRAL_ASSETS_URI"):
+        collected("workflow-bank.v1", "xai/grok-new", settings=Settings(), client=roster)
 
 
 def test_an_asset_run_takes_the_prompt_of_the_agent_for_its_model(tmp_path: Path) -> None:

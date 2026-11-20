@@ -28,6 +28,10 @@ on:
         type: choice
         options: ["default", "all"]
         default: "default"
+      collected_in:
+        description: Run only if the registry collects the model there
+        type: string
+        default: ""
   workflow_call:
     inputs:
       scenario:
@@ -46,6 +50,10 @@ on:
         description: The suite's first persona, all of them, or manifest persona keys joined by commas
         type: string
         default: "default"
+      collected_in:
+        description: Run only if the registry collects the model there
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -64,6 +72,7 @@ jobs:
           STACK: ${{ inputs.stack }}
           SIZE: ${{ inputs.size }}
           PERSONAS: ${{ inputs.personas }}
+          COLLECTED_IN: ${{ inputs.collected_in }}
         run: |
           args=(benchmark)
           add() {
@@ -100,6 +109,7 @@ jobs:
             *) echo "::error::size must be smoke, sample N or full: $SIZE"; exit 1 ;;
           esac
           [ "$PERSONAS" != "default" ] && add --personas "$PERSONAS"
+          [ -n "$COLLECTED_IN" ] && add --collected-in "$COLLECTED_IN"
           echo "command=corral ${args[*]}" >> "$GITHUB_OUTPUT"
           echo "joined=$(IFS=';'; echo "${args[*]}")" >> "$GITHUB_OUTPUT"
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
