@@ -109,6 +109,8 @@ class Suite(JsonModel):
 
 def _folder(scenario: Scenario) -> Traversable:
     if isinstance(scenario, str):
+        if Path(scenario).name != scenario or scenario in ("", ".", ".."):
+            raise ValueError(f"{scenario!r} isn't a scenario's name; a path goes in as a Path")
         return importlib.resources.files(__name__).joinpath(scenario)
     folder = scenario.expanduser()
     if folder.is_dir():
@@ -165,6 +167,8 @@ def load_environment(scenario: Scenario) -> Environment | None:
     The canned answers in tools.json, unless a scenario in this package ships a tools.py to
     build its own.
     """
+    if isinstance(scenario, str) and scenario not in scenario_names():
+        return None
     folder = _folder(scenario)
     if isinstance(scenario, str) and folder.joinpath(TOOLS_FILE).is_file():
         module = importlib.import_module(f"{__name__}.{scenario}.tools")

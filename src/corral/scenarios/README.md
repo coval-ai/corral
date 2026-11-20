@@ -133,3 +133,9 @@ A scenario doesn't have to live here. Pass `--scenario-path` a directory with
 the same files, like `--scenario-path ./my-scenario`. One kept outside Corral
 is data only: Corral reads its files and never runs code from it, so a
 `tools.py` or a symlink in it is refused.
+
+Its `coval.json` still writes to Coval like any other. Whatever in the
+workspace shares a name with its test set, personas or metrics gets updated to
+match, and test cases it doesn't list are deleted. Read the `coval.json` of a
+scenario you didn't write before you run it, and give it its own workspace if
+the names might clash.

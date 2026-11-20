@@ -141,3 +141,11 @@ def test_a_scenario_at_a_path_cannot_reach_outside_it_through_a_symlink(tmp_path
     for load in (load_prompt, behavior_files, load_environment, load_suite):
         with pytest.raises(ValueError, match="has symlinks, which a scenario can't: system-prompt"):
             load(path)
+
+
+def test_a_name_never_reaches_a_folder_outside_the_package(tmp_path: Path) -> None:
+    path = _copied("id_roulette", tmp_path)
+    for name in (str(path), "../scenarios/id_roulette", ".."):
+        assert load_environment(name) is None
+        with pytest.raises(ValueError, match="isn't a scenario's name"):
+            load_prompt(name)
