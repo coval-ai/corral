@@ -70,7 +70,8 @@ uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v6 --llm goog
   first row in its catalog file.
 - `--s2s` picks a native model instead. Don't pass the three cascade flags
   with it.
-- `--scenario` picks the scenario directory.
+- `--scenario` picks the scenario: a name from `src/corral/scenarios/`, or the
+  path to a scenario directory kept anywhere else, like `./my-scenario`.
 - `--test-case` (talk) seeds the scenario's tools for one test case.
 - `--smoke` (benchmark) runs a single test case, handy for checking the wiring.
 - `--full` (benchmark) runs every test case even when the suite's `coval.json`

@@ -3,6 +3,9 @@
 
 """Scenarios: one directory each with a prompt, a menu line, and a Coval suite if it's benchmarked.
 
+A scenario is named by its directory here, or by the path to one anywhere else. Anything with
+a slash in it is a path.
+
 A scenario can also ship a ``tools.py`` whose ``environment()`` returns a fresh backend for one
 call; see ``corral.environment``. Without one the agent has no tools.
 
@@ -17,8 +20,12 @@ from __future__ import annotations
 
 import importlib
 import importlib.resources
+import importlib.util
 import json
+import os
 from importlib.resources.abc import Traversable
+from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from pydantic import Field, model_validator
@@ -102,8 +109,18 @@ class Suite(JsonModel):
         }
 
 
+def is_path(scenario: str) -> bool:
+    return "/" in scenario or os.sep in scenario
+
+
 def _folder(scenario: str) -> Traversable:
+    if is_path(scenario):
+        return Path(scenario).expanduser()
     return importlib.resources.files(__name__).joinpath(scenario)
+
+
+def has_prompt(scenario: str) -> bool:
+    return _folder(scenario).joinpath(PROMPT_FILE).is_file()
 
 
 def scenario_names() -> list[str]:
@@ -141,9 +158,23 @@ def load_environment(scenario: str) -> Environment | None:
     """A fresh backend for one call from the scenario's tools.py, or None when it has none."""
     if not _folder(scenario).joinpath(TOOLS_FILE).is_file():
         return None
-    module = importlib.import_module(f"{__name__}.{scenario}.tools")
+    module = _tools_at(scenario) if is_path(scenario) else _tools_named(scenario)
     environment: Environment = module.environment()
     return environment
+
+
+def _tools_named(scenario: str) -> ModuleType:
+    return importlib.import_module(f"{__name__}.{scenario}.tools")
+
+
+def _tools_at(scenario: str) -> ModuleType:
+    path = Path(scenario).expanduser() / TOOLS_FILE
+    spec = importlib.util.spec_from_file_location(f"corral_scenario_tools_{path.parent.name}", path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"can't load {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 async def confirm_test_cases(scenario: str, keys: list[str]) -> None:

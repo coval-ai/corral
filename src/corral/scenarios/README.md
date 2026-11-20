@@ -129,3 +129,8 @@ for all of them. A gs:// manifest is read with your Google login
 
 To benchmark your own agent, add a directory with a prompt, a summary and
 a `coval.json`. It shows up in the menu on its own.
+
+A scenario doesn't have to live here. Pass `--scenario` the path to a directory
+with the same files, like `--scenario ./my-scenario`. Anything with a slash in
+it is read as a path. Its `tools.py` is run as Python, so only point Corral at
+a directory you trust.

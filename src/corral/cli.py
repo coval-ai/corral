@@ -38,7 +38,10 @@ from corral.models import (
 )
 from corral.scenarios import (
     BENCHMARK_SCENARIO,
+    PROMPT_FILE,
     TALK_SCENARIO,
+    has_prompt,
+    is_path,
     load_suite,
     require_suite,
     scenario_names,
@@ -121,7 +124,11 @@ def scenarios_for(mode: Mode) -> list[str]:
 
 
 def known_scenario(name: str) -> str:
-    """The name back, or why it isn't a scenario."""
+    """The name or path back, or why it isn't a scenario."""
+    if is_path(name):
+        if not has_prompt(name):
+            raise ValueError(f"no scenario at {name}; it needs a {PROMPT_FILE}")
+        return name
     names = scenario_names()
     if name not in names:
         raise ValueError(f"no scenario {name!r}; have {', '.join(names)}")
@@ -321,7 +328,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     agent.add_argument(
         "--scenario",
         default=defaults["scenario"],
-        help="the scenario directory",
+        help="a scenario by name, or the path to a scenario directory",
     )
     parser.set_defaults(**defaults)
     epilog = f"models with a key in .env:\n{models}"

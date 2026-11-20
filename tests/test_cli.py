@@ -3,6 +3,7 @@
 
 import argparse
 import importlib.util
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -174,6 +175,13 @@ def test_a_scenario_that_does_not_exist_says_which_do() -> None:
     have = "have default, id_roulette"
     with pytest.raises(ValueError, match=f"no scenario 'dental'; {have}"):
         known_scenario("dental")
+
+
+def test_a_scenario_can_be_a_path_to_a_folder_with_a_prompt(tmp_path: Path) -> None:
+    (tmp_path / "system-prompt.txt").write_text("Be brief.")
+    assert known_scenario(f"{tmp_path}/") == f"{tmp_path}/"
+    with pytest.raises(ValueError, match="no scenario at .*/nope; it needs a system-prompt.txt"):
+        known_scenario(f"{tmp_path}/nope")
 
 
 def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFixture[str]) -> None:
