@@ -11,7 +11,7 @@ one removed from the file is deleted from the scenario's test set.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
@@ -38,9 +38,12 @@ WORKSPACE_NAME = "Corral"
 
 @dataclass(frozen=True)
 class SuiteIds:
+    """``test_case_ids`` maps each written-out case's ``test_case`` to its id in Coval."""
+
     test_set_id: str
     persona_ids: list[str]
     metric_ids: list[str]
+    test_case_ids: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -94,7 +97,9 @@ def sync_suite(client: CovalClient, suite: Suite) -> SuiteIds:
         definition = dict(suite.test_set)
         cases = definition.pop("test_cases", [])
         (test_set_id,) = _sync_kind(client, TEST_SET, [definition])
-        _sync_test_cases(client, test_set_id, cases)
+        return SuiteIds(
+            test_set_id, persona_ids, metric_ids, _sync_test_cases(client, test_set_id, cases)
+        )
     return SuiteIds(test_set_id, persona_ids, metric_ids)
 
 
@@ -139,8 +144,11 @@ def _sync_kind(client: CovalClient, kind: Kind, entries: list[Entry]) -> list[st
     return ids
 
 
-def _sync_test_cases(client: CovalClient, test_set_id: str, cases: list[dict[str, Any]]) -> None:
-    """A case's ``test_case`` goes in Coval's attributes field; the agent asks for it each call."""
+def _sync_test_cases(
+    client: CovalClient, test_set_id: str, cases: list[dict[str, Any]]
+) -> dict[str, str]:
+    """A case's ``test_case`` goes in Coval's attributes field; the agent asks for it each call.
+    Returns each named case's id."""
     inputs = [case.get("input_str") for case in cases]
     if len(set(inputs)) != len(inputs) or not all(isinstance(i, str) and i for i in inputs):
         raise SyncError("every test case needs an input_str, and no two can share one")
@@ -150,20 +158,24 @@ def _sync_test_cases(client: CovalClient, test_set_id: str, cases: list[dict[str
             TEST_CASES, "test_cases", {"filter": f'test_set_id="{test_set_id}"'}
         )
     }
+    ids: dict[str, str] = {}
     for case in cases:
         wanted = {**case, "test_set_id": test_set_id}
         if "test_case" in wanted:
             wanted["expected_output_json"] = {"test_case": wanted.pop("test_case")}
         current = live.pop(case["input_str"], None)
         if current is None:
-            client.create(TEST_CASES, "test_case", wanted)
+            current = client.create(TEST_CASES, "test_case", wanted)
             logger.info(f"Created test case {case['input_str'][:40]!r}")
         elif drift := _drift(current, wanted):
             client.update(TEST_CASES, "test_case", str(current["id"]), drift)
             logger.info(f"Updated test case {case['input_str'][:40]!r}: {', '.join(drift)}")
+        if isinstance(case.get("test_case"), str):
+            ids[case["test_case"]] = str(current["id"])
     for stale in live.values():
         client.delete(TEST_CASES, str(stale["id"]))
         logger.info(f"Deleted test case {str(stale.get('input_str'))[:40]!r}")
+    return ids
 
 
 def _drift(current: dict[str, Any], wanted: dict[str, Any]) -> dict[str, Any]:

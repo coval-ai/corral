@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections import Counter
 from collections.abc import Callable, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date
 from functools import partial
 from typing import Any
@@ -34,7 +36,7 @@ from corral.coval_api import (
 from corral.coval_sdk import CovalSdkTransport
 from corral.observer import tracing
 from corral.pipeline import build_call
-from corral.scenarios import Suite, confirm_test_cases
+from corral.scenarios import Suite, confirm_test_cases, persona_name
 from corral.suite import choose_workspace, sync_suite
 
 POLL_SECS = 2
@@ -50,7 +52,8 @@ class RunRequest:
     """``sample`` test cases per run, all of them at 0, picked by ``seed`` when one is given.
     ``workspace_source`` names where the workspace came from when it wasn't coval.json or .env.
     ``wait`` keeps the process up until Coval has scored the run; off, it exits once the
-    calls are over and leaves the scoring to Coval."""
+    calls are over and leaves the scoring to Coval. ``test_cases`` runs just the ones named,
+    in place of a sample, and each test case that runs does so ``repeats`` times."""
 
     suite: Suite
     workspace_id: str | None
@@ -58,6 +61,8 @@ class RunRequest:
     seed: int | None = None
     workspace_source: str | None = None
     wait: bool = True
+    test_cases: tuple[str, ...] = ()
+    repeats: int = 1
 
 
 def run_request(
@@ -69,26 +74,34 @@ def run_request(
     sample: int | None = None,
     full: bool = False,
     wait: bool = True,
+    test_cases: list[str] | None = None,
+    repeats: int = 1,
 ) -> RunRequest:
     """A smoke runs one test case at random. ``sample``, or failing that the suite's own, runs
     that many seeded by the UTC date, so every agent and persona benchmarked the same day gets
     the same ones. ``full`` ignores the suite's own and runs every test case, as a suite
-    without one does."""
+    without one does. ``test_cases`` names the ones to run and nothing is sampled."""
+    if test_cases:
+        named = tuple(test_cases)
+        return RunRequest(suite, workspace_id, 0, wait=wait, test_cases=named, repeats=repeats)
     if smoke:
-        return RunRequest(suite, workspace_id, sample=1, wait=wait)
+        return RunRequest(suite, workspace_id, sample=1, wait=wait, repeats=repeats)
     size = None if full else sample or suite.sample
     seed = int(f"{today:%Y%m%d}") if size else None
-    return RunRequest(suite, workspace_id, sample=size or 0, seed=seed, wait=wait)
+    return RunRequest(suite, workspace_id, sample=size or 0, seed=seed, wait=wait, repeats=repeats)
 
 
 @dataclass(frozen=True)
 class Outcome:
     """A run we're done with and the calls that failed, by simulation id, with why.
-    ``scored`` is whether we stayed for Coval's results or left after the last call."""
+    ``scored`` is whether we stayed for Coval's results or left after the last call.
+    ``statuses`` is every simulation Coval made for the run and where we last saw it."""
 
     run: dict[str, Any]
     failed_calls: dict[str, str]
     scored: bool = True
+    statuses: dict[str, str] = field(default_factory=dict)
+    persona: str = ""
 
     @property
     def succeeded(self) -> bool:
@@ -238,10 +251,10 @@ async def await_run(
                 status = run.get("status")
                 logger.info(f"Run {run_id_of(run)}: {status} {run.get('progress') or ''}".rstrip())
             if is_terminal(run) and all(task.done() for task in calls.values()):
-                return Outcome(run, failed)
+                return Outcome(run, failed, statuses=dict(seen))
             if not wait and _calls_over(run, seen, calls):
                 logger.info(f"Run {run_id_of(run)}: every call has ended; leaving it to Coval")
-                return Outcome(run, failed, scored=False)
+                return Outcome(run, failed, scored=False, statuses=dict(seen))
             await asyncio.sleep(POLL_SECS)
             run = await asyncio.to_thread(coval.get_run, run_id_of(run))
     finally:
@@ -279,8 +292,12 @@ async def run_suite(
     definition = CovalTarget(agent.slug, ids.test_set_id, workspace_id)
     agent_id = await asyncio.to_thread(sync_target, coval, definition)
     # One persona at a time, like one test case at a time, so no two calls share the machine.
+    unknown = [name for name in request.test_cases if name not in ids.test_case_ids]
+    if unknown:
+        have = ", ".join(ids.test_case_ids) or "none it names"
+        raise ValueError(f"no test case {', '.join(unknown)} in the suite; it has {have}")
     outcomes = []
-    for persona_id in ids.persona_ids:
+    for persona, persona_id in zip(request.suite.personas, ids.persona_ids, strict=True):
         body = launch_body(
             agent_id,
             persona_id,
@@ -289,14 +306,57 @@ async def run_suite(
             sample=request.sample,
             display_name=definition.display_name,
             seed=request.seed,
+            test_case_ids=[ids.test_case_ids[name] for name in request.test_cases],
+            repeats=request.repeats,
         )
         run = await asyncio.to_thread(coval.launch_run, body)
         logger.info(f"Run {run_id_of(run)} launched on agent {agent_id}: {run.get('status')}")
-        outcomes.append(await await_run(coval, run, handler, wait=request.wait))
+        outcome = await await_run(coval, run, handler, wait=request.wait)
+        outcomes.append(replace(outcome, persona=persona_name(persona)))
     return outcomes
 
 
-async def run(agent: Agent, request: RunRequest) -> int:
+async def report(coval: CovalClient, agent: Agent, outcomes: list[Outcome]) -> dict[str, Any]:
+    """What ran, as data: each run with its persona, and every call in it with the test case
+    it placed and which repeat of that test case it was.
+
+    A call's ``status`` is whether the call happened, not how the agent did; Coval scores that.
+    """
+    runs = []
+    for outcome in outcomes:
+        repeats: Counter[str | None] = Counter()
+        simulations = []
+        for simulation_id, status in outcome.statuses.items():
+            if status == "SKIPPED":
+                continue
+            test_case = await asyncio.to_thread(coval.test_case_key, simulation_id)
+            repeats[test_case] += 1
+            error = outcome.failed_calls.get(simulation_id)
+            if error is None and status in ("FAILED", "CANCELLED"):
+                error = f"Coval ended the simulation as {status}"
+            simulations.append(
+                {
+                    "simulation_id": simulation_id,
+                    "test_case": test_case,
+                    "repeat": repeats[test_case],
+                    "status": "failed" if error else "completed",
+                    "error": error,
+                }
+            )
+        runs.append(
+            {
+                "run_id": run_id_of(outcome.run),
+                "persona": outcome.persona,
+                "simulations": simulations,
+            }
+        )
+    return {"agent": agent.slug, "digest": agent.digest, "runs": runs}
+
+
+async def run(agent: Agent, request: RunRequest, *, as_json: bool = False) -> int:
+    """Run the suite and print what happened: a summary to read, or with ``as_json`` one JSON
+    document on stdout, for a program to read. A JSON run exits 0 once it has printed, failed
+    calls included, since they're in the document."""
     settings = get_settings()
     api_key = _secret(settings, "coval_api_key")
     with CovalClient(api_key, settings.coval_api_base) as coval:
@@ -309,6 +369,10 @@ async def run(agent: Agent, request: RunRequest) -> int:
         )
         handler = partial(handle_simulation, sdk, coval, agent, settings)
         outcomes = await run_suite(coval, agent, request, workspace_id, handler)
+        document = await report(coval, agent, outcomes) if as_json else None
+    if document is not None:
+        print(json.dumps(document), flush=True)
+        return 0
     for outcome in outcomes:
         level = "INFO" if outcome.succeeded else "WARNING"
         ending = f"finished: {outcome.run.get('status')}" if outcome.scored else "left to Coval"

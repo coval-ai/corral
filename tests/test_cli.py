@@ -229,6 +229,11 @@ def test_each_mode_only_takes_its_own_flags(capsys: pytest.CaptureFixture[str]) 
             parser.parse_args(argv)
         assert "unrecognized arguments" in capsys.readouterr().err
     assert parser.parse_args(["benchmark", "--smoke"]).smoke is True
+    picked = parser.parse_args(["benchmark", "--test-cases", "email-1, zip-2", "--repeats", "3"])
+    assert (picked.test_cases, picked.repeats, picked.json) == (["email-1", "zip-2"], 3, False)
+    with pytest.raises(SystemExit):
+        parser.parse_args(["benchmark", "--test-cases", "email-1", "--smoke"])
+    assert "not allowed with" in capsys.readouterr().err
     assert parser.parse_args(["check-access"]).mode == "check-access"
     menu = parser.parse_args([])
     assert menu.mode is None and menu.smoke is False and menu.stt == "deepgram/nova-3"
@@ -243,7 +248,7 @@ def test_the_help_lists_the_modes_then_every_flag_and_model() -> None:
         )
     assert "--smoke" in top and "--prompt-from" in top
     assert "models with a key" not in top and "soniox/stt-rt-v6" not in top
-    assert "--smoke" in mode_help(parser, "benchmark") and "--test-case" not in mode_help(
+    assert "--smoke" in mode_help(parser, "benchmark") and "--test-case " not in mode_help(
         parser, "benchmark"
     )
     assert "models with a key in .env" in mode_help(parser, "talk")

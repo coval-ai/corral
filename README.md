@@ -75,6 +75,10 @@ uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v6 --llm goog
   like `--scenario-path ./my-scenario`.
 - `--test-case` (talk) seeds the scenario's tools for one test case.
 - `--smoke` (benchmark) runs a single test case, handy for checking the wiring.
+- `--test-cases` (benchmark) runs just the test cases you name, like
+  `--test-cases email-1,postcode-2`, and `--repeats` runs each one that many times.
+- `--json` (benchmark) is for running Corral from another program. See
+  [Running it from a script](#running-it-from-a-script).
 - `--full` (benchmark) runs every test case even when the suite's `coval.json`
   samples by default.
 - `--sample N` (benchmark) runs N test cases, the same N for the rest of the
@@ -98,6 +102,43 @@ and you can run it by hand for a rerun. A pre-commit hook regenerates both
 workflows when you commit a change to any of those and stops the commit so you
 can stage it; set it up once per clone with `uv run pre-commit install`. CI
 checks the committed workflows are current.
+
+## Running it from a script
+
+At a terminal a benchmark prints a summary you can read and stays for Coval's
+scores. A program that runs Corral wants the ids instead, so it can fetch the
+scores itself. Add `--json`:
+
+```bash
+uv run corral benchmark --scenario id_roulette --s2s openai/gpt-realtime-2.1 --test-cases email-1,postcode-2 --repeats 2 --json
+```
+
+Stdout is then one JSON document and nothing else, and the log stays on
+stderr. Corral leaves as soon as the calls are over, without waiting for
+Coval to score them.
+
+```json
+{
+  "agent": "openai-gpt-realtime-2.1",
+  "digest": "9f2c...",
+  "runs": [
+    {
+      "run_id": "RUN_ID",
+      "persona": "ID Roulette: quiet room",
+      "simulations": [
+        {"simulation_id": "SIM_1", "test_case": "email-1", "repeat": 1, "status": "completed", "error": null},
+        {"simulation_id": "SIM_2", "test_case": "email-1", "repeat": 2, "status": "failed", "error": "why the call failed"}
+      ]
+    }
+  ]
+}
+```
+
+There is one run per persona, and one simulation per test case per repeat. A
+simulation's `status` says whether the call happened, not how the agent did;
+the scores are in Coval under its `simulation_id`. The exit code is 0 whenever
+the document was printed, failed calls included, and anything else means there
+is no document to read.
 
 ## Adding things
 

@@ -231,10 +231,15 @@ def launch_body(
     sample: int,
     display_name: str,
     seed: int | None = None,
+    test_case_ids: list[str] | None = None,
+    repeats: int = 1,
 ) -> dict[str, Any]:
-    """``sample`` test cases, picked at random or by ``seed``: one seed, one pick."""
-    options: dict[str, Any] = {"iteration_count": 1, "concurrency": 1}
-    if sample:
+    """``test_case_ids`` alone when given, else ``sample`` test cases, picked at random or by
+    ``seed``: one seed, one pick. Each one runs ``repeats`` times."""
+    options: dict[str, Any] = {"iteration_count": repeats, "concurrency": 1}
+    if test_case_ids:
+        options["test_case_ids"] = test_case_ids
+    elif sample:
         options["sub_sample_size"] = sample
         if seed is not None:
             options["sub_sample_seed"] = seed
