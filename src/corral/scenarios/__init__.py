@@ -3,11 +3,10 @@
 
 """Scenarios: one directory each with a prompt, a menu line, and a Coval suite if it's benchmarked.
 
-A scenario is named by its directory here, or by the path to one anywhere else. Anything with
-a slash in it is a path.
-
-A scenario can also ship a ``tools.py`` whose ``environment()`` returns a fresh backend for one
-call; see ``corral.environment``. Without one the agent has no tools.
+A scenario is the name of a directory here, or the ``Path`` to one kept anywhere else. One at a
+path is data only: its tools are the canned answers in a ``tools.json``; see
+``corral.environment``. One in this package can ship a ``tools.py`` instead, whose
+``environment()`` builds its own backend. With neither the agent has no tools.
 
 In coval.json each test set, persona and metric is either the id of one that already exists
 in Coval, or its full definition, which Corral creates in your workspace and keeps in sync.
@@ -21,27 +20,27 @@ from __future__ import annotations
 import importlib
 import importlib.resources
 import json
-import os
 from importlib.resources.abc import Traversable
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 from pydantic import Field, model_validator
 
-from corral.environment import Environment
+from corral.environment import Environment, JsonEnvironment
 from corral.models import JsonModel
 
 PROMPT_FILE = "system-prompt.txt"
 SUMMARY_FILE = "summary.txt"
 COVAL_FILE = "coval.json"
 TOOLS_FILE = "tools.py"
+TOOLS_JSON = "tools.json"
 TALK_SCENARIO = "default"
 BENCHMARK_SCENARIO = "id_roulette"
 ALL_PERSONAS = "all"
 
 
 Entry = str | dict[str, Any]
+Scenario = str | Path
 
 
 def persona_name(entry: Entry) -> str:
@@ -108,22 +107,24 @@ class Suite(JsonModel):
         }
 
 
-def is_path(scenario: str) -> bool:
-    return "/" in scenario or os.sep in scenario
-
-
-def _folder(scenario: str) -> Traversable:
-    if not is_path(scenario):
+def _folder(scenario: Scenario) -> Traversable:
+    if isinstance(scenario, str):
         return importlib.resources.files(__name__).joinpath(scenario)
-    folder = Path(scenario).expanduser()
+    folder = scenario.expanduser()
     if folder.is_dir():
-        links = sorted(entry.name for entry in folder.iterdir() if entry.is_symlink())
+        entries = sorted(folder.iterdir(), key=lambda entry: entry.name)
+        links = [entry.name for entry in entries if entry.is_symlink()]
         if links:
             raise ValueError(f"{scenario} has symlinks, which a scenario can't: {', '.join(links)}")
+        if any(entry.name == TOOLS_FILE for entry in entries):
+            raise ValueError(
+                f"{scenario} has a {TOOLS_FILE}; a scenario at a path is data only, "
+                f"so its tools go in {TOOLS_JSON}"
+            )
     return folder
 
 
-def has_prompt(scenario: str) -> bool:
+def has_prompt(scenario: Scenario) -> bool:
     return _folder(scenario).joinpath(PROMPT_FILE).is_file()
 
 
@@ -136,16 +137,16 @@ def scenario_names() -> list[str]:
     )
 
 
-def scenario_summary(scenario: str) -> str:
+def scenario_summary(scenario: Scenario) -> str:
     path = _folder(scenario).joinpath(SUMMARY_FILE)
     return path.read_text().strip() if path.is_file() else ""
 
 
-def load_prompt(scenario: str) -> bytes:
+def load_prompt(scenario: Scenario) -> bytes:
     return _folder(scenario).joinpath(PROMPT_FILE).read_bytes()
 
 
-def behavior_files(scenario: str) -> dict[str, bytes]:
+def behavior_files(scenario: Scenario) -> dict[str, bytes]:
     """Every file that changes what the agent does: the prompt, the tools and their data.
 
     The menu line and the Coval suite don't change the agent, so they're left out.
@@ -158,29 +159,22 @@ def behavior_files(scenario: str) -> dict[str, bytes]:
     }
 
 
-def load_environment(scenario: str) -> Environment | None:
-    """A fresh backend for one call from the scenario's tools.py, or None when it has none."""
-    if not _folder(scenario).joinpath(TOOLS_FILE).is_file():
-        return None
-    module = _tools_at(scenario) if is_path(scenario) else _tools_named(scenario)
-    environment: Environment = module.environment()
-    return environment
+def load_environment(scenario: Scenario) -> Environment | None:
+    """A fresh backend for one call, or None when the scenario has no tools.
+
+    The canned answers in tools.json, unless a scenario in this package ships a tools.py to
+    build its own.
+    """
+    folder = _folder(scenario)
+    if isinstance(scenario, str) and folder.joinpath(TOOLS_FILE).is_file():
+        module = importlib.import_module(f"{__name__}.{scenario}.tools")
+        environment: Environment = module.environment()
+        return environment
+    tools = folder.joinpath(TOOLS_JSON)
+    return JsonEnvironment.parse(tools.read_bytes()) if tools.is_file() else None
 
 
-def _tools_named(scenario: str) -> ModuleType:
-    return importlib.import_module(f"{__name__}.{scenario}.tools")
-
-
-def _tools_at(scenario: str) -> ModuleType:
-    """Run from the source, so a stale bytecode cache can't stand in for the file."""
-    path = Path(scenario).expanduser() / TOOLS_FILE
-    module = ModuleType(f"corral_scenario_tools_{path.parent.name}")
-    module.__file__ = str(path)
-    exec(compile(path.read_bytes(), str(path), "exec"), vars(module))  # noqa: S102
-    return module
-
-
-async def confirm_test_cases(scenario: str, keys: list[str]) -> None:
+async def confirm_test_cases(scenario: Scenario, keys: list[str]) -> None:
     """Every key seeds the scenario's backend, so a typo fails here and not call by call."""
     if not keys:
         return
@@ -192,14 +186,14 @@ async def confirm_test_cases(scenario: str, keys: list[str]) -> None:
         await environment.finish()
 
 
-def load_suite(scenario: str) -> Suite | None:
+def load_suite(scenario: Scenario) -> Suite | None:
     path = _folder(scenario).joinpath(COVAL_FILE)
     if not path.is_file():
         return None
     return Suite.model_validate(json.loads(path.read_bytes()))
 
 
-def require_suite(scenario: str) -> Suite:
+def require_suite(scenario: Scenario) -> Suite:
     suite = load_suite(scenario)
     if suite is None:
         raise ValueError(f"scenario {scenario!r} has no {COVAL_FILE}; it is for talking to")

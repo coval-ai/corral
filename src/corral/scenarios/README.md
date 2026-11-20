@@ -6,7 +6,7 @@ A scenario is a directory here with:
 - `summary.txt`: its one line in the menu
 - `coval.json`: the Coval suite it's benchmarked with. Leave this out for a
   talk-only scenario.
-- `tools.py`: the tools the agent can call, if it has any. Leave this out and
+- `tools.json`: the tools the agent can call, if it has any. Leave this out and
   the agent just talks.
 
 `default` is a plain assistant for trying models by voice.
@@ -16,18 +16,17 @@ numbers, postal codes and spelled surnames, three of each. Its personas are a
 quiet room and a landline with an air conditioner, so it shows which details
 and which caller conditions make agents mishear.
 
-## tools.py
+## tools.json
 
-`tools.py` has one function, `environment()`, that returns a fake backend for
-one call: a list of tools, `start(test_case)` to seed it, `finish()` to clean
-up. Every call gets its own, so calls can't see each other's bookings.
+`tools.json` is canned answers, like `id_roulette` has: each tool answers the
+same thing however it's called, and a test case swaps in different answers.
+Every call gets its own fake backend from it, so calls can't see each other.
 
-The easy version is canned answers from a `tools.json` next to it, like
-`id_roulette` has: each tool answers the same thing however it's called, and
-a test case swaps in different answers. When you need answers that depend on the
-arguments, or state that changes after a write, write your own in `tools.py`
-with those same three parts. Handlers take the arguments as a dict and return
-the result. They never see Pipecat.
+When you need answers that depend on the arguments, or state that changes
+after a write, a scenario in this directory can ship a `tools.py` instead. It
+has one function, `environment()`, that returns the backend for one call: a
+list of tools, `start(test_case)` to seed it, `finish()` to clean up. Handlers
+take the arguments as a dict and return the result. They never see Pipecat.
 
 A tool in `tools.json` can also check what the agent passed it. List the check
 by name with the right value for each argument: one string for every test case,
@@ -130,7 +129,7 @@ for all of them. A gs:// manifest is read with your Google login
 To benchmark your own agent, add a directory with a prompt, a summary and
 a `coval.json`. It shows up in the menu on its own.
 
-A scenario doesn't have to live here. Pass `--scenario` the path to a directory
-with the same files, like `--scenario ./my-scenario`. Anything with a slash in
-it is read as a path. Its `tools.py` is run as Python, so only point Corral at
-a directory you trust.
+A scenario doesn't have to live here. Pass `--scenario-path` a directory with
+the same files, like `--scenario-path ./my-scenario`. One kept outside Corral
+is data only: Corral reads its files and never runs code from it, so a
+`tools.py` or a symlink in it is refused.

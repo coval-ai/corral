@@ -3,15 +3,16 @@
 
 """A scenario's fake backend: the tools the agent can call and state that lives for one call.
 
-A scenario that ships a ``tools.py`` gives the agent tools. ``tools.py`` doesn't return a list
-of tools, it returns an environment: a small backend that ``start`` seeds for the call, the
-tools act on, and ``finish`` cleans up. The pipeline runs that lifecycle and doesn't care
-what's inside. Handlers take the call's arguments and return a result. They never see Pipecat;
-the pipeline wraps them, times them and turns an exception into the result the LLM reads.
+A scenario gives the agent tools through an environment: a small backend that ``start`` seeds
+for the call, the tools act on, and ``finish`` cleans up. The pipeline runs that lifecycle and
+doesn't care what's inside. Handlers take the call's arguments and return a result. They never
+see Pipecat; the pipeline wraps them, times them and turns an exception into the result the LLM
+reads.
 
 ``JsonEnvironment`` is the simplest one: canned answers from a ``tools.json``. A tool answers
 the same thing however it's called, and a test case swaps in different answers. State that
-changes after a write, or answers that depend on the arguments, is where you write your own.
+changes after a write, or answers that depend on the arguments, is where a scenario in this
+package writes its own in a ``tools.py``.
 """
 
 from __future__ import annotations

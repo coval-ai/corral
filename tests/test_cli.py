@@ -25,6 +25,7 @@ from corral.cli import (
     known_scenario,
     needs_assets,
     offered_models,
+    scenario_at,
     scripted,
 )
 from corral.config import Settings
@@ -177,11 +178,17 @@ def test_a_scenario_that_does_not_exist_says_which_do() -> None:
         known_scenario("dental")
 
 
-def test_a_scenario_can_be_a_path_to_a_folder_with_a_prompt(tmp_path: Path) -> None:
+def test_a_scenario_path_is_a_folder_with_a_prompt(tmp_path: Path) -> None:
     (tmp_path / "system-prompt.txt").write_text("Be brief.")
-    assert known_scenario(f"{tmp_path}/") == f"{tmp_path}/"
+    assert scenario_at(str(tmp_path)) == tmp_path
     with pytest.raises(ValueError, match="no scenario at .*/nope; it needs a system-prompt.txt"):
-        known_scenario(f"{tmp_path}/nope")
+        scenario_at(f"{tmp_path}/nope")
+
+
+def test_the_rerun_command_names_a_scenario_the_way_it_was_given(tmp_path: Path) -> None:
+    stack = choose_agent("default", lambda _prompt: "", ALL_KEYS, answers_fine).stack
+    assert "--scenario default " in scripted(TALK, "default", stack)
+    assert f"--scenario-path {tmp_path} " in scripted(TALK, tmp_path, stack)
 
 
 def test_benchmark_offers_only_scenarios_with_coval_ids(capsys: pytest.CaptureFixture[str]) -> None:

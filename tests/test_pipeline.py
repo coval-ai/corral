@@ -168,17 +168,6 @@ async def test_a_call_seeds_the_backend_and_puts_its_tools_on_the_llm() -> None:
     assert call.tool_calls == [ToolCall("book", {"date": "2026-10-21"}, {"ok": False})]
 
 
-async def test_an_asset_agent_without_tools_never_looks_for_a_scenario_folder() -> None:
-    llm = LLMService()
-    agent = load_asset_agent("some/folder.v1", "Be brief.", None, *REFERENCE)
-    with (
-        patch.object(pipeline, "resolve", return_value=_cascade(llm)),
-        patch.object(pipeline, "load_environment", side_effect=AssertionError("looked")),
-    ):
-        call = await build_call(agent, _Transport(), SETTINGS)
-    assert call.tool_calls is None
-
-
 async def test_a_test_case_the_backend_cannot_seed_is_refused() -> None:
     with (
         patch.object(pipeline, "resolve", return_value=_cascade(LLMService())),
