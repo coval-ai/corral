@@ -310,6 +310,9 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "smoke": False,
         "sample": None,
         "full": False,
+        "test_cases": [],
+        "repeats": 1,
+        "json": False,
         "assets": os.environ.get("S2S_ASSETS"),
         "personas": [],
         "metrics": [],
@@ -354,6 +357,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     talk.add_argument("--test-case", help="seed the scenario's tools for this test case")
     benchmark = modes.add_parser(
         BENCHMARK.name,
+        allow_abbrev=False,
         help=BENCHMARK.summary,
         description=BENCHMARK.summary.capitalize() + ".",
         parents=[agent],
@@ -370,6 +374,25 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         type=positive,
         metavar="N",
         help="N test cases, the same ones all day",
+    )
+    size.add_argument(
+        "--test-cases",
+        type=names,
+        default=[],
+        metavar="NAMES",
+        help="just these test cases, by the names the suite gives them",
+    )
+    benchmark.add_argument(
+        "--repeats",
+        type=positive,
+        default=1,
+        metavar="N",
+        help="run each test case N times",
+    )
+    benchmark.add_argument(
+        "--json",
+        action="store_true",
+        help="print the run ids and simulation ids as JSON on stdout, and don't wait for scores",
     )
     benchmark.add_argument(
         "--assets",
@@ -497,7 +520,9 @@ def main() -> None:
             today=datetime.now(UTC).date(),
             sample=args.sample,
             full=args.full,
-            wait=at_a_terminal(),
+            wait=at_a_terminal() and not args.json,
+            test_cases=args.test_cases,
+            repeats=args.repeats,
         )
         request = replace(request, workspace_source=assets.source)
     elif mode is BENCHMARK:
@@ -514,12 +539,24 @@ def main() -> None:
             today=datetime.now(UTC).date(),
             sample=args.sample,
             full=args.full,
-            wait=at_a_terminal(),
+            wait=at_a_terminal() and not args.json,
+            test_cases=args.test_cases,
+            repeats=args.repeats,
         )
         if named.assets:
             source = f"{get_settings().corral_assets_uri} ({named.assets})"
             request = replace(request, workspace_source=source)
 
+    if request is not None:
+        known = request.suite.keyed_test_cases()
+        unknown = [name for name in args.test_cases if name not in known]
+        if unknown:
+            have = ", ".join(known) or "none it names"
+            fail(
+                parser,
+                interactive,
+                f"no test case {', '.join(unknown)} in the suite; it has {have}",
+            )
     test_case = args.test_case
     if interactive and mode is TALK:
         test_case = choose_test_case(scenario)
@@ -552,7 +589,7 @@ def main() -> None:
             fail(parser, interactive, f"{model.id}: {problem}")
     configure_logging()
     try:
-        code = run_mode(mode, agent, request, test_case)
+        code = run_mode(mode, agent, request, test_case, as_json=args.json)
     finally:
         if interactive:
             rerun = scripted(mode, scenario, agent.stack, test_case)
@@ -561,7 +598,12 @@ def main() -> None:
 
 
 def run_mode(
-    mode: Mode, agent: Agent, request: benchmark.RunRequest | None, test_case: str | None
+    mode: Mode,
+    agent: Agent,
+    request: benchmark.RunRequest | None,
+    test_case: str | None,
+    *,
+    as_json: bool = False,
 ) -> int:
     """Talk or benchmark through to the exit code. Ctrl+C ends either one cleanly."""
     try:
@@ -569,7 +611,7 @@ def run_mode(
             asyncio.run(talk.run(agent, test_case))
             return 0
         assert request is not None  # noqa: S101
-        return asyncio.run(benchmark.run(agent, request))
+        return asyncio.run(benchmark.run(agent, request, as_json=as_json))
     except KeyboardInterrupt:
         return 0
     except (SyncError, ValueError) as error:

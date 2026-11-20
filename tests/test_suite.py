@@ -113,6 +113,9 @@ def test_definitions_are_created_once_then_left_alone() -> None:
     workspace = Workspace()
     first = sync_suite(workspace.client(), _defined())
     assert len(first.persona_ids) == 2 and len(first.metric_ids) == 2
+    (named,) = first.test_case_ids.items()
+    assert named[0] == "table-free"
+    assert "Book" in workspace.items["test-cases"][named[1]]["input_str"]
     assert len(workspace.items["test-cases"]) == 2
     booking = next(c for c in workspace.items["test-cases"].values() if "Book" in c["input_str"])
     assert (

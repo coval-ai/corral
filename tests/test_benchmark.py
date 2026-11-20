@@ -3,6 +3,7 @@
 
 import asyncio
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import date
 from typing import Any, cast
 from unittest.mock import patch
@@ -141,7 +142,7 @@ async def test_each_persona_gets_its_own_run_and_each_simulation_is_handled_once
         handled.append(simulation_id)
 
     ids = SuiteIds("TS", ["P1", "P2"], ["M1"])
-    request = benchmark.RunRequest(Suite(test_set="TS", personas=["P1"]), None, sample=1)
+    request = benchmark.RunRequest(Suite(test_set="TS", personas=["P1", "P2"]), None, sample=1)
     with (
         patch.object(benchmark, "sync_suite", return_value=ids),
         patch.object(benchmark, "sync_target", return_value="A"),
@@ -158,6 +159,96 @@ async def test_each_persona_gets_its_own_run_and_each_simulation_is_handled_once
     assert handled == ["R1-S1", "R2-S1"]
     assert [outcome.run["status"] for outcome in outcomes] == ["COMPLETED", "COMPLETED"]
     assert all(outcome.succeeded for outcome in outcomes)
+
+
+class _Repeats(_Coval):
+    """One run of two test cases, the first placed twice; the second call is dropped."""
+
+    def list_simulations(self, run_id: str) -> list[dict[str, Any]]:
+        status = "PENDING" if self.polls.get(run_id, 0) == 0 else "RUNNING"
+        return [
+            {"simulation_id": "R1-S1", "status": status},
+            {"simulation_id": "R1-S2", "status": status},
+            {"simulation_id": "R1-S3", "status": status},
+            {"simulation_id": "R1-S4", "status": "SKIPPED"},
+        ]
+
+    def test_case_key(self, simulation_id: str) -> str | None:
+        return {"R1-S1": "email-1", "R1-S2": "email-1", "R1-S3": "zip-2"}[simulation_id]
+
+
+async def test_named_test_cases_are_the_ones_launched_and_the_report_says_what_each_call_was() -> (
+    None
+):
+    coval = _Repeats()
+
+    async def handler(simulation_id: str) -> None:
+        if simulation_id == "R1-S2":
+            raise CovalError("relay closed")
+
+    ids = SuiteIds("TS", ["P1"], ["M1"], {"email-1": "TC1", "zip-2": "TC2", "card-3": "TC3"})
+    suite = Suite(test_set="TS", personas=[{"name": "Quiet room"}])
+    request = benchmark.run_request(
+        suite,
+        None,
+        smoke=False,
+        today=date(2026, 10, 22),
+        wait=False,
+        test_cases=["zip-2", "email-1"],
+        repeats=2,
+    )
+    with (
+        patch.object(benchmark, "sync_suite", return_value=ids),
+        patch.object(benchmark, "sync_target", return_value="A"),
+        patch.object(benchmark, "POLL_SECS", 0),
+    ):
+        agent = load_cascade_agent("default", *REFERENCE)
+        client = cast(CovalClient, coval)
+        outcomes = await benchmark.run_suite(client, agent, request, "W1", handler)
+        document = await benchmark.report(client, agent, outcomes)
+        missing = replace(request, test_cases=("email-1", "nope"))
+        with pytest.raises(ValueError, match="no test case nope in the suite; it has email-1"):
+            await benchmark.run_suite(client, agent, missing, "W1", handler)
+
+    (body,) = coval.launched
+    assert body["options"] == {
+        "iteration_count": 2,
+        "concurrency": 1,
+        "test_case_ids": ["TC2", "TC1"],
+    }
+    assert document == {
+        "agent": agent.slug,
+        "digest": agent.digest,
+        "runs": [
+            {
+                "run_id": "R1",
+                "persona": "Quiet room",
+                "simulations": [
+                    {
+                        "simulation_id": "R1-S1",
+                        "test_case": "email-1",
+                        "repeat": 1,
+                        "status": "completed",
+                        "error": None,
+                    },
+                    {
+                        "simulation_id": "R1-S2",
+                        "test_case": "email-1",
+                        "repeat": 2,
+                        "status": "failed",
+                        "error": "relay closed",
+                    },
+                    {
+                        "simulation_id": "R1-S3",
+                        "test_case": "zip-2",
+                        "repeat": 1,
+                        "status": "completed",
+                        "error": None,
+                    },
+                ],
+            }
+        ],
+    }
 
 
 class _SlowScorer(_Coval):
