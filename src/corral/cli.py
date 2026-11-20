@@ -13,6 +13,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, NoReturn
 
 import _colorize
@@ -38,7 +39,10 @@ from corral.models import (
 )
 from corral.scenarios import (
     BENCHMARK_SCENARIO,
+    PROMPT_FILE,
     TALK_SCENARIO,
+    Scenario,
+    has_prompt,
     load_suite,
     require_suite,
     scenario_names,
@@ -128,6 +132,14 @@ def known_scenario(name: str) -> str:
     return name
 
 
+def scenario_at(path: str) -> Path:
+    """The folder back, or why it isn't a scenario."""
+    folder = Path(path)
+    if not has_prompt(folder):
+        raise ValueError(f"no scenario at {path}; it needs a {PROMPT_FILE}")
+    return folder
+
+
 def choose_scenario(mode: Mode, read: Reader = input) -> str:
     names = scenarios_for(mode)
     width = max(len(name) for name in names)
@@ -135,7 +147,7 @@ def choose_scenario(mode: Mode, read: Reader = input) -> str:
     return names[pick(options, "Scenario", read)]
 
 
-def choose_test_case(scenario: str, read: Reader = input) -> str | None:
+def choose_test_case(scenario: Scenario, read: Reader = input) -> str | None:
     """Which test case to talk to, when the scenario's suite names some; Enter takes the first."""
     suite = load_suite(scenario)
     cases = suite.keyed_test_cases() if suite else {}
@@ -173,7 +185,7 @@ def offered_models(modality: Modality, settings: Settings) -> list[Model]:
 
 
 def choose_agent(
-    scenario: str,
+    scenario: Scenario,
     read: Reader = input,
     settings: Settings | None = None,
     check: Checker | None = None,
@@ -191,9 +203,10 @@ def choose_agent(
     return load_cascade_agent(scenario, *picks)
 
 
-def scripted(mode: Mode, scenario: str, stack: Stack, test_case: str | None = None) -> str:
+def scripted(mode: Mode, scenario: Scenario, stack: Stack, test_case: str | None = None) -> str:
     """The command that runs what the menu picked, without the menu."""
-    words = ["uv run corral", mode.name, "--scenario", scenario]
+    flag = "--scenario" if isinstance(scenario, str) else "--scenario-path"
+    words = ["uv run corral", mode.name, flag, str(scenario)]
     if isinstance(stack, Native):
         words += ["--s2s", stack.s2s.id]
     else:
@@ -203,7 +216,7 @@ def scripted(mode: Mode, scenario: str, stack: Stack, test_case: str | None = No
     return " ".join(words)
 
 
-def flagged_agent(scenario: str, args: argparse.Namespace) -> Agent:
+def flagged_agent(scenario: Scenario, args: argparse.Namespace) -> Agent:
     """The stack the flags name: one native model, else the cascade."""
     if args.s2s:
         return load_native_agent(scenario, args.s2s)
@@ -322,6 +335,11 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "--scenario",
         default=defaults["scenario"],
         help="the scenario directory",
+    )
+    agent.add_argument(
+        "--scenario-path",
+        metavar="DIR",
+        help="a scenario directory kept outside corral, in place of --scenario",
     )
     parser.set_defaults(**defaults)
     epilog = f"models with a key in .env:\n{models}"
@@ -446,13 +464,21 @@ def main() -> None:
             fail(parser, interactive, problem)
 
     assets = None
+    scenario: Scenario
     if args.assets:
-        if args.scenario:
+        if args.scenario or args.scenario_path:
             fail(parser, interactive, "--assets names the scenario; drop --scenario")
         if interactive:
             fail(parser, interactive, "--assets runs from flags: corral benchmark --assets ...")
         assets = asset_run(parser, args)
         scenario = args.assets
+    elif args.scenario_path:
+        if args.scenario:
+            fail(parser, interactive, "--scenario-path names the scenario; drop --scenario")
+        try:
+            scenario = scenario_at(args.scenario_path)
+        except ValueError as error:
+            fail(parser, interactive, str(error))
     elif args.scenario:
         try:
             scenario = known_scenario(args.scenario)

@@ -1,6 +1,9 @@
 # Copyright 2026 The Coval Benchmarks Authors
 # SPDX-License-Identifier: Apache-2.0
 
+import shutil
+from importlib.resources import as_file, files
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -12,10 +15,19 @@ from corral.scenarios import (
     behavior_files,
     confirm_test_cases,
     load_environment,
+    load_prompt,
     load_suite,
     persona_name,
     require_suite,
 )
+
+
+def _copied(scenario: str, tmp_path: Path) -> Path:
+    """A built-in scenario's files copied out of the package."""
+    with as_file(files(scenarios).joinpath(scenario)) as source:
+        target = tmp_path / "elsewhere" / scenario
+        shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__"))
+    return target
 
 
 def _booking() -> JsonEnvironment:
@@ -92,3 +104,48 @@ def test_a_suite_runs_its_first_persona_unless_more_are_named() -> None:
     assert by_id.personas == ["P-2"]
     assets = Suite(assets="bank.v1").with_personas(["clean"])
     assert assets.personas == ["clean"]
+
+
+async def test_a_scenario_at_a_path_loads_like_a_built_in_one(tmp_path: Path) -> None:
+    path = _copied("id_roulette", tmp_path)
+
+    assert behavior_files(path) == behavior_files("id_roulette")
+    assert load_prompt(path) == load_prompt("id_roulette")
+    assert require_suite(path) == require_suite("id_roulette")
+    keys = list(require_suite(path).keyed_test_cases())
+    await confirm_test_cases(path, keys)
+    backend = load_environment(path)
+    assert backend is not None
+    await backend.start(keys[0])
+    assert backend.tools[0].character_error_rate["value"]
+
+
+def test_a_path_without_tools_has_no_backend(tmp_path: Path) -> None:
+    assert load_environment(_copied("default", tmp_path)) is None
+
+
+def test_a_scenario_at_a_path_is_data_only(tmp_path: Path) -> None:
+    path = _copied("id_roulette", tmp_path)
+    (path / "tools.py").write_text("raise SystemExit('ran')\n")
+    for load in (load_prompt, behavior_files, load_environment, load_suite):
+        with pytest.raises(ValueError, match="has a tools.py; a scenario at a path is data only"):
+            load(path)
+
+
+def test_a_scenario_at_a_path_cannot_reach_outside_it_through_a_symlink(tmp_path: Path) -> None:
+    secret = tmp_path / "secret.txt"
+    secret.write_text("not the scenario's")
+    path = _copied("default", tmp_path)
+    (path / "system-prompt.txt").unlink()
+    (path / "system-prompt.txt").symlink_to(secret)
+    for load in (load_prompt, behavior_files, load_environment, load_suite):
+        with pytest.raises(ValueError, match="has symlinks, which a scenario can't: system-prompt"):
+            load(path)
+
+
+def test_a_name_never_reaches_a_folder_outside_the_package(tmp_path: Path) -> None:
+    path = _copied("id_roulette", tmp_path)
+    for name in (str(path), "../scenarios/id_roulette", ".."):
+        assert load_environment(name) is None
+        with pytest.raises(ValueError, match="isn't a scenario's name"):
+            load_prompt(name)

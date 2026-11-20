@@ -16,12 +16,12 @@ from typing import Any
 
 from corral.config import IN_SAMPLE_RATE_HZ, INTERRUPT_MIN_WORDS, OUT_SAMPLE_RATE_HZ, VAD_STOP_SECS
 from corral.models import Cascade, Native, Stack, catalog
-from corral.scenarios import PROMPT_FILE, behavior_files, load_prompt
+from corral.scenarios import PROMPT_FILE, Scenario, behavior_files, load_prompt
 
 
 @dataclass(frozen=True)
 class Agent:
-    scenario: str
+    scenario: Scenario
     stack: Stack
     system_prompt: str
     slug: str
@@ -29,14 +29,14 @@ class Agent:
     tools_file: bytes | None = field(default=None, repr=False)
 
 
-def load_cascade_agent(scenario: str, stt_id: str, llm_id: str, tts_id: str) -> Agent:
+def load_cascade_agent(scenario: Scenario, stt_id: str, llm_id: str, tts_id: str) -> Agent:
     """A cascade, each model named as provider/model, on the scenario's prompt."""
     offered = catalog()
     stack = Cascade(offered.get_stt(stt_id), offered.get_llm(llm_id), offered.get_tts(tts_id))
     return _agent(scenario, stack)
 
 
-def load_native_agent(scenario: str, s2s_id: str) -> Agent:
+def load_native_agent(scenario: Scenario, s2s_id: str) -> Agent:
     """One native model, named as provider/model, on the scenario's prompt."""
     return _agent(scenario, Native(catalog().get_s2s(s2s_id)))
 
@@ -66,12 +66,12 @@ def load_asset_agent(
     return replace(_build(asset, stack, system_prompt.strip(), files), tools_file=tools_file)
 
 
-def _agent(scenario: str, stack: Stack) -> Agent:
+def _agent(scenario: Scenario, stack: Stack) -> Agent:
     system_prompt = load_prompt(scenario).decode().strip()
     return _build(scenario, stack, system_prompt, behavior_files(scenario))
 
 
-def _build(scenario: str, stack: Stack, system_prompt: str, files: dict[str, bytes]) -> Agent:
+def _build(scenario: Scenario, stack: Stack, system_prompt: str, files: dict[str, bytes]) -> Agent:
     if not system_prompt:
         raise ValueError(f"{scenario}'s prompt is empty")
     hasher = hashlib.sha256(json.dumps(_config(stack), sort_keys=True).encode())

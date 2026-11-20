@@ -71,6 +71,8 @@ uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v6 --llm goog
 - `--s2s` picks a native model instead. Don't pass the three cascade flags
   with it.
 - `--scenario` picks the scenario directory.
+- `--scenario-path` runs a scenario directory kept outside Corral instead,
+  like `--scenario-path ./my-scenario`.
 - `--test-case` (talk) seeds the scenario's tools for one test case.
 - `--smoke` (benchmark) runs a single test case, handy for checking the wiring.
 - `--full` (benchmark) runs every test case even when the suite's `coval.json`
@@ -106,7 +108,7 @@ the default. If it's a provider we don't support yet, it also needs an entry in
 in `pyproject.toml`.
 
 To add a scenario, make a directory in `src/corral/scenarios/` with a system
-prompt. Add a Coval suite if you want to benchmark it, and a `tools.py` if the
+prompt. Add a Coval suite if you want to benchmark it, and a `tools.json` if the
 agent should be able to call tools. [The README in there](src/corral/scenarios/README.md)
 walks through it.
 
