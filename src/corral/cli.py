@@ -20,7 +20,7 @@ import _colorize
 
 from corral import benchmark, talk
 from corral.agent import Agent, load_asset_agent, load_cascade_agent, load_native_agent
-from corral.assets import AssetRun, load_asset_run, resolve_assets
+from corral.assets import AssetRun, collected, load_asset_run, resolve_assets
 from corral.check_access import run as run_check_access
 from corral.config import Settings, get_settings
 from corral.coval_api import CovalClient, SyncError, coval_problem
@@ -317,6 +317,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "personas": [],
         "metrics": [],
         "prompt_from": None,
+        "collected_in": None,
     }
     agent = argparse.ArgumentParser(add_help=False)
     for modality, ids in offered.items():
@@ -410,6 +411,11 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         "--metrics", type=names, default=[], help="with --assets: metrics to score"
     )
     benchmark.add_argument(
+        "--collected-in",
+        metavar="SCENARIO.VERSION",
+        help="run only if the benchmarks registry collects this model on that scenario",
+    )
+    benchmark.add_argument(
         "--prompt-from",
         metavar="MODEL",
         help="with --assets: the agent whose prompt to use when the model isn't one of them",
@@ -463,6 +469,20 @@ def asset_run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Asse
         fail(parser, False, str(error))
 
 
+def not_collected(parser: argparse.ArgumentParser, args: argparse.Namespace) -> str | None:
+    """Why ``--collected-in`` stops this run, or None when the model is on the roster."""
+    if not args.s2s:
+        fail(parser, False, "--collected-in is for a native model; pass --s2s")
+    settings = get_settings()
+    api_key = settings.coval_api_key.get_secret_value() if settings.coval_api_key else ""
+    try:
+        with CovalClient(api_key, settings.coval_api_base) as coval:
+            on_roster = collected(args.collected_in, args.s2s, settings=settings, client=coval)
+    except (SyncError, ValueError) as error:
+        fail(parser, False, str(error))
+    return None if on_roster else f"{args.s2s} isn't collected in {args.collected_in}"
+
+
 def main() -> None:
     settings = get_settings()
     parser = build_parser(settings)
@@ -485,6 +505,11 @@ def main() -> None:
         problem = coval_problem(settings)
         if problem:
             fail(parser, interactive, problem)
+        if args.collected_in:
+            skipped = not_collected(parser, args)
+            if skipped:
+                print(f"skipped: {skipped}")
+                return
 
     assets = None
     scenario: Scenario

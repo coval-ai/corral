@@ -111,7 +111,7 @@ def test_a_live_model_delegates_to_a_responses_model_on_the_same_prompt() -> Non
     assert isinstance(delegation, ResponsesDelegation)
     assert delegation.service_tier == "priority"
     backend = delegation.settings
-    assert backend.model == "gpt-5.6-luna"
+    assert backend.model == "gpt-5.6-terra"
     assert backend.system_instruction == agent.system_prompt
     assert backend.max_completion_tokens == 2048
     assert backend.reasoning == OpenAIResponsesReasoningConfig(effort="medium", summary="auto")

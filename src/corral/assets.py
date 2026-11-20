@@ -56,6 +56,7 @@ class _Entry(BaseModel):
     agents: dict[str, _Agent] = {}
     system_prompt_uri: str | None = None
     tools_uri: str | None = None
+    run_template_ids: dict[str, str] = {}
 
 
 def load_manifest(
@@ -186,6 +187,34 @@ def resolve_assets(suite: Suite, settings: Settings) -> Suite:
             f"coval.json names assets {suite.assets}; set CORRAL_ASSETS_URI to a manifest"
         )
     return resolve(suite, load_manifest(uri), uri)
+
+
+class RosterReader(Protocol):
+    """The part of the Coval client a roster check needs: a workspace and its run templates."""
+
+    def use_workspace(self, workspace_id: str) -> None: ...
+
+    def get_run_template(self, template_id: str) -> dict[str, Any]: ...
+
+
+def collected(roster: str, model_id: str, *, settings: Settings, client: RosterReader) -> bool:
+    """Whether the model's agent is on one of the roster scenario's run templates. The
+    benchmarks registry keeps those to the models it has switched on, so a model switched
+    off there stops running here too."""
+    uri = settings.corral_assets_uri
+    if not uri:
+        raise AssetsError(f"--collected-in {roster} needs CORRAL_ASSETS_URI set to a manifest")
+    entry = _entry(roster, load_manifest(uri), uri)
+    if not entry.run_template_ids:
+        raise AssetsError(f"assets {roster} in {uri} lists no run templates to read a roster from")
+    agent = entry.agents.get(model_id)
+    if agent is None:
+        return False
+    client.use_workspace(entry.workspace_id)
+    return any(
+        agent.id in (client.get_run_template(template_id).get("agent_ids") or [])
+        for template_id in entry.run_template_ids.values()
+    )
 
 
 class AgentReader(Protocol):

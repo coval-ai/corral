@@ -8,7 +8,9 @@ agent whose prompt a model not in the manifest borrows, plus every directory und
 src/corral/scenarios with a coval.json. The stack options are the native models
 in models/s2s.json plus the cascades listed in benchmarks.json. The daily rows in
 benchmarks.json each name a scenario, the stacks to run it on (``s2s``, ``cascades`` or a stack
-option), a size and personas; daily.yml runs every model and scenario pair on a schedule. Run it
+option), a size and personas, and optionally ``collected_in``: a manifest scenario whose run
+templates say which models the registry collects, so a model switched off there is skipped;
+daily.yml runs every model and scenario pair on a schedule. Run it
 after changing any of those; ``--check`` exits 1 when a committed workflow is stale, which is
 what CI does.
 """
@@ -88,12 +90,20 @@ def inputs_block(indent: str, scenarios: list[str], stacks: list[str], *, choice
                 "The suite's first persona, all of them, or manifest persona keys joined by commas",
                 PERSONAS,
             ),
+            "\n".join(
+                [
+                    f"{indent}collected_in:",
+                    f"{indent}  description: Run only if the registry collects the model there",
+                    f"{indent}  type: string",
+                    f'{indent}  default: ""',
+                ]
+            ),
         ]
     )
 
 
 def daily_units(
-    rows: list[dict[str, Any]], scenarios: list[str], stacks: list[str]
+    rows: list[dict[str, Any]], scenarios: list[str], stacks: list[str], assets: list[str]
 ) -> list[dict[str, str]]:
     """One matrix entry per model and scenario the daily rows ask for, in row order."""
     natives = model_ids("s2s")
@@ -102,6 +112,9 @@ def daily_units(
     for row in rows:
         scenario, size = str(row["scenario"]), str(row["size"])
         personas = str(row.get("personas", PERSONAS[0]))
+        collected_in = str(row.get("collected_in", ""))
+        if collected_in and collected_in not in assets:
+            raise SystemExit(f"{TRACKED}: daily collected_in {collected_in} isn't in assets")
         if scenario not in scenarios:
             raise SystemExit(f"{TRACKED}: daily scenario {scenario} isn't a scenario option")
         if size not in SIZES and not (size.startswith("sample ") and size[7:].isdigit()):
@@ -119,7 +132,13 @@ def daily_units(
                 raise SystemExit(f"{TRACKED}: daily stack {pick} isn't s2s, cascades or a stack")
             for stack in chosen:
                 units.append(
-                    {"scenario": scenario, "stack": stack, "size": size, "personas": personas}
+                    {
+                        "scenario": scenario,
+                        "stack": stack,
+                        "size": size,
+                        "personas": personas,
+                        "collected_in": collected_in,
+                    }
                 )
     return units
 
@@ -141,7 +160,7 @@ def render() -> dict[Path, str]:
         repo_suffix=REPO_SUFFIX,
         prompt_cases=prompt_cases(assets),
     )
-    units = daily_units(list(tracked.get("daily", [])), scenarios, stacks)
+    units = daily_units(list(tracked.get("daily", [])), scenarios, stacks, list(assets))
     daily = DAILY_TEMPLATE.format(
         cron=DAILY_CRON,
         parallel=DAILY_PARALLEL,
@@ -183,6 +202,7 @@ jobs:
           STACK: ${{{{ inputs.stack }}}}
           SIZE: ${{{{ inputs.size }}}}
           PERSONAS: ${{{{ inputs.personas }}}}
+          COLLECTED_IN: ${{{{ inputs.collected_in }}}}
         run: |
           args=(benchmark)
           add() {{
@@ -215,6 +235,7 @@ jobs:
             *) echo "::error::size must be smoke, sample N or full: $SIZE"; exit 1 ;;
           esac
           [ "$PERSONAS" != "default" ] && add --personas "$PERSONAS"
+          [ -n "$COLLECTED_IN" ] && add --collected-in "$COLLECTED_IN"
           echo "command=corral ${{args[*]}}" >> "$GITHUB_OUTPUT"
           echo "joined=$(IFS=';'; echo "${{args[*]}}")" >> "$GITHUB_OUTPUT"
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -293,6 +314,7 @@ jobs:
       stack: ${{{{ matrix.stack }}}}
       size: ${{{{ matrix.size }}}}
       personas: ${{{{ matrix.personas }}}}
+      collected_in: ${{{{ matrix.collected_in }}}}
     secrets: inherit
 """
 

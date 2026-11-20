@@ -239,7 +239,14 @@ async def test_a_live_model_starts_a_session_and_gemini_sets_one_up() -> None:
     gemini = S2sModel(provider="google", name="gemini-3.8-live", api="live")
     seen: dict[str, Any] = {}
     assert await check_access.model_problem(gemini, ALL_KEYS, connecting(socket, seen)) is None
-    assert socket.sent == [{"setup": {"model": "models/gemini-3.8-live"}}]
+    assert socket.sent == [
+        {
+            "setup": {
+                "model": "models/gemini-3.8-live",
+                "generationConfig": {"responseModalities": ["AUDIO"]},
+            }
+        }
+    ]
     assert seen["headers"] == {"x-goog-api-key": "gm"}
     thinking = S2sModel(
         provider="google",
@@ -250,7 +257,8 @@ async def test_a_live_model_starts_a_session_and_gemini_sets_one_up() -> None:
     socket = FakeSocket({"setupComplete": {}})
     assert await check_access.model_problem(thinking, ALL_KEYS, connecting(socket)) is None
     assert socket.sent[0]["setup"]["generationConfig"] == {
-        "thinkingConfig": {"thinkingLevel": "MEDIUM"}
+        "responseModalities": ["AUDIO"],
+        "thinkingConfig": {"thinkingLevel": "MEDIUM"},
     }
 
 
@@ -334,6 +342,7 @@ async def test_the_report_skips_vendors_without_a_key_and_fails_on_any_problem(
         for line in lines
     )
     assert any(line.split() == ["xai/grok-voice-3.0", "retired"] for line in lines)
+    assert any(line.split() == ["xai/grok-voice-think-fast-2.0", "retired"] for line in lines)
     assert any(line.split() == ["openai/gpt-realtime-2.1", "ok"] for line in lines)
     assert any(line.split() == ["openai/gpt-4.1", "ok"] for line in lines)
     assert any(line.split() == ["deepgram/nova-3", "ok"] for line in lines)
@@ -341,7 +350,7 @@ async def test_the_report_skips_vendors_without_a_key_and_fails_on_any_problem(
         line.split() == ["google/gemini-2.5-flash", "skipped:", "its", "vendor", "failed"]
         for line in lines
     )
-    assert lines[-1] == "2 failed"
+    assert lines[-1] == "3 failed"
 
 
 async def test_a_clean_report_exits_zero(
