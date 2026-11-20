@@ -239,7 +239,14 @@ async def test_a_live_model_starts_a_session_and_gemini_sets_one_up() -> None:
     gemini = S2sModel(provider="google", name="gemini-3.8-live", api="live")
     seen: dict[str, Any] = {}
     assert await check_access.model_problem(gemini, ALL_KEYS, connecting(socket, seen)) is None
-    assert socket.sent == [{"setup": {"model": "models/gemini-3.8-live"}}]
+    assert socket.sent == [
+        {
+            "setup": {
+                "model": "models/gemini-3.8-live",
+                "generationConfig": {"responseModalities": ["AUDIO"]},
+            }
+        }
+    ]
     assert seen["headers"] == {"x-goog-api-key": "gm"}
     thinking = S2sModel(
         provider="google",
@@ -250,7 +257,8 @@ async def test_a_live_model_starts_a_session_and_gemini_sets_one_up() -> None:
     socket = FakeSocket({"setupComplete": {}})
     assert await check_access.model_problem(thinking, ALL_KEYS, connecting(socket)) is None
     assert socket.sent[0]["setup"]["generationConfig"] == {
-        "thinkingConfig": {"thinkingLevel": "MEDIUM"}
+        "responseModalities": ["AUDIO"],
+        "thinkingConfig": {"thinkingLevel": "MEDIUM"},
     }
 
 

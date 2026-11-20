@@ -233,11 +233,11 @@ def _session_start(model: str, _options: Mapping[str, Any]) -> list[dict[str, An
 
 
 def _gemini_setup(model: str, options: Mapping[str, Any]) -> list[dict[str, Any]]:
-    setup: dict[str, Any] = {"model": f"models/{model}"}
+    generation: dict[str, Any] = {"responseModalities": ["AUDIO"]}
     level = (options.get("thinking") or {}).get("thinking_level")
     if level:
-        setup["generationConfig"] = {"thinkingConfig": {"thinkingLevel": level}}
-    return [{"setup": setup}]
+        generation["thinkingConfig"] = {"thinkingLevel": level}
+    return [{"setup": {"model": f"models/{model}", "generationConfig": generation}}]
 
 
 def _soniox_one_character(model: str, options: Mapping[str, Any]) -> list[dict[str, Any]]:
