@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import importlib
 import importlib.resources
-import importlib.util
 import json
 import os
 from importlib.resources.abc import Traversable
@@ -114,9 +113,14 @@ def is_path(scenario: str) -> bool:
 
 
 def _folder(scenario: str) -> Traversable:
-    if is_path(scenario):
-        return Path(scenario).expanduser()
-    return importlib.resources.files(__name__).joinpath(scenario)
+    if not is_path(scenario):
+        return importlib.resources.files(__name__).joinpath(scenario)
+    folder = Path(scenario).expanduser()
+    if folder.is_dir():
+        links = sorted(entry.name for entry in folder.iterdir() if entry.is_symlink())
+        if links:
+            raise ValueError(f"{scenario} has symlinks, which a scenario can't: {', '.join(links)}")
+    return folder
 
 
 def has_prompt(scenario: str) -> bool:
@@ -168,12 +172,11 @@ def _tools_named(scenario: str) -> ModuleType:
 
 
 def _tools_at(scenario: str) -> ModuleType:
+    """Run from the source, so a stale bytecode cache can't stand in for the file."""
     path = Path(scenario).expanduser() / TOOLS_FILE
-    spec = importlib.util.spec_from_file_location(f"corral_scenario_tools_{path.parent.name}", path)
-    if spec is None or spec.loader is None:
-        raise ValueError(f"can't load {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = ModuleType(f"corral_scenario_tools_{path.parent.name}")
+    module.__file__ = str(path)
+    exec(compile(path.read_bytes(), str(path), "exec"), vars(module))  # noqa: S102
     return module
 
 

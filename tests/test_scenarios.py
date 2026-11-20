@@ -4,6 +4,7 @@
 import shutil
 from importlib.resources import as_file, files
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -26,7 +27,7 @@ def _copied(scenario: str, tmp_path: Path) -> str:
     """A built-in scenario copied out of the package, named by its path."""
     with as_file(files(scenarios).joinpath(scenario)) as source:
         target = tmp_path / "elsewhere" / scenario
-        shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(source, target)
     return str(target)
 
 
@@ -122,3 +123,24 @@ async def test_a_scenario_at_a_path_loads_like_a_built_in_one(tmp_path: Path) ->
 
 def test_a_path_without_tools_has_no_backend(tmp_path: Path) -> None:
     assert load_environment(_copied("default", tmp_path)) is None
+
+
+def test_a_tools_py_at_a_path_runs_from_its_source_not_a_bytecode_cache(tmp_path: Path) -> None:
+    path = Path(_copied("id_roulette", tmp_path))
+    shutil.rmtree(path / "__pycache__", ignore_errors=True)
+    (path / "tools.py").write_text("def environment():\n    return 'first'\n")
+    assert cast(Any, load_environment(f"{path}/")) == "first"
+    assert not (path / "__pycache__").exists()
+    (path / "tools.py").write_text("def environment():\n    return 'again'\n")
+    assert cast(Any, load_environment(f"{path}/")) == "again"
+
+
+def test_a_scenario_at_a_path_cannot_reach_outside_it_through_a_symlink(tmp_path: Path) -> None:
+    secret = tmp_path / "secret.txt"
+    secret.write_text("not the scenario's")
+    path = Path(_copied("default", tmp_path))
+    (path / "system-prompt.txt").unlink()
+    (path / "system-prompt.txt").symlink_to(secret)
+    for load in (load_prompt, behavior_files, load_environment, load_suite):
+        with pytest.raises(ValueError, match="has symlinks, which a scenario can't: system-prompt"):
+            load(str(path))

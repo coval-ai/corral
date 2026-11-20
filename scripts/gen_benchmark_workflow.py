@@ -193,6 +193,10 @@ jobs:
             args+=("$1" "$2")
           }}
           if [[ "$SCENARIO" == *"{repo_suffix}" ]]; then
+            if [[ "$SCENARIO" == */* ]]; then
+              echo "::error::a repo scenario is a directory name, not a path: $SCENARIO"
+              exit 1
+            fi
             add --scenario "${{SCENARIO%{repo_suffix}}}"
           else
             add --assets "$SCENARIO"

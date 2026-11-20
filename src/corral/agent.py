@@ -27,6 +27,7 @@ class Agent:
     slug: str
     digest: str
     tools_file: bytes | None = field(default=None, repr=False)
+    from_assets: bool = False
 
 
 def load_cascade_agent(scenario: str, stt_id: str, llm_id: str, tts_id: str) -> Agent:
@@ -63,7 +64,8 @@ def load_asset_agent(
     files = {PROMPT_FILE: system_prompt.encode()}
     if tools_file is not None:
         files["tools.json"] = tools_file
-    return replace(_build(asset, stack, system_prompt.strip(), files), tools_file=tools_file)
+    built = _build(asset, stack, system_prompt.strip(), files)
+    return replace(built, tools_file=tools_file, from_assets=True)
 
 
 def _agent(scenario: str, stack: Stack) -> Agent:
