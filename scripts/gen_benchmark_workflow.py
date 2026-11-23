@@ -235,7 +235,13 @@ jobs:
             *) echo "::error::size must be smoke, sample N or full: $SIZE"; exit 1 ;;
           esac
           [ "$PERSONAS" != "default" ] && add --personas "$PERSONAS"
-          [ -n "$COLLECTED_IN" ] && add --collected-in "$COLLECTED_IN"
+          if [ -n "$COLLECTED_IN" ]; then
+            if [[ ! "$COLLECTED_IN" =~ ^[A-Za-z0-9._-]+$ ]]; then
+              echo "::error::collected_in has characters a scenario name can't have: $COLLECTED_IN"
+              exit 1
+            fi
+            args+=("--collected-in=$COLLECTED_IN")
+          fi
           echo "command=corral ${{args[*]}}" >> "$GITHUB_OUTPUT"
           echo "joined=$(IFS=';'; echo "${{args[*]}}")" >> "$GITHUB_OUTPUT"
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
