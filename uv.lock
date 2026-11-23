@@ -532,16 +532,16 @@ dev = [
 
 [[package]]
 name = "coval-agent-sdk"
-version = "0.2.1"
+version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "coval-sdk" },
     { name = "urllib3" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/cd/925f46ee2785d8afa34f967c386d1114665c0166ca433323f7d4e05eb327/coval_agent_sdk-0.2.1.tar.gz", hash = "sha256:fa39c8242c00c9cb68a91714d9271e00a1613b3b3ea7bb2aaaf964d975bc9458", size = 98311, upload-time = "2026-11-10T22:16:10.72Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/99/ce6df3282c6db9739a78a2ce87ea73896bd863be88e911a9952fa60cae7d/coval_agent_sdk-0.2.3.tar.gz", hash = "sha256:28626bfa9e878cee3f3f49def03fc95cf50a26625a9f3e8725018336ac4116b9", size = 99196, upload-time = "2026-11-16T20:46:06.897Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d8/21/1d1a09814ac579884d50508515b32554b48c514808a4edf874e4f81cc0e0/coval_agent_sdk-0.2.1-py3-none-any.whl", hash = "sha256:4e54821eb3e2cfc0238715e31cef68af0a5e761ff692868544ef9afec254bbcb", size = 38730, upload-time = "2026-11-10T22:16:09.315Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/20/c52702b9355cccdde558e79ebe44934eb84b1c71b428e8dd39130e3e5d3d/coval_agent_sdk-0.2.3-py3-none-any.whl", hash = "sha256:505b2e2672f77a4eb75bdd05e9f43c7f1f61f9c778d3660a072afba5e3a15ed1", size = 39271, upload-time = "2026-11-16T20:46:05.635Z" },
 ]
 
 [[package]]
