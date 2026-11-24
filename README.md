@@ -88,6 +88,10 @@ uv run corral benchmark --scenario id_roulette --stt soniox/stt-rt-v6 --llm goog
 - `--assets`, `--metrics`, `--prompt-from` (benchmark) run a scenario from the
   benchmark assets manifest at `CORRAL_ASSETS_URI` instead of a directory.
 
+Set `CORRAL_MODELS_URI` to a JSON list, as `gs://bucket/object` or a local path, to offer
+models that aren't in the catalog. A vendor in it names a service Corral already runs
+(`speaks`), its `base_url` and the variable its key is read from (`key_env`).
+
 `corral --help` lists these. Each mode's `--help` lists the models you have keys for.
 
 The Docker image runs `corral benchmark` by default, and any arguments you

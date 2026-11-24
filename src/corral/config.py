@@ -21,11 +21,14 @@ IN_SAMPLE_RATE_HZ = 16000
 OUT_SAMPLE_RATE_HZ = 24000
 
 
+ENV_FILES = (str(ROOT / ".env"), ".env")
+
+
 class Settings(BaseSettings):
     # The repo root's .env from any working directory; one in the current
     # directory overrides it. In the image neither exists.
     model_config = SettingsConfigDict(
-        env_file=(str(ROOT / ".env"), ".env"),
+        env_file=ENV_FILES,
         env_file_encoding="utf-8",
         env_ignore_empty=True,
         extra="ignore",
@@ -44,6 +47,7 @@ class Settings(BaseSettings):
     coval_api_base: str = "https://api.coval.dev/v1"
     corral_workspace_id: str | None = None
     corral_assets_uri: str | None = None
+    corral_models_uri: str | None = None
 
 
 @functools.lru_cache(maxsize=1)
