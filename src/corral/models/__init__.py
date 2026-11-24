@@ -48,6 +48,7 @@ from corral.models.access_probes import (
     XAI_TTS_PROTOCOL,
     AccessProbe,
     GetProbe,
+    KeyTakenProbe,
     ListedProbe,
     SessionProtocol,
     SocketProbe,
@@ -222,7 +223,7 @@ class Vendor:
     """Which key pays for a provider, the probe that proves it works, and its services."""
 
     key_attr: str
-    key_probe: GetProbe | None
+    key_probe: GetProbe | KeyTakenProbe
     auth_header: str = "Authorization"
     auth_prefix: str = "Bearer "
     stt: Service | None = None
@@ -274,6 +275,20 @@ VENDORS: dict[str, Vendor] = {
                 waits_for_cue=True,
                 delegates=True,
             ),
+        },
+    ),
+    "resia": Vendor(
+        "resia_api_key",
+        KeyTakenProbe("https://api.resia.ai/v1/live/sessions", 400),
+        s2s={
+            "live": S2sApi(
+                "corral.models.resia:ResiaLiveLLMService",
+                OPENAI_LIVE_PROTOCOL,
+                base_url="wss://api.resia.ai/v1/live/sessions",
+                reports_turn_end=False,
+                waits_for_cue=True,
+                delegates=True,
+            )
         },
     ),
     "elevenlabs": Vendor(

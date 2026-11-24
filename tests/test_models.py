@@ -28,6 +28,7 @@ from corral.agent import load_cascade_agent, load_native_agent
 from corral.config import STT_FINALIZE_FALLBACK_SECS, Settings
 from corral.models.access_probes import OPENAI_REALTIME_PROTOCOL
 from corral.models.eleven import ElevenRealtimeLLMService
+from corral.models.resia import ResiaLiveLLMService
 
 REFERENCE = ("deepgram/nova-3", "openai/gpt-4.1", "elevenlabs/eleven_flash_v2")
 SONIOX_GEMINI = ("soniox/stt-rt-v6", "google/gemini-2.5-flash", "soniox/tts-rt-v2")
@@ -39,6 +40,7 @@ KEYS: dict[str, Any] = {
     "soniox_api_key": "sx",
     "gemini_api_key": "gm",
     "xai_api_key": "xa",
+    "resia_api_key": "rs",
 }
 
 
@@ -116,6 +118,58 @@ def test_a_live_model_delegates_to_a_responses_model_on_the_same_prompt() -> Non
     assert backend.max_completion_tokens == 2048
     assert backend.reasoning == OpenAIResponsesReasoningConfig(effort="medium", summary="auto")
     assert backend.extra == {"text": {"verbosity": "low"}}
+
+
+RESIA = models.S2sModel(
+    provider="resia",
+    name="resia-fullplex-1",
+    api="live",
+    delegation={
+        "model": "gpt-5.6-terra",
+        "max_completion_tokens": 2048,
+        "reasoning": {"effort": "medium", "summary": "auto"},
+        "text": {"verbosity": "low"},
+    },
+)
+
+
+def test_resia_runs_the_live_protocol_on_its_own_socket() -> None:
+    native = models.resolve(models.Native(RESIA), "prompt", Settings(_env_file=None, **KEYS))
+    assert isinstance(native, models.NativeService) and not native.reports_turn_end
+    assert native.waits_for_cue and isinstance(native.model, ResiaLiveLLMService)
+    assert native.model.base_url == "wss://api.resia.ai/v1/live/sessions"
+    assert native.model.api_key == "rs"
+    live = vars(native.model._settings)
+    assert (live["model"], live["voice"]) == ("resia-fullplex-1", None)
+    delegation: Any = native.model._delegation
+    assert isinstance(delegation, ResponsesDelegation)
+    assert delegation.service_tier is None
+    assert delegation.settings.model == "gpt-5.6-terra"
+    assert delegation.settings.system_instruction == "prompt"
+
+
+async def test_resia_gets_only_its_opening_cue_as_an_instruction() -> None:
+    native = models.resolve(models.Native(RESIA), "prompt", Settings(_env_file=None, **KEYS))
+    assert isinstance(native, models.NativeService)
+    service = cast(Any, native.model)
+    service._opening_instruction = "open the call"
+    started = MagicMock(session=MagicMock(id="s1"))
+    with (
+        patch.object(service, "send_client_event", AsyncMock()) as send,
+        patch.object(service, "_maybe_send_tools_update", AsyncMock()),
+        patch.object(service, "_call_event_handler", AsyncMock()),
+    ):
+        await service._handle_evt_session_started(started)
+        await service._send_context_append(None, "a result", spoken=True)
+        await service._send_context_append(None, "a fact", spoken=False)
+    sent = [call.args[0] for call in send.call_args_list]
+    assert [event.type for event in sent] == [
+        "session.instructions.append",
+        "session.commentary.append",
+        "session.thinking.append",
+    ]
+    assert (sent[0].delegation_id, sent[0].content) == (None, "open the call")
+    assert service._opening_instruction is None
 
 
 def test_gemini_3_8_live_runs_on_its_coval_agents_session_settings() -> None:
@@ -216,7 +270,7 @@ def test_a_bad_provider_or_a_missing_key_fails_before_anything_connects() -> Non
     native = load_native_agent("default", "openai/gpt-realtime-2.1")
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY is unset"):
         models.resolve(native.stack, "x", no_openai)
-    assert models.supported("s2s") == ["elevenlabs", "google", "openai", "xai"]
+    assert models.supported("s2s") == ["elevenlabs", "google", "openai", "resia", "xai"]
 
 
 def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:
@@ -224,7 +278,7 @@ def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:
 
     def record(request: httpx.Request) -> httpx.Response:
         seen[request.url.host] = request
-        return httpx.Response(200)
+        return httpx.Response(400 if request.url.host == "api.resia.ai" else 200)
 
     settings = Settings(_env_file=None, **KEYS)
     for provider in models.VENDORS:
@@ -235,6 +289,7 @@ def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:
     assert seen["api.soniox.com"].headers["Authorization"] == "Bearer sx"
     assert seen["generativelanguage.googleapis.com"].headers["x-goog-api-key"] == "gm"
     assert seen["api.x.ai"].headers["Authorization"] == "Bearer xa"
+    assert seen["api.resia.ai"].headers["Authorization"] == "Bearer rs"
     assert all(request.method == "GET" and not request.url.query for request in seen.values())
 
 

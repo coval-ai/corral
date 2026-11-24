@@ -20,7 +20,14 @@ from websockets.http11 import Response
 from corral import check_access
 from corral.config import Settings
 from corral.models import VENDORS, S2sModel, access_probes, catalog
-from corral.models.access_probes import GetProbe, ListedProbe, Socket, Target, Transports
+from corral.models.access_probes import (
+    GetProbe,
+    KeyTakenProbe,
+    ListedProbe,
+    Socket,
+    Target,
+    Transports,
+)
 
 KEYS: dict[str, Any] = {
     "coval_api_key": "ck",
@@ -30,6 +37,7 @@ KEYS: dict[str, Any] = {
     "soniox_api_key": "sx",
     "gemini_api_key": "gm",
     "xai_api_key": "xa",
+    "resia_api_key": "rs",
 }
 ALL_KEYS = Settings(_env_file=None, **KEYS)
 OK = httpx.MockTransport(lambda _request: httpx.Response(200))
@@ -74,6 +82,8 @@ ELEVEN_LISTING = [{"model_id": "eleven_flash_v2"}, {"model_id": "eleven_v3"}]
 
 def vendors_answer(request: httpx.Request) -> httpx.Response:
     """Every key GET and model GET is fine, and the two listings hold corral's models."""
+    if request.url.host == "api.resia.ai":
+        return httpx.Response(400)
     if request.url.host == "api.soniox.com" and request.url.path == "/v1/models":
         return httpx.Response(200, json=SONIOX_LISTING)
     if request.url.host == "api.elevenlabs.io" and request.url.path == "/v1/models":
@@ -82,6 +92,15 @@ def vendors_answer(request: httpx.Request) -> httpx.Response:
 
 
 ANSWERING = httpx.MockTransport(vendors_answer)
+
+
+async def test_a_key_with_nothing_to_list_is_live_only_on_the_status_a_live_key_gets() -> None:
+    probe = KeyTakenProbe("https://api.resia.ai/v1/live/sessions", 400)
+    target = Target("resia", {"Authorization": "Bearer rs"})
+    refused = {status: f"resia returned {status}" for status in (200, 401, 403, 429, 500)}
+    for status, problem in ({400: None} | refused).items():
+        answer = httpx.MockTransport(lambda _request, status=status: httpx.Response(status))
+        assert await probe.problem(target, Transports(http=answer)) == problem
 
 
 async def test_a_get_probe_names_the_model_when_it_has_one() -> None:
@@ -225,6 +244,8 @@ def test_each_socket_is_the_one_its_pipecat_class_connects_to() -> None:
     assert xai["realtime"].socket_base_url == _default(GrokRealtimeLLMService)
     eleven = VENDORS["elevenlabs"].s2s or {}
     assert eleven["realtime"].socket_base_url == "wss://api.elevenlabs.io/v1/convai/realtime"
+    resia = VENDORS["resia"].s2s or {}
+    assert resia["live"].socket_base_url == "wss://api.resia.ai/v1/live/sessions"
     google = VENDORS["google"].s2s or {}
     assert google["live"].socket_base_url is None
     assert "BidiGenerateContent" in google["live"].protocol.socket_url(None, "gemini-3.8-live")
