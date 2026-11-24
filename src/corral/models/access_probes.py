@@ -67,14 +67,16 @@ class AccessProbe(Protocol):
         ...
 
 
-async def _get(url: str, target: Target, transports: Transports) -> httpx.Response | str:
-    """The response, or why there wasn't one."""
+async def _get(
+    url: str, target: Target, transports: Transports, expected: int = 200
+) -> httpx.Response | str:
+    """The response, or why there wasn't one. Any status but ``expected`` is a refusal."""
     try:
         async with httpx.AsyncClient(timeout=PROBE_TIMEOUT_SECS, transport=transports.http) as c:
             response = await c.get(url, headers=dict(target.headers))
     except httpx.HTTPError as error:
         return f"{target.provider} is unreachable: {error or type(error).__name__}"
-    if response.status_code != 200:
+    if response.status_code != expected:
         return f"{target.provider} returned {response.status_code}"
     return response
 
@@ -88,6 +90,19 @@ class GetProbe:
     async def problem(self, target: Target, transports: Transports) -> str | None:
         url = self.url.format(model=quote(target.model, safe="")) if target.model else self.url
         response = await _get(url, target, transports)
+        return response if isinstance(response, str) else None
+
+
+@dataclass(frozen=True)
+class KeyTakenProbe:
+    """For a vendor with nothing to list: one GET that only a live key gets ``status`` for,
+    such as the 400 a socket path gives a plain GET once it has accepted the key."""
+
+    url: str
+    status: int
+
+    async def problem(self, target: Target, transports: Transports) -> str | None:
+        response = await _get(self.url, target, transports, expected=self.status)
         return response if isinstance(response, str) else None
 
 
