@@ -20,7 +20,14 @@ from websockets.http11 import Response
 from corral import check_access
 from corral.config import Settings
 from corral.models import VENDORS, S2sModel, access_probes, catalog
-from corral.models.access_probes import GetProbe, ListedProbe, Socket, Target, Transports
+from corral.models.access_probes import (
+    GetProbe,
+    KeyTakenProbe,
+    ListedProbe,
+    Socket,
+    Target,
+    Transports,
+)
 
 KEYS: dict[str, Any] = {
     "coval_api_key": "ck",
@@ -30,6 +37,7 @@ KEYS: dict[str, Any] = {
     "soniox_api_key": "sx",
     "gemini_api_key": "gm",
     "xai_api_key": "xa",
+    "resia_api_key": "rs",
 }
 ALL_KEYS = Settings(_env_file=None, **KEYS)
 OK = httpx.MockTransport(lambda _request: httpx.Response(200))
@@ -82,6 +90,14 @@ def vendors_answer(request: httpx.Request) -> httpx.Response:
 
 
 ANSWERING = httpx.MockTransport(vendors_answer)
+
+
+async def test_a_key_with_nothing_to_list_is_live_unless_the_vendor_refuses_it() -> None:
+    probe = KeyTakenProbe("https://api.resia.ai/v1/live/sessions")
+    target = Target("resia", {"Authorization": "Bearer rs"})
+    for status, problem in ((400, None), (401, "resia returned 401"), (403, "resia returned 403")):
+        answer = httpx.MockTransport(lambda _request, status=status: httpx.Response(status))
+        assert await probe.problem(target, Transports(http=answer)) == problem
 
 
 async def test_a_get_probe_names_the_model_when_it_has_one() -> None:
@@ -225,6 +241,8 @@ def test_each_socket_is_the_one_its_pipecat_class_connects_to() -> None:
     assert xai["realtime"].socket_base_url == _default(GrokRealtimeLLMService)
     eleven = VENDORS["elevenlabs"].s2s or {}
     assert eleven["realtime"].socket_base_url == "wss://api.elevenlabs.io/v1/convai/realtime"
+    resia = VENDORS["resia"].s2s or {}
+    assert resia["live"].socket_base_url == "wss://api.resia.ai/v1/live/sessions"
     google = VENDORS["google"].s2s or {}
     assert google["live"].socket_base_url is None
     assert "BidiGenerateContent" in google["live"].protocol.socket_url(None, "gemini-3.8-live")

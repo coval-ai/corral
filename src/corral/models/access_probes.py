@@ -67,15 +67,19 @@ class AccessProbe(Protocol):
         ...
 
 
-async def _get(url: str, target: Target, transports: Transports) -> httpx.Response | str:
-    """The response, or why there wasn't one."""
+async def _get(
+    url: str, target: Target, transports: Transports, refused: frozenset[int] | None = None
+) -> httpx.Response | str:
+    """The response, or why there wasn't one. Anything but 200 is a refusal unless ``refused``
+    names the statuses that are."""
     try:
         async with httpx.AsyncClient(timeout=PROBE_TIMEOUT_SECS, transport=transports.http) as c:
             response = await c.get(url, headers=dict(target.headers))
     except httpx.HTTPError as error:
         return f"{target.provider} is unreachable: {error or type(error).__name__}"
-    if response.status_code != 200:
-        return f"{target.provider} returned {response.status_code}"
+    status = response.status_code
+    if status != 200 if refused is None else status in refused:
+        return f"{target.provider} returned {status}"
     return response
 
 
@@ -88,6 +92,17 @@ class GetProbe:
     async def problem(self, target: Target, transports: Transports) -> str | None:
         url = self.url.format(model=quote(target.model, safe="")) if target.model else self.url
         response = await _get(url, target, transports)
+        return response if isinstance(response, str) else None
+
+
+@dataclass(frozen=True)
+class KeyTakenProbe:
+    """For a vendor with nothing to list: one GET it answers 401 or 403 only to a bad key."""
+
+    url: str
+
+    async def problem(self, target: Target, transports: Transports) -> str | None:
+        response = await _get(self.url, target, transports, refused=frozenset({401, 403}))
         return response if isinstance(response, str) else None
 
 
