@@ -148,13 +148,19 @@ def test_resia_runs_the_live_protocol_on_its_own_socket() -> None:
     assert delegation.settings.system_instruction == "prompt"
 
 
-async def test_resia_gets_its_opening_cue_as_an_instruction_not_commentary() -> None:
+async def test_resia_gets_only_its_opening_cue_as_an_instruction() -> None:
     native = models.resolve(models.Native(RESIA), "prompt", Settings(_env_file=None, **KEYS))
     assert isinstance(native, models.NativeService)
     service = cast(Any, native.model)
-    with patch.object(service, "send_client_event", AsyncMock()) as send:
-        await service._send_context_append(None, "open the call", spoken=True)
-        await service._send_context_append("d1", "a result", spoken=True)
+    service._opening_instruction = "open the call"
+    started = MagicMock(session=MagicMock(id="s1"))
+    with (
+        patch.object(service, "send_client_event", AsyncMock()) as send,
+        patch.object(service, "_maybe_send_tools_update", AsyncMock()),
+        patch.object(service, "_call_event_handler", AsyncMock()),
+    ):
+        await service._handle_evt_session_started(started)
+        await service._send_context_append(None, "a result", spoken=True)
         await service._send_context_append(None, "a fact", spoken=False)
     sent = [call.args[0] for call in send.call_args_list]
     assert [event.type for event in sent] == [
@@ -163,6 +169,7 @@ async def test_resia_gets_its_opening_cue_as_an_instruction_not_commentary() -> 
         "session.thinking.append",
     ]
     assert (sent[0].delegation_id, sent[0].content) == (None, "open the call")
+    assert service._opening_instruction is None
 
 
 def test_gemini_3_8_live_runs_on_its_coval_agents_session_settings() -> None:
@@ -271,7 +278,7 @@ def test_every_vendor_check_sends_its_key_the_way_that_vendor_wants() -> None:
 
     def record(request: httpx.Request) -> httpx.Response:
         seen[request.url.host] = request
-        return httpx.Response(200)
+        return httpx.Response(400 if request.url.host == "api.resia.ai" else 200)
 
     settings = Settings(_env_file=None, **KEYS)
     for provider in models.VENDORS:

@@ -82,6 +82,8 @@ ELEVEN_LISTING = [{"model_id": "eleven_flash_v2"}, {"model_id": "eleven_v3"}]
 
 def vendors_answer(request: httpx.Request) -> httpx.Response:
     """Every key GET and model GET is fine, and the two listings hold corral's models."""
+    if request.url.host == "api.resia.ai":
+        return httpx.Response(400)
     if request.url.host == "api.soniox.com" and request.url.path == "/v1/models":
         return httpx.Response(200, json=SONIOX_LISTING)
     if request.url.host == "api.elevenlabs.io" and request.url.path == "/v1/models":
@@ -92,10 +94,11 @@ def vendors_answer(request: httpx.Request) -> httpx.Response:
 ANSWERING = httpx.MockTransport(vendors_answer)
 
 
-async def test_a_key_with_nothing_to_list_is_live_unless_the_vendor_refuses_it() -> None:
-    probe = KeyTakenProbe("https://api.resia.ai/v1/live/sessions")
+async def test_a_key_with_nothing_to_list_is_live_only_on_the_status_a_live_key_gets() -> None:
+    probe = KeyTakenProbe("https://api.resia.ai/v1/live/sessions", 400)
     target = Target("resia", {"Authorization": "Bearer rs"})
-    for status, problem in ((400, None), (401, "resia returned 401"), (403, "resia returned 403")):
+    refused = {status: f"resia returned {status}" for status in (200, 401, 403, 429, 500)}
+    for status, problem in ({400: None} | refused).items():
         answer = httpx.MockTransport(lambda _request, status=status: httpx.Response(status))
         assert await probe.problem(target, Transports(http=answer)) == problem
 

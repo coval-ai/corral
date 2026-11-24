@@ -274,7 +274,7 @@ VENDORS: dict[str, Vendor] = {
     ),
     "resia": Vendor(
         "resia_api_key",
-        KeyTakenProbe("https://api.resia.ai/v1/live/sessions"),
+        KeyTakenProbe("https://api.resia.ai/v1/live/sessions", 400),
         s2s={
             "live": S2sApi(
                 "corral.models.resia:ResiaLiveLLMService",
