@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     soniox_api_key: SecretStr | None = None
     gemini_api_key: SecretStr | None = None
     xai_api_key: SecretStr | None = None
+    resia_api_key: SecretStr | None = None
 
     coval_api_key: SecretStr | None = None
     coval_api_base: str = "https://api.coval.dev/v1"
