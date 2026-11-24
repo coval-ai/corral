@@ -78,26 +78,59 @@ def test_a_private_vendor_runs_on_a_known_service_with_its_own_key_and_socket(
     assert models.VENDORS["acme"].headers("ac") == {"xi-api-key": "ac"}
 
 
-def test_a_private_list_that_doesnt_fit_never_prints_what_it_holds(tmp_path: Path) -> None:
-    bad = {"s2s": [{"provider": "openai", "name": "hush", "path": "os:system"}]}
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"s2s": [{"provider": "openai", "name": "hush", "path": "os:system"}]},
+        {"s2s": [{"provider": "hush", "name": "hush"}]},
+        {"s2s": [{"provider": "acme", "name": "hush", "delegation": {}}]},
+        {"s2s": [{"provider": "acme", "name": "hush"}] * 2},
+        {"vendors": {"hush": {**VENDOR, "key_env": "hush"}}},
+        {"vendors": {"hush": {**VENDOR, "speaks": "hush"}}},
+        {"vendors": {"hush": {**VENDOR, "base_url": "hush"}}},
+        {"vendors": {"hush": {**VENDOR, "key_check_url": "hush"}}},
+        {"vendors": {"openai": {**VENDOR, "key_env": "HUSH_API_KEY"}}},
+    ],
+)
+def test_a_private_list_that_doesnt_fit_never_prints_what_it_holds(
+    tmp_path: Path, bad: dict[str, Any]
+) -> None:
     with pytest.raises(AssetsError) as error:
-        load_private_models(_settings(tmp_path, bad))
-    assert "hush" not in str(error.value)
+        load_private_models(_settings(tmp_path, {**ACME, **bad}))
+    assert "hush" not in str(error.value).lower().replace(str(tmp_path).lower(), "")
 
 
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ({"vendors": {"openai": VENDOR}}, "already offered"),
-        ({"s2s": [{"provider": "nobody", "name": "x"}]}, "needs a vendor"),
+        ({"vendors": {"openai": VENDOR}}, "vendor is already offered"),
+        ({"s2s": [{"provider": "nobody", "name": "x"}]}, "s2s.0: its provider has no vendor"),
         ({"s2s": [{"provider": "openai", "name": "gpt-realtime-2.1"}]}, "already offered"),
         ({"s2s": [{"provider": "acme", "name": "x", "delegation": {}}]}, "has a delegation"),
-        ({"vendors": {"acme": {**VENDOR, "key_env": "COVAL_API_KEY"}}}, "can't take its key"),
-        ({"vendors": {"acme": {**VENDOR, "key_env": "GITHUB_TOKEN"}}}, "can't take its key"),
-        ({"vendors": {"acme": {**VENDOR, "speaks": "some.module:Class"}}}, "have openai-realtime"),
-        ({"vendors": {"acme": {**VENDOR, "speaks": "google-live"}}}, "have openai-realtime"),
-        ({"vendors": {"acme": {**VENDOR, "base_url": "ws://a"}}}, "needs a wss:// base_url"),
-        ({"vendors": {"acme": {**VENDOR, "key_check_url": "http://a"}}}, "needs an https://"),
+        (
+            {"vendors": {"acme": {**VENDOR, "key_env": "COVAL_API_KEY"}}},
+            "vendors.0.key_env: must be",
+        ),
+        (
+            {"vendors": {"acme": {**VENDOR, "key_env": "GITHUB_TOKEN"}}},
+            "vendors.0.key_env: must be",
+        ),
+        (
+            {"vendors": {"acme": {**VENDOR, "speaks": "some.module:Class"}}},
+            "vendors.0.speaks: must be one of openai-realtime",
+        ),
+        (
+            {"vendors": {"acme": {**VENDOR, "speaks": "google-live"}}},
+            "vendors.0.speaks: must be one of openai-realtime",
+        ),
+        (
+            {"vendors": {"acme": {**VENDOR, "base_url": "ws://a"}}},
+            "vendors.0.base_url: must start with wss://",
+        ),
+        (
+            {"vendors": {"acme": {**VENDOR, "key_check_url": "http://a"}}},
+            "vendors.0.key_check_url: must start with https://",
+        ),
         ({"s2s": [{"provider": "openai", "name": "hush", "path": "os:system"}]}, "s2s.0.path"),
     ],
 )

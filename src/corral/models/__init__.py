@@ -379,37 +379,42 @@ class PrivateModels(JsonModel):
 def add_private_models(listing: PrivateModels) -> None:
     """Offer a private list's models next to the catalog's, for this process only."""
     vendors = {
-        provider: _private_vendor(provider, spec) for provider, spec in listing.vendors.items()
+        provider: _private_vendor(f"vendors.{index}", provider, spec)
+        for index, (provider, spec) in enumerate(listing.vendors.items())
     }
     offered = {model.id for model in catalog().s2s}
-    for model in listing.s2s:
+    for index, model in enumerate(listing.s2s):
+        where = f"s2s.{index}"
         vendor = vendors.get(model.provider) or VENDORS.get(model.provider)
         api = (vendor.s2s or {}).get(model.api) if vendor else None
         if api is None:
-            raise ValueError(f"{model.id} needs a vendor with a {model.api!r} s2s API")
+            raise ValueError(f"{where}: its provider has no vendor with that s2s API")
         if model.delegation is not None and not api.delegates:
-            raise ValueError(f"{model.id} has a delegation, which its API doesn't take")
+            raise ValueError(f"{where}: has a delegation, which its API doesn't take")
         if model.id in offered:
-            raise ValueError(f"{model.id} is already offered")
+            raise ValueError(f"{where}: is already offered")
         offered.add(model.id)
     VENDORS.update(vendors)
     _private_s2s.extend(listing.s2s)
     catalog.cache_clear()
 
 
-def _private_vendor(provider: str, spec: PrivateVendor) -> Vendor:
+def _private_vendor(where: str, provider: str, spec: PrivateVendor) -> Vendor:
+    """The vendor a private entry describes. What is wrong names the entry, never its values."""
     if provider in VENDORS:
-        raise ValueError(f"vendor {provider!r} is already offered")
+        raise ValueError(f"{where}: that vendor is already offered")
     key_attr = spec.key_env.lower()
     if not KEY_ENV.fullmatch(spec.key_env) or key_attr in Settings.model_fields:
-        raise ValueError(f"vendor {provider!r} can't take its key from {spec.key_env}")
+        raise ValueError(
+            f"{where}.key_env: must be upper-case, end in _API_KEY and not be Corral's own"
+        )
     services = s2s_services()
     if spec.speaks not in services:
-        raise ValueError(f"{provider} speaks {spec.speaks!r}; have {', '.join(services)}")
+        raise ValueError(f"{where}.speaks: must be one of {', '.join(services)}")
     if not spec.base_url.startswith("wss://"):
-        raise ValueError(f"{provider} needs a wss:// base_url")
+        raise ValueError(f"{where}.base_url: must start with wss://")
     if spec.key_check_url and not spec.key_check_url.startswith("https://"):
-        raise ValueError(f"{provider} needs an https:// key_check_url")
+        raise ValueError(f"{where}.key_check_url: must start with https://")
     like, api = services[spec.speaks]
     return Vendor(
         key_attr,
