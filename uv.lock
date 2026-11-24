@@ -507,7 +507,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "coval-agent-sdk", specifier = ">=0.1.1,<0.3" },
+    { name = "coval-agent-sdk", specifier = ">=0.3.1,<0.4" },
     { name = "google-auth", extras = ["requests"], specifier = ">=2.62.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "loguru", specifier = ">=0.7" },
@@ -532,16 +532,16 @@ dev = [
 
 [[package]]
 name = "coval-agent-sdk"
-version = "0.2.3"
+version = "0.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "coval-sdk" },
     { name = "urllib3" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/99/ce6df3282c6db9739a78a2ce87ea73896bd863be88e911a9952fa60cae7d/coval_agent_sdk-0.2.3.tar.gz", hash = "sha256:28626bfa9e878cee3f3f49def03fc95cf50a26625a9f3e8725018336ac4116b9", size = 99196, upload-time = "2026-11-16T20:46:06.897Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/5f/01b2060235d01279832c5c1fcbde7294dde0c1c3f968163af975d51cffc3/coval_agent_sdk-0.3.1.tar.gz", hash = "sha256:be3c7f241c04d194068ae96606b444de76d93f77aed6fd59b8f23c589c5d450b", size = 103604, upload-time = "2026-11-23T23:19:32.409Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/20/c52702b9355cccdde558e79ebe44934eb84b1c71b428e8dd39130e3e5d3d/coval_agent_sdk-0.2.3-py3-none-any.whl", hash = "sha256:505b2e2672f77a4eb75bdd05e9f43c7f1f61f9c778d3660a072afba5e3a15ed1", size = 39271, upload-time = "2026-11-16T20:46:05.635Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/1f/bb35bfbb46a9c0256947cbd871d54f391e306d6080a2378dccec4ed96012/coval_agent_sdk-0.3.1-py3-none-any.whl", hash = "sha256:746e96f8ca6dc7e99af13f3c011c364a4e43fef9239e1d299cdf15753babcc42", size = 41216, upload-time = "2026-11-23T23:19:31.317Z" },
 ]
 
 [[package]]
