@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from corral.config import Settings
 from corral.environment import ToolsFile
+from corral.models import PrivateModels, add_private_models
 from corral.scenarios import ALL_PERSONAS, Suite
 
 GCS_READ_SCOPE = "https://www.googleapis.com/auth/devstorage.read_only"
@@ -70,6 +71,24 @@ def load_manifest(
     if not isinstance(manifest, dict):
         raise AssetsError(f"manifest {uri} isn't a JSON object")
     return manifest
+
+
+def load_private_models(settings: Settings, reader: AssetReader | None = None) -> None:
+    """Offer the models in the private list at CORRAL_MODELS_URI, when it is set."""
+    uri = settings.corral_models_uri
+    if not uri:
+        return
+    listing = load_manifest(uri, reader=reader)
+    try:
+        add_private_models(PrivateModels.model_validate(listing))
+    except ValidationError as error:
+        problems = "; ".join(
+            f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+            for e in error.errors(include_input=False, include_url=False)
+        )
+        raise AssetsError(f"private models {uri}: {problems}") from None
+    except ValueError as error:
+        raise AssetsError(f"private models {uri}: {error}") from None
 
 
 class AssetReader:

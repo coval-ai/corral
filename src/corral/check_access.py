@@ -89,8 +89,12 @@ async def _vendor_findings(
     if key is None:
         return [Finding(provider, f"{vendor.key_name} is unset", skipped=True)]
     headers = vendor.headers(key)
-    problem = await vendor.key_probe.problem(Target(provider, headers), transports)
-    report = [Finding(provider, problem)]
+    if vendor.key_probe is None:
+        problem = None
+        report = [Finding(provider, "has no key check", skipped=True)]
+    else:
+        problem = await vendor.key_probe.problem(Target(provider, headers), transports)
+        report = [Finding(provider, problem)]
     if problem is not None:
         report.extend(Finding(m.id, "its vendor failed", skipped=True) for m, _ in models)
         return report

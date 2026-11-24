@@ -20,7 +20,14 @@ import _colorize
 
 from corral import benchmark, talk
 from corral.agent import Agent, load_asset_agent, load_cascade_agent, load_native_agent
-from corral.assets import AssetRun, collected, load_asset_run, resolve_assets
+from corral.assets import (
+    AssetRun,
+    AssetsError,
+    collected,
+    load_asset_run,
+    load_private_models,
+    resolve_assets,
+)
 from corral.check_access import run as run_check_access
 from corral.config import Settings, get_settings
 from corral.coval_api import CovalClient, SyncError, coval_problem
@@ -485,6 +492,10 @@ def not_collected(parser: argparse.ArgumentParser, args: argparse.Namespace) -> 
 
 def main() -> None:
     settings = get_settings()
+    try:
+        load_private_models(settings)
+    except AssetsError as error:
+        raise SystemExit(str(error)) from None
     parser = build_parser(settings)
     args = parser.parse_args()
     interactive = args.mode is None

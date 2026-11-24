@@ -20,15 +20,19 @@ import importlib
 import importlib.resources
 import inspect
 import json
+import os
+import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import httpx
+from dotenv import dotenv_values
 from pipecat.processors.frame_processor import FrameProcessor
 from pydantic import BaseModel, ConfigDict, Field
 
 from corral.config import (
+    ENV_FILES,
     IN_SAMPLE_RATE_HZ,
     OUT_SAMPLE_RATE_HZ,
     STT_FINALIZE_FALLBACK_SECS,
@@ -137,9 +141,10 @@ class Catalog(JsonModel):
 @functools.cache
 def catalog() -> Catalog:
     folder = importlib.resources.files(__name__)
-    return Catalog.model_validate(
+    offered = Catalog.model_validate(
         {kind: json.loads(folder.joinpath(f"{kind}.json").read_bytes()) for kind in MODALITIES}
     )
+    return offered.model_copy(update={"s2s": [*offered.s2s, *_private_s2s]})
 
 
 def model_ids(modality: Modality) -> list[str]:
@@ -217,7 +222,7 @@ class Vendor:
     """Which key pays for a provider, the probe that proves it works, and its services."""
 
     key_attr: str
-    key_probe: GetProbe
+    key_probe: GetProbe | None
     auth_header: str = "Authorization"
     auth_prefix: str = "Bearer "
     stt: Service | None = None
@@ -337,17 +342,107 @@ VENDORS: dict[str, Vendor] = {
 }
 
 
+PUBLIC_VENDORS: Mapping[str, Vendor] = dict(VENDORS)
+KEY_ENV = re.compile(r"[A-Z][A-Z0-9_]*_API_KEY")
+
+_private_s2s: list[S2sModel] = []
+
+
+def s2s_services() -> dict[str, tuple[Vendor, S2sApi]]:
+    """Each speech-to-speech service a private list can pick, by name, with the vendor whose
+    auth it sends. Only the ones that connect wherever they are told to."""
+    return {
+        f"{provider}-{name}": (vendor, api)
+        for provider, vendor in PUBLIC_VENDORS.items()
+        for name, api in (vendor.s2s or {}).items()
+        if api.socket_base_url is not None
+    }
+
+
+class PrivateVendor(JsonModel):
+    """A vendor only a private list names: the known service it speaks like, where, and the
+    variable its key is read from. It sends its key the way that service does."""
+
+    key_env: str
+    key_check_url: str | None = None
+    speaks: str
+    base_url: str
+
+
+class PrivateModels(JsonModel):
+    """The private list at CORRAL_MODELS_URI: models, and vendors, kept out of this repo."""
+
+    vendors: dict[str, PrivateVendor] = Field(default_factory=dict)
+    s2s: list[S2sModel] = Field(default_factory=list)
+
+
+def add_private_models(listing: PrivateModels) -> None:
+    """Offer a private list's models next to the catalog's, for this process only."""
+    vendors = {
+        provider: _private_vendor(provider, spec) for provider, spec in listing.vendors.items()
+    }
+    offered = {model.id for model in catalog().s2s}
+    for model in listing.s2s:
+        vendor = vendors.get(model.provider) or VENDORS.get(model.provider)
+        api = (vendor.s2s or {}).get(model.api) if vendor else None
+        if api is None:
+            raise ValueError(f"{model.id} needs a vendor with a {model.api!r} s2s API")
+        if model.delegation is not None and not api.delegates:
+            raise ValueError(f"{model.id} has a delegation, which its API doesn't take")
+        if model.id in offered:
+            raise ValueError(f"{model.id} is already offered")
+        offered.add(model.id)
+    VENDORS.update(vendors)
+    _private_s2s.extend(listing.s2s)
+    catalog.cache_clear()
+
+
+def _private_vendor(provider: str, spec: PrivateVendor) -> Vendor:
+    if provider in VENDORS:
+        raise ValueError(f"vendor {provider!r} is already offered")
+    key_attr = spec.key_env.lower()
+    if not KEY_ENV.fullmatch(spec.key_env) or key_attr in Settings.model_fields:
+        raise ValueError(f"vendor {provider!r} can't take its key from {spec.key_env}")
+    services = s2s_services()
+    if spec.speaks not in services:
+        raise ValueError(f"{provider} speaks {spec.speaks!r}; have {', '.join(services)}")
+    if not spec.base_url.startswith("wss://"):
+        raise ValueError(f"{provider} needs a wss:// base_url")
+    if spec.key_check_url and not spec.key_check_url.startswith("https://"):
+        raise ValueError(f"{provider} needs an https:// key_check_url")
+    like, api = services[spec.speaks]
+    return Vendor(
+        key_attr,
+        GetProbe(spec.key_check_url) if spec.key_check_url else None,
+        auth_header=like.auth_header,
+        auth_prefix=like.auth_prefix,
+        s2s={spec.speaks.split("-", 1)[1]: replace(api, base_url=spec.base_url)},
+    )
+
+
 def key_name(provider: str) -> str:
     return VENDORS[provider].key_name
 
 
 def api_key(provider: str, settings: Settings) -> str | None:
     """The provider's key, or None when it is unset or blank."""
-    value = getattr(settings, VENDORS[provider].key_attr)
+    vendor = VENDORS[provider]
+    if vendor.key_attr not in Settings.model_fields:
+        return os.environ.get(vendor.key_name) or _dotenv().get(vendor.key_name) or None
+    value = getattr(settings, vendor.key_attr)
     if value is None or not value.get_secret_value():
         return None
     key: str = value.get_secret_value()
     return key
+
+
+@functools.cache
+def _dotenv() -> dict[str, str | None]:
+    """The .env files Settings reads, for a key Settings has no field for."""
+    values: dict[str, str | None] = {}
+    for path in ENV_FILES:
+        values.update(dotenv_values(path))
+    return values
 
 
 def vendor_problem(
@@ -358,6 +453,8 @@ def vendor_problem(
     key = api_key(provider, settings)
     if key is None:
         return f"{vendor.key_name} is unset"
+    if vendor.key_probe is None:
+        return None
     target = Target(provider, vendor.headers(key))
     return asyncio.run(vendor.key_probe.problem(target, Transports(http=transport)))
 
