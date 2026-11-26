@@ -322,6 +322,23 @@ async def test_eleven_leaves_model_out_of_session_updates() -> None:
     assert len(sent) == 2 and all("model" not in message["session"] for message in sent)
 
 
+async def test_eleven_sends_the_voice_in_the_first_session_update_only() -> None:
+    from pipecat.services.openai.realtime import events
+
+    agent = load_native_agent("default", "elevenlabs/eleven_realtime_v1_mini")
+    eleven = models.resolve(agent.stack, "x", Settings(_env_file=None, **KEYS))
+    assert isinstance(eleven, models.NativeService)
+    service = cast(Any, eleven.model)
+    sent: list[dict[str, Any]] = []
+    with patch.object(service, "_ws_send", AsyncMock(side_effect=sent.append)):
+        for _ in range(3):
+            audio = events.AudioConfiguration(output=events.AudioOutput(voice="brian"))
+            session = events.SessionProperties(audio=audio)
+            await service.send_client_event(events.SessionUpdateEvent(session=session))
+    voices = [message["session"]["audio"]["output"].get("voice") for message in sent]
+    assert voices == ["brian", None, None]
+
+
 async def test_eleven_response_done_without_usage_still_ends_the_turn() -> None:
     from pipecat.services.openai.realtime import events
 

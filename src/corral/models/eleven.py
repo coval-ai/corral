@@ -4,7 +4,9 @@
 """Eleven Realtime speaks the OpenAI Realtime protocol, but takes its key in an
 ``xi-api-key`` header and closes a Bearer connection with 4001. It rejects
 ``session.model`` once the conversation is under way, which can be before the first
-session update lands, so the model only ever travels in the URL. It sends
+session update lands, so the model only ever travels in the URL. It rejects
+``session.audio.output.voice`` the same way, and Pipecat repeats the whole session
+after seeding the conversation, so the voice goes in the first update only. It sends
 ``response.done`` without a usage block, sends the ``output_audio_buffer`` events
 OpenAI keeps for WebRTC over the websocket, and drops the socket after a protocol
 error instead of closing it."""
@@ -27,10 +29,13 @@ for _kind in WEBRTC_ONLY_EVENTS:
 
 
 class ElevenRealtimeLLMService(OpenAIRealtimeLLMService):
+    _voice_sent = False
+
     async def _connect(self) -> None:
         service: Any = self
         if service._websocket:
             return
+        self._voice_sent = False
         try:
             service._websocket = await websocket_connect(
                 uri=self.base_url, additional_headers={"xi-api-key": self.api_key}
@@ -41,8 +46,13 @@ class ElevenRealtimeLLMService(OpenAIRealtimeLLMService):
             service._websocket = None
 
     async def send_client_event(self, event: events.ClientEvent) -> None:
-        if isinstance(event, events.SessionUpdateEvent) and event.session.model is not None:
+        if isinstance(event, events.SessionUpdateEvent):
             session = event.session.model_copy(update={"model": None})
+            if self._voice_sent and session.audio and session.audio.output:
+                output = session.audio.output.model_copy(update={"voice": None})
+                audio = session.audio.model_copy(update={"output": output})
+                session = session.model_copy(update={"audio": audio})
+            self._voice_sent = True
             event = event.model_copy(update={"session": session})
         await super().send_client_event(event)
 
